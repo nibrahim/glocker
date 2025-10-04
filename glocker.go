@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	_ "embed"
 	"flag"
 	"fmt"
@@ -48,6 +49,12 @@ type SudoersConfig struct {
 	TimeAllowed        []TimeWindow `yaml:"time_allowed"`
 }
 
+type TamperConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	CheckInterval int    `yaml:"check_interval_seconds"`
+	AlarmCommand  string `yaml:"alarm_command"`
+}
+
 type Config struct {
 	EnableHosts     bool          `yaml:"enable_hosts"`
 	EnableFirewall  bool          `yaml:"enable_firewall"`
@@ -56,6 +63,7 @@ type Config struct {
 	SelfHeal        bool          `yaml:"enable_self_healing"`
 	EnforceInterval int           `yaml:"enforce_interval_seconds"`
 	Sudoers         SudoersConfig `yaml:"sudoers"`
+	TamperDetection TamperConfig  `yaml:"tamper_detection"`
 }
 
 func main() {
@@ -85,8 +93,8 @@ func main() {
 	}
 
 	log.Printf("Loaded config: %d domains", len(config.Domains))
-	log.Printf("Components enabled - Hosts: %v, Firewall: %v, Sudoers: %v, Self-Heal: %v",
-		config.EnableHosts, config.EnableFirewall, config.Sudoers.Enabled, config.SelfHeal)
+	log.Printf("Components enabled - Hosts: %v, Firewall: %v, Sudoers: %v, Self-Heal: %v, Tamper-Detection: %v",
+		config.EnableHosts, config.EnableFirewall, config.Sudoers.Enabled, config.SelfHeal, config.TamperDetection.Enabled)
 
 	if *install {
 		installProtections(&config)
@@ -107,6 +115,11 @@ func main() {
 	if *enforce {
 		log.Println("Starting enforcement loop...")
 		log.Printf("Enforcement interval: %d seconds", config.EnforceInterval)
+
+		// Start tamper detection in background if enabled
+		if config.TamperDetection.Enabled {
+			go monitorTampering(&config)
+		}
 
 		// Initial enforcement
 		runOnce(&config, false)
@@ -156,6 +169,7 @@ func runOnce(config *Config, dryRun bool) {
 }
 
 func selfHeal() {
+	log.Printf("Testing binary integrity")
 	// Check if our binary still exists
 	if _, err := os.Stat(INSTALL_PATH); os.IsNotExist(err) {
 		log.Fatal("CRITICAL: glocker binary was deleted! Self-healing failed.")
@@ -691,4 +705,169 @@ func isInTimeWindow(current, start, end string) bool {
 func init() {
 	// Set process priority to make it less likely to be killed by OOM
 	syscall.Setpriority(syscall.PRIO_PROCESS, 0, -10)
+}
+
+// ============================================================================
+// TAMPER DETECTION
+// ============================================================================
+
+type FileChecksum struct {
+	Path     string
+	Checksum string
+	Exists   bool
+}
+
+func monitorTampering(config *Config) {
+	// Set default check interval if not specified
+	checkInterval := config.TamperDetection.CheckInterval
+	if checkInterval == 0 {
+		checkInterval = 30 // Default: check every 30 seconds
+	}
+
+	log.Printf("Tamper detection started (checking every %d seconds)", checkInterval)
+
+	// Initial checksums
+	checksums := captureChecksums(config)
+	firewallRuleCount := countFirewallRules()
+
+	ticker := time.NewTicker(time.Duration(checkInterval) * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		tampered := false
+		var tamperReasons []string
+
+		// Check file checksums
+		currentChecksums := captureChecksums(config)
+		for i, current := range currentChecksums {
+			original := checksums[i]
+
+			// File was deleted
+			if original.Exists && !current.Exists {
+				tampered = true
+				tamperReasons = append(tamperReasons, fmt.Sprintf("File deleted: %s", current.Path))
+				log.Printf("TAMPER DETECTED: File deleted: %s", current.Path)
+			}
+
+			// File was modified
+			if original.Exists && current.Exists && original.Checksum != current.Checksum {
+				tampered = true
+				tamperReasons = append(tamperReasons, fmt.Sprintf("File modified: %s", current.Path))
+				log.Printf("TAMPER DETECTED: File modified: %s", current.Path)
+			}
+		}
+
+		// Check firewall rules
+		currentRuleCount := countFirewallRules()
+		if currentRuleCount < firewallRuleCount {
+			tampered = true
+			reason := fmt.Sprintf("Firewall rules reduced from %d to %d", firewallRuleCount, currentRuleCount)
+			tamperReasons = append(tamperReasons, reason)
+			log.Printf("TAMPER DETECTED: %s", reason)
+		}
+
+		// Check if service is still running
+		if !isServiceRunning() {
+			tampered = true
+			tamperReasons = append(tamperReasons, "Glocker service was stopped")
+			log.Printf("TAMPER DETECTED: Service was stopped")
+		}
+
+		// Trigger alarm if tampering detected
+		if tampered {
+			raiseAlarm(config, tamperReasons)
+
+			// Update baseline checksums after alarm
+			checksums = captureChecksums(config)
+			firewallRuleCount = countFirewallRules()
+		}
+	}
+}
+
+func captureChecksums(config *Config) []FileChecksum {
+	var checksums []FileChecksum
+
+	// Files to monitor
+	filesToMonitor := []string{
+		INSTALL_PATH,
+		SUDOERS_PATH,
+		"/etc/systemd/system/glocker.service",
+	}
+
+	for _, path := range filesToMonitor {
+		checksum := FileChecksum{Path: path}
+
+		// Check if file exists
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			checksum.Exists = false
+		} else {
+			checksum.Exists = true
+			// Calculate SHA256 checksum
+			if data, err := os.ReadFile(path); err == nil {
+				hash := sha256.Sum256(data)
+				checksum.Checksum = fmt.Sprintf("%x", hash)
+			}
+		}
+
+		checksums = append(checksums, checksum)
+	}
+
+	return checksums
+}
+
+func countFirewallRules() int {
+	count := 0
+
+	// Count IPv4 rules
+	cmd := exec.Command("bash", "-c", "iptables -S OUTPUT | grep 'GLOCKER-BLOCK' | wc -l")
+	if output, err := cmd.Output(); err == nil {
+		fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count)
+	}
+
+	// Count IPv6 rules
+	cmd = exec.Command("bash", "-c", "ip6tables -S OUTPUT | grep 'GLOCKER-BLOCK' | wc -l")
+	if output, err := cmd.Output(); err == nil {
+		var count6 int
+		fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count6)
+		count += count6
+	}
+
+	return count
+}
+
+func isServiceRunning() bool {
+	cmd := exec.Command("systemctl", "is-active", "glocker.service")
+	output, _ := cmd.Output()
+	return strings.TrimSpace(string(output)) == "active"
+}
+
+func raiseAlarm(config *Config, reasons []string) {
+	if config.TamperDetection.AlarmCommand == "" {
+		log.Printf("ALARM: Tampering detected but no alarm command configured")
+		for _, reason := range reasons {
+			log.Printf("  - %s", reason)
+		}
+		return
+	}
+
+	log.Printf("ALARM: Executing alarm command: %s", config.TamperDetection.AlarmCommand)
+
+	// Prepare alarm message
+	message := "GLOCKER TAMPER DETECTED:\\n"
+	for _, reason := range reasons {
+		message += "  - " + reason + "\\n"
+	}
+
+	// Execute alarm command with the message
+	cmd := exec.Command("bash", "-c", config.TamperDetection.AlarmCommand)
+	cmd.Env = append(os.Environ(),
+		"GLOCKER_TAMPER_MESSAGE="+message,
+		"GLOCKER_TAMPER_REASONS="+strings.Join(reasons, "; "),
+	)
+
+	if err := cmd.Run(); err != nil {
+		log.Printf("ERROR: Failed to execute alarm command: %v", err)
+	} else {
+		log.Printf("Alarm command executed successfully")
+	}
 }

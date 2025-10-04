@@ -1,0 +1,94 @@
+# Distraction Blocker Configuration
+# This file gets embedded into the compiled binary
+
+# Enable/disable each blocking mechanism
+enable_hosts: true
+enable_firewall: true
+
+# Self-healing and protection features
+enable_self_healing: false      # Monitors and re-applies protections every 30 seconds
+
+tamper_detection:
+  enabled: true
+  check_interval_seconds: 30
+  alarm_command: "mpg123 /home/noufal/Downloads/high-battery-sound.mp3"
+
+# Paths (leave empty for defaults)
+hosts_path: "/etc/hosts"
+
+
+# Disable sudoers
+sudoers:
+  enabled: true
+  user: "noufal"
+  allowed_sudoers_line: "noufal  ALL=(ALL) NOPASSWD:ALL"
+  blocked_sudoers_line: "noufal  ALL=(ALL) ALL"  # Requires password
+  # blocked_sudoers_line: "# noufal ALL=(ALL) NOPASSWD:ALL"
+  time_allowed:
+    - start: "09:00"
+      end: "17:00"
+      days: ["Mon", "Tue", "Wed", "Thu", "Fri"] #, "Sat", "Sun"]
+    - start: "09:00"
+      end: "21:00"
+      days: ["Sat", "Sun"]
+
+
+
+
+# Domains to block
+domains:
+  # Always blocked sites - These are ALWAYS blocked, 24/7
+  - name: "reddit.com"
+    always_block: true
+  
+  - name: "twitter.com"
+    always_block: true
+  
+  - name: "facebook.com"
+    always_block: true
+  
+  - name: "instagram.com"
+    always_block: true
+  
+  # Time-based blocking - Only blocked during specific hours
+  - name: "youtube.com"
+    always_block: false
+    time_windows:
+      # Blocked during work hours on weekdays
+      - start: "09:00"
+        end: "17:00"
+        days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+      # Also blocked in the evening (to encourage sleep)
+      - start: "19:00"
+        end: "21:00"
+        days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+  
+  - name: "news.ycombinator.com"
+    always_block: false
+    time_windows:
+      - start: "09:00"
+        end: "12:00"
+        days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+      - start: "14:00"
+        end: "17:00"
+        days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+  
+  - name: "netflix.com"
+    always_block: false
+    time_windows:
+      # Block Netflix before 6 PM on weekdays
+      - start: "00:00"
+        end: "18:00"
+        days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+  
+  # Add more domains here as needed
+  # Examples:
+  # - name: "tiktok.com"
+  #   always_block: true
+  # 
+  # - name: "linkedin.com"
+  #   always_block: false
+  #   time_windows:
+  #     - start: "09:00"
+  #       end: "17:00"
+  #       days: ["Mon", "Tue", "Wed", "Thu", "Fri"]

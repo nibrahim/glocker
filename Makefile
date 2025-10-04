@@ -2,7 +2,7 @@
 
 BINARY_NAME=glocker
 INSTALL_PATH=/usr/local/bin/$(BINARY_NAME)
-SERVICE_FILE=$(BINARY_NAME).service
+SERVICE_FILE=extras/$(BINARY_NAME).service
 SERVICE_PATH=/etc/systemd/system/$(SERVICE_FILE)
 
 build:

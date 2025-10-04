@@ -21,11 +21,11 @@ var configData []byte
 
 const (
 	INSTALL_PATH       = "/usr/local/bin/glocker"
-	HOSTS_MARKER_START = "### DISTRACTION BLOCKER START ###"
-	HOSTS_MARKER_END   = "### DISTRACTION BLOCKER END ###"
+	HOSTS_MARKER_START = "### GLOCKER START ###"
+	HOSTS_MARKER_END   = "### GLOCKER END ###"
 	SUDOERS_PATH       = "/etc/sudoers"
-	SUDOERS_BACKUP     = "/etc/sudoers.distraction-blocker.backup"
-	SUDOERS_MARKER     = "# DISTRACTION-BLOCKER-MANAGED"
+	SUDOERS_BACKUP     = "/etc/sudoers.glocker.backup"
+	SUDOERS_MARKER     = "# GLOCKER-MANAGED"
 )
 
 type TimeWindow struct {
@@ -53,7 +53,7 @@ type Config struct {
 	EnableFirewall  bool          `yaml:"enable_firewall"`
 	Domains         []Domain      `yaml:"domains"`
 	HostsPath       string        `yaml:"hosts_path"`
-	SelfHeal        bool          `yaml:"self_heal"`
+	SelfHeal        bool          `yaml:"enable_self_healing"`
 	EnforceInterval int           `yaml:"enforce_interval_seconds"`
 	Sudoers         SudoersConfig `yaml:"sudoers"`
 }
@@ -156,10 +156,9 @@ func runOnce(config *Config, dryRun bool) {
 }
 
 func selfHeal() {
-	log.Printf("Testing binary integrity")
 	// Check if our binary still exists
 	if _, err := os.Stat(INSTALL_PATH); os.IsNotExist(err) {
-		log.Fatal("CRITICAL: Distraction blocker binary was deleted! Self-healing failed.")
+		log.Fatal("CRITICAL: glocker binary was deleted! Self-healing failed.")
 	}
 
 	// Re-apply immutable flag on our binary
@@ -217,7 +216,7 @@ func installProtections(config *Config) {
 	}
 
 	// Protect the systemd service file if it exists
-	servicePath := "/etc/systemd/system/distraction-blocker.service"
+	servicePath := "/etc/systemd/system/glocker.service"
 	if _, err := os.Stat(servicePath); err == nil {
 		if err := exec.Command("chattr", "+i", servicePath).Run(); err != nil {
 			log.Printf("Warning: couldn't protect service file: %v", err)
@@ -380,7 +379,7 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 
 		// Check time windows
 		for _, window := range domain.TimeWindows {
-			if !contains(window.Days, currentDay) {
+			if !slices.Contains(window.Days, currentDay) {
 				continue
 			}
 
@@ -470,11 +469,11 @@ func updateFirewall(domains []string, dryRun bool) error {
 	}
 
 	// Clear old rules with our marker
-	clearCmd := `iptables -S OUTPUT | grep 'DISTRACTION-BLOCK' | sed 's/-A/-D/' | while read rule; do iptables $rule 2>/dev/null; done`
+	clearCmd := `iptables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | while read rule; do iptables $rule 2>/dev/null; done`
 	exec.Command("bash", "-c", clearCmd).Run()
 
 	// Also clear ip6tables rules
-	clearCmd6 := `ip6tables -S OUTPUT | grep 'DISTRACTION-BLOCK' | sed 's/-A/-D/' | while read rule; do ip6tables $rule 2>/dev/null; done`
+	clearCmd6 := `ip6tables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | while read rule; do ip6tables $rule 2>/dev/null; done`
 	exec.Command("bash", "-c", clearCmd6).Run()
 
 	totalIPs := 0
@@ -484,7 +483,7 @@ func updateFirewall(domains []string, dryRun bool) error {
 		for _, ip := range ips {
 			cmd := exec.Command("iptables", "-I", "OUTPUT", "-d", ip,
 				"-j", "REJECT", "--reject-with", "icmp-host-unreachable",
-				"-m", "comment", "--comment", "DISTRACTION-BLOCK")
+				"-m", "comment", "--comment", "GLOCKER-BLOCK")
 
 			if err := cmd.Run(); err != nil {
 				log.Printf("Warning: couldn't block IP %s for %s: %v", ip, domain, err)
@@ -498,7 +497,7 @@ func updateFirewall(domains []string, dryRun bool) error {
 		for _, ip := range ips6 {
 			cmd := exec.Command("ip6tables", "-I", "OUTPUT", "-d", ip,
 				"-j", "REJECT", "--reject-with", "icmp6-adm-prohibited",
-				"-m", "comment", "--comment", "DISTRACTION-BLOCK")
+				"-m", "comment", "--comment", "GLOCKER-BLOCK")
 
 			if err := cmd.Run(); err != nil {
 				log.Printf("Warning: couldn't block IPv6 %s for %s: %v", ip, domain, err)
@@ -555,7 +554,7 @@ func showStatus(config *Config) {
 	sudoAllowed := isSudoAllowed(config, now)
 
 	fmt.Println("╔════════════════════════════════════════════════╗")
-	fmt.Println("║     DISTRACTION BLOCKER STATUS                 ║")
+	fmt.Println("║     GLOCKER             STATUS                 ║")
 	fmt.Println("╚════════════════════════════════════════════════╝")
 	fmt.Printf("\n📅 Current time: %s\n", now.Format("Mon Jan 2, 2006 15:04:05"))
 

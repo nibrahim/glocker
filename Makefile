@@ -2,7 +2,7 @@
 
 BINARY_NAME=glocker
 INSTALL_PATH=/usr/local/bin/$(BINARY_NAME)
-SERVICE_FILE=extras/$(BINARY_NAME).service
+SERVICE_FILE=$(BINARY_NAME).service
 SERVICE_PATH=/etc/systemd/system/$(SERVICE_FILE)
 
 build:
@@ -25,8 +25,8 @@ uninstall:
 	@sudo chattr -i $(INSTALL_PATH) 2>/dev/null || true
 	@sudo rm -f $(INSTALL_PATH)
 	@sudo chattr -i /etc/hosts 2>/dev/null || true
-	@sudo iptables -S OUTPUT | grep 'DISTRACTION-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 sudo iptables
-	@sudo ip6tables -S OUTPUT | grep 'DISTRACTION-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 sudo ip6tables
+	@sudo iptables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 sudo iptables
+	@sudo ip6tables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 sudo ip6tables
 
 status:
 	@$(BINARY_NAME)

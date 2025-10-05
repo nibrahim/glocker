@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	_ "embed"
 	"flag"
@@ -14,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mailgun/mailgun-go/v4"
 	"gopkg.in/yaml.v3"
 )
 
@@ -49,6 +51,15 @@ type SudoersConfig struct {
 	TimeAllowed        []TimeWindow `yaml:"time_allowed"`
 }
 
+type AccountabilityConfig struct {
+	Enabled            bool   `yaml:"enabled"`
+	PartnerEmail       string `yaml:"partner_email"`
+	FromEmail          string `yaml:"from_email"`
+	ApiKey             string `yaml:"api_key"`
+	DailyReportTime    string `yaml:"daily_report_time"`
+	DailyReportEnabled bool   `yaml:"daily_report_enabled"`
+}
+
 type TamperConfig struct {
 	Enabled       bool   `yaml:"enabled"`
 	CheckInterval int    `yaml:"check_interval_seconds"`
@@ -56,14 +67,15 @@ type TamperConfig struct {
 }
 
 type Config struct {
-	EnableHosts     bool          `yaml:"enable_hosts"`
-	EnableFirewall  bool          `yaml:"enable_firewall"`
-	Domains         []Domain      `yaml:"domains"`
-	HostsPath       string        `yaml:"hosts_path"`
-	SelfHeal        bool          `yaml:"enable_self_healing"`
-	EnforceInterval int           `yaml:"enforce_interval_seconds"`
-	Sudoers         SudoersConfig `yaml:"sudoers"`
-	TamperDetection TamperConfig  `yaml:"tamper_detection"`
+	EnableHosts     bool                 `yaml:"enable_hosts"`
+	EnableFirewall  bool                 `yaml:"enable_firewall"`
+	Domains         []Domain             `yaml:"domains"`
+	HostsPath       string               `yaml:"hosts_path"`
+	SelfHeal        bool                 `yaml:"enable_self_healing"`
+	EnforceInterval int                  `yaml:"enforce_interval_seconds"`
+	Sudoers         SudoersConfig        `yaml:"sudoers"`
+	TamperDetection TamperConfig         `yaml:"tamper_detection"`
+	Accountability  AccountabilityConfig `yaml:"accountability"`
 }
 
 func main() {
@@ -858,8 +870,25 @@ func raiseAlarm(config *Config, reasons []string) {
 		message += "  - " + reason + "\\n"
 	}
 
-	// Execute alarm command with the message
-	cmd := exec.Command("bash", "-c", config.TamperDetection.AlarmCommand)
+	// Send accountability email
+	if config.Accountability.Enabled {
+		subject := "GLOCKER ALERT: Tampering Detected"
+		body := fmt.Sprintf("Tampering was detected at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
+		for _, reason := range reasons {
+			body += "  - " + reason + "\n"
+		}
+		body += "\nThis is an automated alert from Glocker."
+
+		if err := sendEmail(config, subject, body); err != nil {
+			log.Printf("Failed to send accountability email: %v", err)
+		} else {
+			log.Printf("Accountability email sent to %s", config.Accountability.PartnerEmail)
+		}
+	}
+
+	// Execute alarm command - split on spaces for proper argument handling
+	parts := strings.Fields(config.TamperDetection.AlarmCommand)
+	cmd := exec.Command(parts[0], parts[1:]...)
 	cmd.Env = append(os.Environ(),
 		"GLOCKER_TAMPER_MESSAGE="+message,
 		"GLOCKER_TAMPER_REASONS="+strings.Join(reasons, "; "),
@@ -870,4 +899,33 @@ func raiseAlarm(config *Config, reasons []string) {
 	} else {
 		log.Printf("Alarm command executed successfully")
 	}
+}
+
+func sendEmail(config *Config, subject, body string) error {
+	if !config.Accountability.Enabled {
+		return nil
+	}
+
+	from := config.Accountability.FromEmail
+	to := config.Accountability.PartnerEmail
+	apiKey := config.Accountability.ApiKey
+
+	mg := mailgun.NewMailgun("sandbox30ad746406c147239a3d8c217f29ecbc.mailgun.org", apiKey)
+
+	mail := mailgun.NewMessage(
+		from,
+		subject,
+		body,
+		to,
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+	_, _, err := mg.Send(ctx, mail)
+
+	if err != nil {
+		return err
+	} else {
+		return nil
+	}
+
 }

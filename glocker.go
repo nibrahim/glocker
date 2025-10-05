@@ -490,8 +490,8 @@ func cleanupHostsFile(config *Config) error {
 func restoreSudoers(config *Config) error {
 	// Check if backup exists
 	if _, err := os.Stat(SUDOERS_BACKUP); os.IsNotExist(err) {
-		// No backup exists, just remove our managed line
-		return removeManagedSudoersLine(config)
+		// No backup exists, replace blocked line with allowed line
+		return replaceBlockedWithAllowed(config)
 	}
 
 	// Restore from backup
@@ -510,9 +510,9 @@ func restoreSudoers(config *Config) error {
 	// Validate with visudo
 	cmd := exec.Command("visudo", "-c", "-f", tmpFile)
 	if err := cmd.Run(); err != nil {
-		// If backup is invalid, fall back to removing managed line
-		log.Printf("Backup sudoers file is invalid, removing managed line instead")
-		return removeManagedSudoersLine(config)
+		// If backup is invalid, fall back to replacing blocked with allowed
+		log.Printf("Backup sudoers file is invalid, replacing blocked line with allowed instead")
+		return replaceBlockedWithAllowed(config)
 	}
 
 	// Validation passed, restore the backup
@@ -524,7 +524,7 @@ func restoreSudoers(config *Config) error {
 	return os.Chmod(SUDOERS_PATH, 0440)
 }
 
-func removeManagedSudoersLine(config *Config) error {
+func replaceBlockedWithAllowed(config *Config) error {
 	// Read current sudoers file
 	content, err := os.ReadFile(SUDOERS_PATH)
 	if err != nil {
@@ -533,12 +533,22 @@ func removeManagedSudoersLine(config *Config) error {
 
 	lines := strings.Split(string(content), "\n")
 	var newLines []string
+	found := false
 
-	// Remove lines with our marker
+	// Look for our managed line and replace blocked with allowed
 	for _, line := range lines {
-		if !strings.Contains(line, SUDOERS_MARKER) {
+		if strings.Contains(line, SUDOERS_MARKER) {
+			// Replace with allowed line
+			newLines = append(newLines, config.Sudoers.AllowedSudoersLine+" "+SUDOERS_MARKER)
+			found = true
+		} else {
 			newLines = append(newLines, line)
 		}
+	}
+
+	// If we didn't find our managed line, add the allowed line
+	if !found {
+		newLines = append(newLines, config.Sudoers.AllowedSudoersLine+" "+SUDOERS_MARKER)
 	}
 
 	newContent := strings.Join(newLines, "\n")

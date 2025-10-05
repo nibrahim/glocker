@@ -939,6 +939,7 @@ func monitorTampering(config *Config) {
 	defer ticker.Stop()
 
 	for range ticker.C {
+		log.Println("Tamper check")
 		tampered := false
 		var tamperReasons []string
 

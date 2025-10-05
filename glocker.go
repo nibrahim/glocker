@@ -974,13 +974,16 @@ func monitorTampering(config *Config) {
 
 		// Trigger alarm if tampering detected
 		if tampered {
+			log.Println("Tamper check failed")
+			log.Println(tamperReasons)
 			raiseAlarm(config, tamperReasons)
-
 			// Update baseline checksums after alarm
 			checksums = captureChecksums(config)
 			firewallRuleCount = countFirewallRules()
 		}
+
 	}
+
 }
 
 func captureChecksums(config *Config) []FileChecksum {
@@ -1082,8 +1085,9 @@ func sendEmail(config *Config, subject, body string) error {
 	from := config.Accountability.FromEmail
 	to := config.Accountability.PartnerEmail
 	apiKey := config.Accountability.ApiKey
+	log.Printf("Sending email from %s to %s subject %s : %s", from, to, subject, body)
 
-	mg := mailgun.NewMailgun("sandbox30ad746406c147239a3d8c217f29ecbc.mailgun.org", apiKey)
+	mg := mailgun.NewMailgun("noufalibrahim.name", apiKey)
 
 	mail := mailgun.NewMessage(
 		from,

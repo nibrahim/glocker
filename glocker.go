@@ -750,8 +750,11 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 	}
 	blockSection = append(blockSection, HOSTS_MARKER_END)
 
-	// Combine
-	newContent := strings.Join(newLines, "\n") + "\n" + strings.Join(blockSection, "\n") + "\n"
+	// Combine - ensure proper spacing without adding extra newlines
+	var finalLines []string
+	finalLines = append(finalLines, newLines...)
+	finalLines = append(finalLines, blockSection...)
+	newContent := strings.Join(finalLines, "\n") + "\n"
 
 	if dryRun {
 		return nil

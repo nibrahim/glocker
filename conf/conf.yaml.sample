@@ -17,6 +17,9 @@ tamper_detection:
 hosts_path: "/etc/hosts"
 
 
+# Mindful delay for uninstall (seconds)
+mindful_delay: 60
+
 # Disable sudoers
 sudoers:
   enabled: true

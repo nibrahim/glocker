@@ -76,6 +76,7 @@ type Config struct {
 	Sudoers         SudoersConfig        `yaml:"sudoers"`
 	TamperDetection TamperConfig         `yaml:"tamper_detection"`
 	Accountability  AccountabilityConfig `yaml:"accountability"`
+	MindfulDelay    int                  `yaml:"mindful_delay"`
 }
 
 func main() {
@@ -83,6 +84,7 @@ func main() {
 	enforce := flag.Bool("enforce", false, "Run enforcement loop (runs continuously)")
 	once := flag.Bool("once", false, "Run enforcement once and exit")
 	install := flag.Bool("install", false, "Install Glocker")
+	uninstall := flag.Bool("uninstall", false, "Uninstall Glocker and revert all changes")
 	flag.Parse()
 
 	// Parse embedded config
@@ -113,6 +115,14 @@ func main() {
 			log.Fatal("Program should run as root for installation.")
 		}
 		installGlocker(&config)
+		return
+	}
+
+	if *uninstall {
+		if !runningAsRoot() {
+			log.Fatal("Program should run as root for uninstallation.")
+		}
+		uninstallGlocker(&config)
 		return
 	}
 
@@ -360,6 +370,299 @@ func copyFile(src, dst string) error {
 	}
 
 	return os.Chmod(dst, sourceInfo.Mode())
+}
+
+func uninstallGlocker(config *Config) {
+	log.Println("╔════════════════════════════════════════════════╗")
+	log.Println("║              GLOCKER UNINSTALL                 ║")
+	log.Println("╚════════════════════════════════════════════════╝")
+	log.Println()
+	log.Println("⚠️  WARNING: This will completely remove Glocker and revert all changes!")
+	log.Println()
+	log.Println("This will:")
+	log.Println("  • Stop and disable the glocker service")
+	log.Println("  • Remove all firewall rules")
+	log.Println("  • Clean up the hosts file")
+	log.Println("  • Restore original sudoers configuration")
+	log.Println("  • Remove the glocker binary")
+	log.Println("  • Remove the systemd service file")
+	log.Println()
+
+	// Perform mindful delay
+	mindfulDelay(config)
+
+	log.Println()
+	log.Println("🚀 Starting uninstall process...")
+
+	// Step 1: Stop and disable service
+	log.Println("1. Stopping glocker service...")
+	if err := exec.Command("systemctl", "stop", "glocker.service").Run(); err != nil {
+		log.Printf("   Warning: couldn't stop service: %v", err)
+	} else {
+		log.Println("   ✓ Service stopped")
+	}
+
+	if err := exec.Command("systemctl", "disable", "glocker.service").Run(); err != nil {
+		log.Printf("   Warning: couldn't disable service: %v", err)
+	} else {
+		log.Println("   ✓ Service disabled")
+	}
+
+	// Step 2: Clean up firewall rules
+	log.Println("2. Removing firewall rules...")
+	clearCmd := `iptables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 iptables`
+	if err := exec.Command("bash", "-c", clearCmd).Run(); err != nil {
+		log.Printf("   Warning: couldn't clear IPv4 rules: %v", err)
+	}
+
+	clearCmd6 := `ip6tables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 ip6tables`
+	if err := exec.Command("bash", "-c", clearCmd6).Run(); err != nil {
+		log.Printf("   Warning: couldn't clear IPv6 rules: %v", err)
+	}
+	log.Println("   ✓ Firewall rules removed")
+
+	// Step 3: Clean up hosts file
+	log.Println("3. Cleaning hosts file...")
+	if err := cleanupHostsFile(config); err != nil {
+		log.Printf("   Warning: couldn't clean hosts file: %v", err)
+	} else {
+		log.Println("   ✓ Hosts file cleaned")
+	}
+
+	// Step 4: Restore sudoers
+	if config.Sudoers.Enabled {
+		log.Println("4. Restoring sudoers configuration...")
+		if err := restoreSudoers(config); err != nil {
+			log.Printf("   Warning: couldn't restore sudoers: %v", err)
+		} else {
+			log.Println("   ✓ Sudoers restored")
+		}
+	}
+
+	// Step 5: Remove service file
+	log.Println("5. Removing systemd service file...")
+	servicePath := "/etc/systemd/system/glocker.service"
+	if err := exec.Command("chattr", "-i", servicePath).Run(); err != nil {
+		log.Printf("   Warning: couldn't remove immutable flag from service: %v", err)
+	}
+	if err := os.Remove(servicePath); err != nil {
+		log.Printf("   Warning: couldn't remove service file: %v", err)
+	} else {
+		log.Println("   ✓ Service file removed")
+	}
+
+	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
+		log.Printf("   Warning: couldn't reload systemd: %v", err)
+	}
+
+	// Step 6: Remove binary (this will be the last step since we're running from it)
+	log.Println("6. Removing glocker binary...")
+	if err := exec.Command("chattr", "-i", INSTALL_PATH).Run(); err != nil {
+		log.Printf("   Warning: couldn't remove immutable flag from binary: %v", err)
+	}
+
+	// Create a self-deleting script since we can't delete ourselves while running
+	script := `#!/bin/bash
+sleep 2
+rm -f ` + INSTALL_PATH + `
+rm -f ` + SUDOERS_BACKUP + `
+echo "✓ Glocker binary removed"
+echo ""
+echo "🎉 Glocker has been completely uninstalled!"
+echo "   All protections have been removed and original settings restored."
+rm -f "$0"  # Remove this script
+`
+
+	scriptPath := "/tmp/glocker_cleanup.sh"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		log.Printf("   Error: couldn't create cleanup script: %v", err)
+		log.Println("   You may need to manually remove:", INSTALL_PATH)
+	} else {
+		log.Println("   ✓ Cleanup script created")
+		log.Println()
+		log.Println("🏁 Uninstall complete! The binary will be removed in 2 seconds...")
+		
+		// Execute the cleanup script in the background
+		cmd := exec.Command("bash", scriptPath)
+		cmd.Start()
+	}
+}
+
+func mindfulDelay(config *Config) {
+	// Shakespeare quotes for mindful typing
+	quotes := []string{
+		"To be, or not to be, that is the question: Whether 'tis nobler in the mind to suffer the slings and arrows of outrageous fortune, or to take arms against a sea of troubles and by opposing end them.",
+		"All the world's a stage, and all the men and women merely players: they have their exits and their entrances; and one man in his time plays many parts, his acts being seven ages.",
+		"What's in a name? That which we call a rose by any other name would smell as sweet.",
+		"The fault, dear Brutus, is not in our stars, but in ourselves, that we are underlings.",
+		"Friends, Romans, countrymen, lend me your ears; I come to bury Caesar, not to praise him.",
+	}
+
+	// Select a random quote
+	quote := quotes[time.Now().Unix()%int64(len(quotes))]
+	
+	log.Println("📝 MINDFUL UNINSTALL PROCESS")
+	log.Println()
+	log.Println("To proceed with uninstallation, please type the following Shakespeare quote")
+	log.Println("EXACTLY as shown (including punctuation and capitalization):")
+	log.Println()
+	log.Printf("Quote: %s", quote)
+	log.Println()
+	log.Print("Type here: ")
+
+	// Read user input
+	var input string
+	fmt.Scanln(&input)
+	
+	// Keep asking until they get it right
+	for input != quote {
+		log.Println()
+		log.Println("❌ That doesn't match exactly. Please try again.")
+		log.Println("Remember: exact capitalization, punctuation, and spacing matter.")
+		log.Println()
+		log.Printf("Quote: %s", quote)
+		log.Println()
+		log.Print("Type here: ")
+		fmt.Scanln(&input)
+	}
+
+	log.Println()
+	log.Println("✓ Quote verified correctly!")
+	log.Println()
+
+	// Get delay from config (default to 30 seconds if not set)
+	delaySeconds := config.MindfulDelay
+	if delaySeconds == 0 {
+		delaySeconds = 30
+	}
+
+	log.Printf("⏰ Now waiting %d seconds before proceeding with uninstall...", delaySeconds)
+	log.Println("   This gives you time to reconsider. Press Ctrl+C to cancel.")
+	log.Println()
+
+	for i := delaySeconds; i > 0; i-- {
+		if i <= 10 || i%5 == 0 {
+			log.Printf("   Uninstalling in %d seconds...", i)
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
+
+func cleanupHostsFile(config *Config) error {
+	hostsPath := config.HostsPath
+	if hostsPath == "" {
+		hostsPath = "/etc/hosts"
+	}
+
+	// Remove immutable flag
+	exec.Command("chattr", "-i", hostsPath).Run()
+
+	// Read current hosts file
+	content, err := os.ReadFile(hostsPath)
+	if err != nil {
+		return fmt.Errorf("reading hosts file: %w", err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+	inBlockSection := false
+
+	// Remove glocker block section
+	for _, line := range lines {
+		if strings.Contains(line, HOSTS_MARKER_START) {
+			inBlockSection = true
+			continue
+		}
+		if strings.Contains(line, HOSTS_MARKER_END) {
+			inBlockSection = false
+			continue
+		}
+		if !inBlockSection {
+			newLines = append(newLines, line)
+		}
+	}
+
+	// Write cleaned content
+	newContent := strings.Join(newLines, "\n")
+	return os.WriteFile(hostsPath, []byte(newContent), 0644)
+}
+
+func restoreSudoers(config *Config) error {
+	// Check if backup exists
+	if _, err := os.Stat(SUDOERS_BACKUP); os.IsNotExist(err) {
+		// No backup exists, just remove our managed line
+		return removeManagedSudoersLine(config)
+	}
+
+	// Restore from backup
+	backupContent, err := os.ReadFile(SUDOERS_BACKUP)
+	if err != nil {
+		return fmt.Errorf("reading sudoers backup: %w", err)
+	}
+
+	// Write to temporary file for validation
+	tmpFile := SUDOERS_PATH + ".tmp"
+	if err := os.WriteFile(tmpFile, backupContent, 0440); err != nil {
+		return fmt.Errorf("writing temporary sudoers file: %w", err)
+	}
+	defer os.Remove(tmpFile)
+
+	// Validate with visudo
+	cmd := exec.Command("visudo", "-c", "-f", tmpFile)
+	if err := cmd.Run(); err != nil {
+		// If backup is invalid, fall back to removing managed line
+		log.Printf("Backup sudoers file is invalid, removing managed line instead")
+		return removeManagedSudoersLine(config)
+	}
+
+	// Validation passed, restore the backup
+	if err := os.Rename(tmpFile, SUDOERS_PATH); err != nil {
+		return fmt.Errorf("restoring sudoers file: %w", err)
+	}
+
+	// Ensure correct permissions
+	return os.Chmod(SUDOERS_PATH, 0440)
+}
+
+func removeManagedSudoersLine(config *Config) error {
+	// Read current sudoers file
+	content, err := os.ReadFile(SUDOERS_PATH)
+	if err != nil {
+		return fmt.Errorf("reading sudoers file: %w", err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+
+	// Remove lines with our marker
+	for _, line := range lines {
+		if !strings.Contains(line, SUDOERS_MARKER) {
+			newLines = append(newLines, line)
+		}
+	}
+
+	newContent := strings.Join(newLines, "\n")
+
+	// Write to temporary file for validation
+	tmpFile := SUDOERS_PATH + ".tmp"
+	if err := os.WriteFile(tmpFile, []byte(newContent), 0440); err != nil {
+		return fmt.Errorf("writing temporary sudoers file: %w", err)
+	}
+	defer os.Remove(tmpFile)
+
+	// Validate with visudo
+	cmd := exec.Command("visudo", "-c", "-f", tmpFile)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("sudoers validation failed: %w", err)
+	}
+
+	// Validation passed, replace the real file
+	if err := os.Rename(tmpFile, SUDOERS_PATH); err != nil {
+		return fmt.Errorf("replacing sudoers file: %w", err)
+	}
+
+	// Ensure correct permissions
+	return os.Chmod(SUDOERS_PATH, 0440)
 }
 
 func updateSudoers(config *Config, now time.Time, dryRun bool) error {

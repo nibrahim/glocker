@@ -82,7 +82,7 @@ func main() {
 	dryRun := flag.Bool("dry-run", false, "Show what would be done without making changes")
 	enforce := flag.Bool("enforce", false, "Run enforcement loop (runs continuously)")
 	once := flag.Bool("once", false, "Run enforcement once and exit")
-	install := flag.Bool("install", false, "Install protection on the binary itself")
+	install := flag.Bool("install", false, "Install Glocker")
 	flag.Parse()
 
 	// Parse embedded config
@@ -109,6 +109,9 @@ func main() {
 		config.EnableHosts, config.EnableFirewall, config.Sudoers.Enabled, config.SelfHeal, config.TamperDetection.Enabled)
 
 	if *install {
+		if !runningAsRoot() {
+			log.Fatal("Program should run as root for installation.")
+		}
 		installGlocker(&config)
 		return
 	}
@@ -120,11 +123,17 @@ func main() {
 	}
 
 	if *once {
+		if !runningAsRoot() {
+			log.Fatal("Program should run as root for running once.")
+		}
 		runOnce(&config, false)
 		return
 	}
 
 	if *enforce {
+		if !runningAsRoot() {
+			log.Fatal("Program should run as root for running once.")
+		}
 		log.Println("Starting enforcement loop...")
 		log.Printf("Enforcement interval: %d seconds", config.EnforceInterval)
 
@@ -204,12 +213,6 @@ func installGlocker(config *Config) {
 	log.Println("╔════════════════════════════════════════════════╗")
 	log.Println("║              GLOCKER FULL INSTALL              ║")
 	log.Println("╚════════════════════════════════════════════════╝")
-	log.Println()
-	log.Println("This will:")
-	log.Println("  • Copy the binary to /usr/local/bin/glocker")
-	log.Println("  • Install binary protections (setuid, immutable)")
-	log.Println("  • Install and start the systemd service")
-	log.Println("  • Create sudoers backup if needed")
 	log.Println()
 
 	// Step 1: Get current executable path
@@ -322,6 +325,14 @@ WantedBy=multi-user.target
 	log.Println("View logs with: journalctl -u glocker -f")
 	log.Println()
 	log.Printf("To uninstall later, run: sudo %s -uninstall", INSTALL_PATH)
+}
+
+func runningAsRoot() bool {
+	if os.Geteuid() != 0 {
+		return false
+	} else {
+		return true
+	}
 }
 
 func copyFile(src, dst string) error {

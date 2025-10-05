@@ -377,16 +377,6 @@ func uninstallGlocker(config *Config) {
 	log.Println("║              GLOCKER UNINSTALL                 ║")
 	log.Println("╚════════════════════════════════════════════════╝")
 	log.Println()
-	log.Println("⚠️  WARNING: This will completely remove Glocker and revert all changes!")
-	log.Println()
-	log.Println("This will:")
-	log.Println("  • Stop and disable the glocker service")
-	log.Println("  • Remove all firewall rules")
-	log.Println("  • Clean up the hosts file")
-	log.Println("  • Restore original sudoers configuration")
-	log.Println("  • Remove the glocker binary")
-	log.Println("  • Remove the systemd service file")
-	log.Println()
 
 	// Perform mindful delay
 	mindfulDelay(config)
@@ -481,7 +471,7 @@ rm -f "$0"  # Remove this script
 		log.Println("   ✓ Cleanup script created")
 		log.Println()
 		log.Println("🏁 Uninstall complete! The binary will be removed in 2 seconds...")
-		
+
 		// Execute the cleanup script in the background
 		cmd := exec.Command("bash", scriptPath)
 		cmd.Start()
@@ -497,32 +487,32 @@ func mindfulDelay(config *Config) {
 		"The fault, dear Brutus, is not in our stars, but in ourselves, that we are underlings.",
 		"Friends, Romans, countrymen, lend me your ears; I come to bury Caesar, not to praise him.",
 	}
+	quotes = []string{"foo"}
 
 	// Select a random quote
 	quote := quotes[time.Now().Unix()%int64(len(quotes))]
-	
-	log.Println("📝 MINDFUL UNINSTALL PROCESS")
-	log.Println()
-	log.Println("To proceed with uninstallation, please type the following Shakespeare quote")
-	log.Println("EXACTLY as shown (including punctuation and capitalization):")
-	log.Println()
-	log.Printf("Quote: %s", quote)
-	log.Println()
-	log.Print("Type here: ")
+
+	fmt.Println("📝 MINDFUL UNINSTALL PROCESS")
+	fmt.Println()
+	fmt.Println("To proceed with uninstallation, please type the following Shakespeare quote")
+	fmt.Println("EXACTLY as shown (including punctuation and capitalization):")
+	fmt.Println()
+	fmt.Printf("Quote: %s", quote)
+	fmt.Println()
+	fmt.Print("Type here: ")
 
 	// Read user input
 	var input string
 	fmt.Scanln(&input)
-	
+
 	// Keep asking until they get it right
 	for input != quote {
-		log.Println()
-		log.Println("❌ That doesn't match exactly. Please try again.")
-		log.Println("Remember: exact capitalization, punctuation, and spacing matter.")
-		log.Println()
-		log.Printf("Quote: %s", quote)
-		log.Println()
-		log.Print("Type here: ")
+		fmt.Println()
+		fmt.Println("❌ That doesn't match exactly. Please try again.")
+		fmt.Println()
+		fmt.Printf("Quote: %s", quote)
+		fmt.Println()
+		fmt.Print("Type here: ")
 		fmt.Scanln(&input)
 	}
 

@@ -146,8 +146,6 @@ func main() {
 		return
 	}
 
-	// Default: show status
-	showStatus(&config)
 }
 
 func runOnce(config *Config, dryRun bool) {
@@ -572,91 +570,6 @@ func resolveIPs(domain string, recordType string) []string {
 	}
 
 	return ips
-}
-
-func showStatus(config *Config) {
-	now := time.Now()
-	blocked := getDomainsToBlock(config, now)
-	sudoAllowed := isSudoAllowed(config, now)
-
-	fmt.Println("╔════════════════════════════════════════════════╗")
-	fmt.Println("║     GLOCKER             STATUS                 ║")
-	fmt.Println("╚════════════════════════════════════════════════╝")
-	fmt.Printf("\n📅 Current time: %s\n", now.Format("Mon Jan 2, 2006 15:04:05"))
-
-	fmt.Println("\n🔧 Components:")
-	fmt.Printf("   Hosts file:    %s\n", statusEmoji(config.EnableHosts))
-	fmt.Printf("   Firewall:      %s\n", statusEmoji(config.EnableFirewall))
-	fmt.Printf("   Sudoers:       %s\n", statusEmoji(config.Sudoers.Enabled))
-	fmt.Printf("   Self-healing:  %s\n", statusEmoji(config.SelfHeal))
-
-	if config.Sudoers.Enabled {
-		fmt.Printf("\n🔐 Sudo Access: %s\n", map[bool]string{
-			true:  "✅ ALLOWED (no password)",
-			false: "🔒 RESTRICTED (password required)",
-		}[sudoAllowed])
-	}
-
-	fmt.Printf("\n🚫 Currently blocked (%d domains):\n", len(blocked))
-	if len(blocked) == 0 {
-		fmt.Println("   (none)")
-	} else {
-		for i, domain := range blocked {
-			if i < 10 { // Show first 10
-				fmt.Printf("   • %s\n", domain)
-			} else if i == 10 {
-				fmt.Printf("   ... and %d more\n", len(blocked)-10)
-				break
-			}
-		}
-	}
-
-	fmt.Printf("\n📋 All configured domains (%d):\n", len(config.Domains))
-	for i, domain := range config.Domains {
-		if i < 15 {
-			status := "⏰ scheduled"
-			if domain.AlwaysBlock {
-				status = "🔒 always"
-			}
-			fmt.Printf("   • %-30s %s\n", domain.Name, status)
-		} else if i == 15 {
-			fmt.Printf("   ... and %d more\n", len(config.Domains)-15)
-			break
-		}
-	}
-
-	// Check if binary is protected
-	if _, err := os.Stat(INSTALL_PATH); err == nil {
-		cmd := exec.Command("lsattr", INSTALL_PATH)
-		if output, err := cmd.Output(); err == nil {
-			if strings.Contains(string(output), "i") {
-				fmt.Println("\n🛡️  Binary protection: ACTIVE (immutable)")
-			} else {
-				fmt.Println("\n⚠️  Binary protection: INACTIVE (not immutable)")
-				fmt.Println("   Run with -install flag to enable protection")
-			}
-		}
-
-		// Check setuid bit
-		if info, err := os.Stat(INSTALL_PATH); err == nil {
-			mode := info.Mode()
-			if mode&os.ModeSetuid != 0 {
-				fmt.Println("🛡️  Setuid bit: ACTIVE (runs as root)")
-			} else {
-				fmt.Println("⚠️  Setuid bit: INACTIVE")
-				fmt.Println("   Run with -install flag to enable setuid")
-			}
-		}
-	}
-
-	fmt.Println("\n" + strings.Repeat("─", 50))
-}
-
-func statusEmoji(enabled bool) string {
-	if enabled {
-		return "✅ enabled"
-	}
-	return "❌ disabled"
 }
 
 func validateConfig(config *Config) error {

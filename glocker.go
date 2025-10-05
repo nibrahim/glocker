@@ -921,6 +921,10 @@ type FileChecksum struct {
 	Exists   bool
 }
 
+func (f FileChecksum) String() string {
+	return fmt.Sprintf("Path : %s, Checksum : %s, Exists : %v", f.Path, f.Checksum, f.Exists)
+}
+
 func monitorTampering(config *Config) {
 	// Set default check interval if not specified
 	checkInterval := config.TamperDetection.CheckInterval
@@ -992,6 +996,7 @@ func captureChecksums(config *Config) []FileChecksum {
 	// Files to monitor
 	filesToMonitor := []string{
 		INSTALL_PATH,
+		config.HostsPath,
 		SUDOERS_PATH,
 		"/etc/systemd/system/glocker.service",
 	}
@@ -1012,6 +1017,10 @@ func captureChecksums(config *Config) []FileChecksum {
 		}
 
 		checksums = append(checksums, checksum)
+	}
+	log.Println("Checksums:")
+	for _, c := range checksums {
+		log.Println(c)
 	}
 
 	return checksums

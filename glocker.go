@@ -30,6 +30,7 @@ const (
 	SUDOERS_PATH       = "/etc/sudoers"
 	SUDOERS_BACKUP     = "/etc/sudoers.glocker.backup"
 	SUDOERS_MARKER     = "# GLOCKER-MANAGED"
+	SYSTEMD_FILE       = "./extras/glocker.service"
 )
 
 type TimeWindow struct {
@@ -250,22 +251,8 @@ func installGlocker(config *Config) {
 
 	// Install systemd service
 	servicePath := "/etc/systemd/system/glocker.service"
-	serviceContent := `[Unit]
-Description=Glocker - Website/Distraction Blocker
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/glocker -enforce
-Restart=always
-RestartSec=5
-User=root
-
-[Install]
-WantedBy=multi-user.target
-`
-
-	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
+	err = copyFile(SYSTEMD_FILE, servicePath)
+	if err != nil {
 		log.Fatalf("Failed to create service file: %v", err)
 	}
 

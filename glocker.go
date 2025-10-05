@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	_ "embed"
@@ -415,8 +416,9 @@ func mindfulDelay(config *Config) {
 	fmt.Print("Type here: ")
 
 	// Read user input
-	var input string
-	fmt.Scanln(&input)
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	input := scanner.Text()
 
 	// Keep asking until they get it right
 	for input != quote {
@@ -426,7 +428,8 @@ func mindfulDelay(config *Config) {
 		fmt.Printf("Quote: %s", quote)
 		fmt.Println()
 		fmt.Print("Type here: ")
-		fmt.Scanln(&input)
+		scanner.Scan()
+		input = scanner.Text()
 	}
 
 	// Get delay from config (default to 30 seconds if not set)

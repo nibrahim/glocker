@@ -106,7 +106,6 @@ func main() {
 		log.Fatalf("Invalid config: %v", err)
 	}
 
-
 	if *install {
 		if !runningAsRoot() {
 			log.Fatal("Program should run as root for installation.")
@@ -389,6 +388,7 @@ rm -f "$0"  # Remove this script
 		// Execute the cleanup script in the background
 		cmd := exec.Command("bash", scriptPath)
 		cmd.Start()
+		defer os.Remove(scriptPath)
 	}
 }
 
@@ -401,7 +401,6 @@ func mindfulDelay(config *Config) {
 		"The fault, dear Brutus, is not in our stars, but in ourselves, that we are underlings.",
 		"Friends, Romans, countrymen, lend me your ears; I come to bury Caesar, not to praise him.",
 	}
-	quotes = []string{"foo"}
 
 	// Select a random quote
 	quote := quotes[time.Now().Unix()%int64(len(quotes))]

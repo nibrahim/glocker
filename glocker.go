@@ -106,9 +106,6 @@ func main() {
 		log.Fatalf("Invalid config: %v", err)
 	}
 
-	log.Printf("Loaded config: %d domains", len(config.Domains))
-	log.Printf("Components enabled - Hosts: %v, Firewall: %v, Sudoers: %v, Self-Heal: %v, Tamper-Detection: %v",
-		config.EnableHosts, config.EnableFirewall, config.Sudoers.Enabled, config.SelfHeal, config.TamperDetection.Enabled)
 
 	if *install {
 		if !runningAsRoot() {
@@ -171,8 +168,6 @@ func runOnce(config *Config, dryRun bool) {
 	now := time.Now()
 	blockedDomains := getDomainsToBlock(config, now)
 
-	log.Printf("[%s] Blocking %d domains", now.Format("15:04:05"), len(blockedDomains))
-
 	// Self-healing: verify our own integrity
 	if config.SelfHeal && !dryRun {
 		selfHeal()
@@ -198,16 +193,13 @@ func runOnce(config *Config, dryRun bool) {
 }
 
 func selfHeal() {
-	log.Printf("Testing binary integrity")
 	// Check if our binary still exists
 	if _, err := os.Stat(INSTALL_PATH); os.IsNotExist(err) {
 		log.Fatal("CRITICAL: glocker binary was deleted! Self-healing failed.")
 	}
 
 	// Re-apply immutable flag on our binary
-	if err := exec.Command("chattr", "+i", INSTALL_PATH).Run(); err != nil {
-		log.Printf("Warning: couldn't set immutable on binary: %v", err)
-	}
+	exec.Command("chattr", "+i", INSTALL_PATH).Run()
 
 	// Verify we're still running as the expected process
 	exe, err := os.Executable()
@@ -236,38 +228,27 @@ func installGlocker(config *Config) {
 		log.Fatalf("Failed to resolve executable path: %v", err)
 	}
 
-	log.Printf("Current executable: %s", exePath)
-
-	// Step 2: Copy binary to install location
-	log.Println("1. Copying binary to install location...")
+	// Copy binary to install location
 	if err := copyFile(exePath, INSTALL_PATH); err != nil {
 		log.Fatalf("Failed to copy binary: %v", err)
 	}
-	log.Printf("   ✓ Copied to %s", INSTALL_PATH)
 
-	// Step 3: Set ownership to root:root
+	// Set ownership to root:root
 	if err := os.Chown(INSTALL_PATH, 0, 0); err != nil {
 		log.Printf("Warning: couldn't set ownership to root: %v", err)
-	} else {
-		log.Printf("   ✓ Set ownership to root:root on %s", INSTALL_PATH)
 	}
 
-	// Step 4: Set setuid bit (4755 = rwsr-xr-x)
+	// Set setuid bit (4755 = rwsr-xr-x)
 	if err := os.Chmod(INSTALL_PATH, 0o4755); err != nil {
 		log.Printf("Warning: couldn't set setuid bit: %v", err)
-	} else {
-		log.Printf("   ✓ Set setuid bit on %s", INSTALL_PATH)
 	}
 
-	// Step 5: Set immutable on the installed binary
+	// Set immutable on the installed binary
 	if err := exec.Command("chattr", "+i", INSTALL_PATH).Run(); err != nil {
 		log.Printf("Warning: couldn't set immutable flag: %v", err)
-	} else {
-		log.Printf("   ✓ Set immutable flag on %s", INSTALL_PATH)
 	}
 
-	// Step 6: Install systemd service
-	log.Println("2. Installing systemd service...")
+	// Install systemd service
 	servicePath := "/etc/systemd/system/glocker.service"
 	serviceContent := `[Unit]
 Description=Glocker - Website/Distraction Blocker
@@ -287,54 +268,31 @@ WantedBy=multi-user.target
 	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
 		log.Fatalf("Failed to create service file: %v", err)
 	}
-	log.Printf("   ✓ Created service file: %s", servicePath)
 
-	// Step 7: Reload systemd daemon
-	log.Println("3. Reloading systemd daemon...")
+	// Reload systemd daemon
 	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
 		log.Fatalf("Failed to reload systemd: %v", err)
 	}
-	log.Println("   ✓ Systemd daemon reloaded")
 
-	// Step 8: Enable service
-	log.Println("4. Enabling glocker service...")
+	// Enable service
 	if err := exec.Command("systemctl", "enable", "glocker.service").Run(); err != nil {
 		log.Fatalf("Failed to enable service: %v", err)
 	}
-	log.Println("   ✓ Service enabled")
 
-	// Step 9: Start service
-	log.Println("5. Starting glocker service...")
+	// Start service
 	if err := exec.Command("systemctl", "start", "glocker.service").Run(); err != nil {
 		log.Fatalf("Failed to start service: %v", err)
 	}
-	log.Println("   ✓ Service started")
 
-	// Step 10: Protect service file
-	if err := exec.Command("chattr", "+i", servicePath).Run(); err != nil {
-		log.Printf("   Warning: couldn't protect service file: %v", err)
-	} else {
-		log.Printf("   ✓ Protected service file: %s", servicePath)
-	}
+	// Protect service file
+	exec.Command("chattr", "+i", servicePath).Run()
 
-	// Step 11: Create sudoers backup if sudoers management is enabled
+	// Create sudoers backup if sudoers management is enabled
 	if config.Sudoers.Enabled {
-		log.Println("6. Creating sudoers backup...")
-		if err := createSudoersBackup(); err != nil {
-			log.Printf("   Warning: couldn't create sudoers backup: %v", err)
-		} else {
-			log.Printf("   ✓ Created sudoers backup at %s", SUDOERS_BACKUP)
-		}
+		createSudoersBackup()
 	}
 
-	log.Println()
-	log.Println("🎉 Full installation complete!")
-	log.Println()
-	log.Println("Glocker is now installed and running as a system service.")
-	log.Println("You can check status with: systemctl status glocker")
-	log.Println("View logs with: journalctl -u glocker -f")
-	log.Println()
-	log.Printf("To uninstall later, run: sudo %s -uninstall", INSTALL_PATH)
+	log.Println("Installation complete!")
 }
 
 func runningAsRoot() bool {
@@ -381,75 +339,35 @@ func uninstallGlocker(config *Config) {
 	// Perform mindful delay
 	mindfulDelay(config)
 
-	log.Println()
-	log.Println("🚀 Starting uninstall process...")
+	// Stop and disable service
+	exec.Command("systemctl", "stop", "glocker.service").Run()
+	exec.Command("systemctl", "disable", "glocker.service").Run()
 
-	// Step 1: Stop and disable service
-	log.Println("1. Stopping glocker service...")
-	if err := exec.Command("systemctl", "stop", "glocker.service").Run(); err != nil {
-		log.Printf("   Warning: couldn't stop service: %v", err)
-	} else {
-		log.Println("   ✓ Service stopped")
-	}
-
-	if err := exec.Command("systemctl", "disable", "glocker.service").Run(); err != nil {
-		log.Printf("   Warning: couldn't disable service: %v", err)
-	} else {
-		log.Println("   ✓ Service disabled")
-	}
-
-	// Step 2: Clean up firewall rules
-	log.Println("2. Removing firewall rules...")
+	// Clean up firewall rules
 	clearCmd := `iptables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 iptables`
 	if err := exec.Command("bash", "-c", clearCmd).Run(); err != nil {
 		log.Printf("   Warning: couldn't clear IPv4 rules: %v", err)
 	}
 
 	clearCmd6 := `ip6tables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 ip6tables`
-	if err := exec.Command("bash", "-c", clearCmd6).Run(); err != nil {
-		log.Printf("   Warning: couldn't clear IPv6 rules: %v", err)
-	}
-	log.Println("   ✓ Firewall rules removed")
+	exec.Command("bash", "-c", clearCmd6).Run()
 
-	// Step 3: Clean up hosts file
-	log.Println("3. Cleaning hosts file...")
-	if err := cleanupHostsFile(config); err != nil {
-		log.Printf("   Warning: couldn't clean hosts file: %v", err)
-	} else {
-		log.Println("   ✓ Hosts file cleaned")
-	}
+	// Clean up hosts file
+	cleanupHostsFile(config)
 
-	// Step 4: Restore sudoers
+	// Restore sudoers
 	if config.Sudoers.Enabled {
-		log.Println("4. Restoring sudoers configuration...")
-		if err := restoreSudoers(config); err != nil {
-			log.Printf("   Warning: couldn't restore sudoers: %v", err)
-		} else {
-			log.Println("   ✓ Sudoers restored")
-		}
+		restoreSudoers(config)
 	}
 
-	// Step 5: Remove service file
-	log.Println("5. Removing systemd service file...")
+	// Remove service file
 	servicePath := "/etc/systemd/system/glocker.service"
-	if err := exec.Command("chattr", "-i", servicePath).Run(); err != nil {
-		log.Printf("   Warning: couldn't remove immutable flag from service: %v", err)
-	}
-	if err := os.Remove(servicePath); err != nil {
-		log.Printf("   Warning: couldn't remove service file: %v", err)
-	} else {
-		log.Println("   ✓ Service file removed")
-	}
+	exec.Command("chattr", "-i", servicePath).Run()
+	os.Remove(servicePath)
+	exec.Command("systemctl", "daemon-reload").Run()
 
-	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
-		log.Printf("   Warning: couldn't reload systemd: %v", err)
-	}
-
-	// Step 6: Remove binary (this will be the last step since we're running from it)
-	log.Println("6. Removing glocker binary...")
-	if err := exec.Command("chattr", "-i", INSTALL_PATH).Run(); err != nil {
-		log.Printf("   Warning: couldn't remove immutable flag from binary: %v", err)
-	}
+	// Remove binary (this will be the last step since we're running from it)
+	exec.Command("chattr", "-i", INSTALL_PATH).Run()
 
 	// Create a self-deleting script since we can't delete ourselves while running
 	script := `#!/bin/bash
@@ -465,13 +383,9 @@ rm -f "$0"  # Remove this script
 
 	scriptPath := "/tmp/glocker_cleanup.sh"
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
-		log.Printf("   Error: couldn't create cleanup script: %v", err)
-		log.Println("   You may need to manually remove:", INSTALL_PATH)
+		log.Printf("Error: couldn't create cleanup script: %v", err)
 	} else {
-		log.Println("   ✓ Cleanup script created")
-		log.Println()
-		log.Println("🏁 Uninstall complete! The binary will be removed in 2 seconds...")
-
+		log.Println("Uninstall complete!")
 		// Execute the cleanup script in the background
 		cmd := exec.Command("bash", scriptPath)
 		cmd.Start()
@@ -516,23 +430,17 @@ func mindfulDelay(config *Config) {
 		fmt.Scanln(&input)
 	}
 
-	log.Println()
-	log.Println("✓ Quote verified correctly!")
-	log.Println()
-
 	// Get delay from config (default to 30 seconds if not set)
 	delaySeconds := config.MindfulDelay
 	if delaySeconds == 0 {
 		delaySeconds = 30
 	}
 
-	log.Printf("⏰ Now waiting %d seconds before proceeding with uninstall...", delaySeconds)
-	log.Println("   This gives you time to reconsider. Press Ctrl+C to cancel.")
-	log.Println()
+	log.Printf("Waiting %d seconds before proceeding...", delaySeconds)
 
 	for i := delaySeconds; i > 0; i-- {
 		if i <= 10 || i%5 == 0 {
-			log.Printf("   Uninstalling in %d seconds...", i)
+			log.Printf("Uninstalling in %d seconds...", i)
 		}
 		time.Sleep(1 * time.Second)
 	}
@@ -668,12 +576,7 @@ func updateSudoers(config *Config, now time.Time, dryRun bool) error {
 		targetLine = config.Sudoers.AllowedSudoersLine
 	}
 
-	log.Printf("Sudoers management: sudo %s for user %s",
-		map[bool]string{true: "ALLOWED", false: "BLOCKED"}[sudoAllowed],
-		config.Sudoers.User)
-
 	if dryRun {
-		log.Printf("Would update sudoers to: %s", targetLine)
 		return nil
 	}
 
@@ -737,11 +640,8 @@ func updateSudoers(config *Config, now time.Time, dryRun bool) error {
 	}
 
 	// Ensure correct permissions
-	if err := os.Chmod(SUDOERS_PATH, 0440); err != nil {
-		log.Printf("Warning: couldn't set sudoers permissions: %v", err)
-	}
+	os.Chmod(SUDOERS_PATH, 0440)
 
-	log.Printf("✓ Updated sudoers: %s", targetLine)
 	return nil
 }
 
@@ -814,8 +714,6 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 func updateHosts(config *Config, domains []string, dryRun bool) error {
 	hostsPath := config.HostsPath
 
-	log.Printf("Updating %s with %d domains", hostsPath, len(domains))
-
 	// Read current hosts file
 	content, err := os.ReadFile(hostsPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -857,7 +755,6 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 	newContent := strings.Join(newLines, "\n") + "\n" + strings.Join(blockSection, "\n") + "\n"
 
 	if dryRun {
-		log.Printf("Would write %d blocked domains to %s", len(domains), hostsPath)
 		return nil
 	}
 
@@ -870,19 +767,13 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 	}
 
 	// Set immutable flag
-	if err := exec.Command("chattr", "+i", hostsPath).Run(); err != nil {
-		log.Printf("Warning: couldn't set immutable flag on hosts: %v", err)
-	}
+	exec.Command("chattr", "+i", hostsPath).Run()
 
-	log.Printf("✓ Updated hosts file with %d domains", len(domains))
 	return nil
 }
 
 func updateFirewall(domains []string, dryRun bool) error {
-	log.Printf("Updating firewall rules for %d domains", len(domains))
-
 	if dryRun {
-		log.Printf("Would resolve and block IPs for %d domains", len(domains))
 		return nil
 	}
 
@@ -903,9 +794,7 @@ func updateFirewall(domains []string, dryRun bool) error {
 				"-j", "REJECT", "--reject-with", "icmp-host-unreachable",
 				"-m", "comment", "--comment", "GLOCKER-BLOCK")
 
-			if err := cmd.Run(); err != nil {
-				log.Printf("Warning: couldn't block IP %s for %s: %v", ip, domain, err)
-			} else {
+			if err := cmd.Run(); err == nil {
 				totalIPs++
 			}
 		}
@@ -917,15 +806,12 @@ func updateFirewall(domains []string, dryRun bool) error {
 				"-j", "REJECT", "--reject-with", "icmp6-adm-prohibited",
 				"-m", "comment", "--comment", "GLOCKER-BLOCK")
 
-			if err := cmd.Run(); err != nil {
-				log.Printf("Warning: couldn't block IPv6 %s for %s: %v", ip, domain, err)
-			} else {
+			if err := cmd.Run(); err == nil {
 				totalIPs++
 			}
 		}
 	}
 
-	log.Printf("✓ Updated firewall: blocked %d IP addresses for %d domains", totalIPs, len(domains))
 	return nil
 }
 
@@ -1043,8 +929,6 @@ func monitorTampering(config *Config) {
 		checkInterval = 30 // Default: check every 30 seconds
 	}
 
-	log.Printf("Tamper detection started (checking every %d seconds)", checkInterval)
-
 	// Initial checksums
 	checksums := captureChecksums(config)
 	firewallRuleCount := countFirewallRules()
@@ -1065,14 +949,12 @@ func monitorTampering(config *Config) {
 			if original.Exists && !current.Exists {
 				tampered = true
 				tamperReasons = append(tamperReasons, fmt.Sprintf("File deleted: %s", current.Path))
-				log.Printf("TAMPER DETECTED: File deleted: %s", current.Path)
 			}
 
 			// File was modified
 			if original.Exists && current.Exists && original.Checksum != current.Checksum {
 				tampered = true
 				tamperReasons = append(tamperReasons, fmt.Sprintf("File modified: %s", current.Path))
-				log.Printf("TAMPER DETECTED: File modified: %s", current.Path)
 			}
 		}
 
@@ -1082,14 +964,12 @@ func monitorTampering(config *Config) {
 			tampered = true
 			reason := fmt.Sprintf("Firewall rules reduced from %d to %d", firewallRuleCount, currentRuleCount)
 			tamperReasons = append(tamperReasons, reason)
-			log.Printf("TAMPER DETECTED: %s", reason)
 		}
 
 		// Check if service is still running
 		if !isServiceRunning() {
 			tampered = true
 			tamperReasons = append(tamperReasons, "Glocker service was stopped")
-			log.Printf("TAMPER DETECTED: Service was stopped")
 		}
 
 		// Trigger alarm if tampering detected
@@ -1162,14 +1042,8 @@ func isServiceRunning() bool {
 
 func raiseAlarm(config *Config, reasons []string) {
 	if config.TamperDetection.AlarmCommand == "" {
-		log.Printf("ALARM: Tampering detected but no alarm command configured")
-		for _, reason := range reasons {
-			log.Printf("  - %s", reason)
-		}
 		return
 	}
-
-	log.Printf("ALARM: Executing alarm command: %s", config.TamperDetection.AlarmCommand)
 
 	// Prepare alarm message
 	message := "GLOCKER TAMPER DETECTED:\\n"
@@ -1186,11 +1060,7 @@ func raiseAlarm(config *Config, reasons []string) {
 		}
 		body += "\nThis is an automated alert from Glocker."
 
-		if err := sendEmail(config, subject, body); err != nil {
-			log.Printf("Failed to send accountability email: %v", err)
-		} else {
-			log.Printf("Accountability email sent to %s", config.Accountability.PartnerEmail)
-		}
+		sendEmail(config, subject, body)
 	}
 
 	// Execute alarm command - split on spaces for proper argument handling
@@ -1201,11 +1071,7 @@ func raiseAlarm(config *Config, reasons []string) {
 		"GLOCKER_TAMPER_REASONS="+strings.Join(reasons, "; "),
 	)
 
-	if err := cmd.Run(); err != nil {
-		log.Printf("ERROR: Failed to execute alarm command: %v", err)
-	} else {
-		log.Printf("Alarm command executed successfully")
-	}
+	cmd.Run()
 }
 
 func sendEmail(config *Config, subject, body string) error {

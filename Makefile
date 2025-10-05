@@ -12,7 +12,7 @@ install: build
 	@sudo cp $(BINARY_NAME) $(INSTALL_PATH)
 	@sudo chmod +x $(INSTALL_PATH)
 	@sudo $(INSTALL_PATH) -install
-	@sudo cp $(SERVICE_FILE) $(SERVICE_PATH)
+	@sudo cp extras/$(SERVICE_FILE) $(SERVICE_PATH)
 	@sudo systemctl daemon-reload
 	@sudo systemctl enable $(SERVICE_FILE)
 	@sudo systemctl start $(SERVICE_FILE)

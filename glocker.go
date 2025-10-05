@@ -109,7 +109,7 @@ func main() {
 		config.EnableHosts, config.EnableFirewall, config.Sudoers.Enabled, config.SelfHeal, config.TamperDetection.Enabled)
 
 	if *install {
-		installProtections(&config)
+		installGlocker(&config)
 		return
 	}
 
@@ -200,9 +200,19 @@ func selfHeal() {
 	}
 }
 
-func installProtections(config *Config) {
-	log.Println("Installing protections on binary...")
+func installGlocker(config *Config) {
+	log.Println("╔════════════════════════════════════════════════╗")
+	log.Println("║              GLOCKER FULL INSTALL              ║")
+	log.Println("╚════════════════════════════════════════════════╝")
+	log.Println()
+	log.Println("This will:")
+	log.Println("  • Copy the binary to /usr/local/bin/glocker")
+	log.Println("  • Install binary protections (setuid, immutable)")
+	log.Println("  • Install and start the systemd service")
+	log.Println("  • Create sudoers backup if needed")
+	log.Println()
 
+	// Step 1: Get current executable path
 	exe, err := os.Executable()
 	if err != nil {
 		log.Fatalf("Failed to get executable path: %v", err)
@@ -213,52 +223,132 @@ func installProtections(config *Config) {
 		log.Fatalf("Failed to resolve executable path: %v", err)
 	}
 
-	if exePath != INSTALL_PATH {
-		log.Printf("Warning: running from %s, not from install location %s", exePath, INSTALL_PATH)
-		log.Println("Protections will be applied to the install location.")
-	}
+	log.Printf("Current executable: %s", exePath)
 
-	// Set ownership to root:root
+	// Step 2: Copy binary to install location
+	log.Println("1. Copying binary to install location...")
+	if err := copyFile(exePath, INSTALL_PATH); err != nil {
+		log.Fatalf("Failed to copy binary: %v", err)
+	}
+	log.Printf("   ✓ Copied to %s", INSTALL_PATH)
+
+	// Step 3: Set ownership to root:root
 	if err := os.Chown(INSTALL_PATH, 0, 0); err != nil {
 		log.Printf("Warning: couldn't set ownership to root: %v", err)
 	} else {
-		log.Printf("Set ownership to root:root on %s", INSTALL_PATH)
+		log.Printf("   ✓ Set ownership to root:root on %s", INSTALL_PATH)
 	}
 
-	// Set setuid bit (4755 = rwsr-xr-x)
+	// Step 4: Set setuid bit (4755 = rwsr-xr-x)
 	if err := os.Chmod(INSTALL_PATH, 0o4755); err != nil {
 		log.Printf("Warning: couldn't set setuid bit: %v", err)
 	} else {
-		log.Printf("Set setuid bit on %s", INSTALL_PATH)
+		log.Printf("   ✓ Set setuid bit on %s", INSTALL_PATH)
 	}
 
-	// Set immutable on the installed binary
+	// Step 5: Set immutable on the installed binary
 	if err := exec.Command("chattr", "+i", INSTALL_PATH).Run(); err != nil {
 		log.Printf("Warning: couldn't set immutable flag: %v", err)
 	} else {
-		log.Printf("Set immutable flag on %s", INSTALL_PATH)
+		log.Printf("   ✓ Set immutable flag on %s", INSTALL_PATH)
 	}
 
-	// Protect the systemd service file if it exists
+	// Step 6: Install systemd service
+	log.Println("2. Installing systemd service...")
 	servicePath := "/etc/systemd/system/glocker.service"
-	if _, err := os.Stat(servicePath); err == nil {
-		if err := exec.Command("chattr", "+i", servicePath).Run(); err != nil {
-			log.Printf("Warning: couldn't protect service file: %v", err)
-		} else {
-			log.Printf("Protected service file: %s", servicePath)
-		}
+	serviceContent := `[Unit]
+Description=Glocker - Website/Distraction Blocker
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/glocker -enforce
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+`
+
+	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
+		log.Fatalf("Failed to create service file: %v", err)
+	}
+	log.Printf("   ✓ Created service file: %s", servicePath)
+
+	// Step 7: Reload systemd daemon
+	log.Println("3. Reloading systemd daemon...")
+	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
+		log.Fatalf("Failed to reload systemd: %v", err)
+	}
+	log.Println("   ✓ Systemd daemon reloaded")
+
+	// Step 8: Enable service
+	log.Println("4. Enabling glocker service...")
+	if err := exec.Command("systemctl", "enable", "glocker.service").Run(); err != nil {
+		log.Fatalf("Failed to enable service: %v", err)
+	}
+	log.Println("   ✓ Service enabled")
+
+	// Step 9: Start service
+	log.Println("5. Starting glocker service...")
+	if err := exec.Command("systemctl", "start", "glocker.service").Run(); err != nil {
+		log.Fatalf("Failed to start service: %v", err)
+	}
+	log.Println("   ✓ Service started")
+
+	// Step 10: Protect service file
+	if err := exec.Command("chattr", "+i", servicePath).Run(); err != nil {
+		log.Printf("   Warning: couldn't protect service file: %v", err)
+	} else {
+		log.Printf("   ✓ Protected service file: %s", servicePath)
 	}
 
-	// Create sudoers backup if sudoers management is enabled
+	// Step 11: Create sudoers backup if sudoers management is enabled
 	if config.Sudoers.Enabled {
+		log.Println("6. Creating sudoers backup...")
 		if err := createSudoersBackup(); err != nil {
-			log.Printf("Warning: couldn't create sudoers backup: %v", err)
+			log.Printf("   Warning: couldn't create sudoers backup: %v", err)
 		} else {
-			log.Printf("Created sudoers backup at %s", SUDOERS_BACKUP)
+			log.Printf("   ✓ Created sudoers backup at %s", SUDOERS_BACKUP)
 		}
 	}
 
-	log.Println("Installation complete!")
+	log.Println()
+	log.Println("🎉 Full installation complete!")
+	log.Println()
+	log.Println("Glocker is now installed and running as a system service.")
+	log.Println("You can check status with: systemctl status glocker")
+	log.Println("View logs with: journalctl -u glocker -f")
+	log.Println()
+	log.Printf("To uninstall later, run: sudo %s -uninstall", INSTALL_PATH)
+}
+
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = destFile.ReadFrom(sourceFile)
+	if err != nil {
+		return err
+	}
+
+	// Copy file permissions
+	sourceInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	return os.Chmod(dst, sourceInfo.Mode())
 }
 
 func updateSudoers(config *Config, now time.Time, dryRun bool) error {

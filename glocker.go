@@ -388,6 +388,18 @@ func mindfulDelay(config *Config) {
 		"What's in a name? That which we call a rose by any other name would smell as sweet.",
 		"The fault, dear Brutus, is not in our stars, but in ourselves, that we are underlings.",
 		"Friends, Romans, countrymen, lend me your ears; I come to bury Caesar, not to praise him.",
+		"Now is the winter of our discontent made glorious summer by this sun of York.",
+		"If music be the food of love, play on; give me excess of it, that, surfeiting, the appetite may sicken, and so die.",
+		"Double, double toil and trouble; fire burn and caldron bubble.",
+		"Out, out, brief candle! Life's but a walking shadow, a poor player that struts and frets his hour upon the stage and then is heard no more.",
+		"Tomorrow, and tomorrow, and tomorrow, creeps in this petty pace from day to day to the last syllable of recorded time.",
+		"Is this a dagger which I see before me, the handle toward my hand? Come, let me clutch thee.",
+		"We are such stuff as dreams are made on, and our little life is rounded with a sleep.",
+		"Lord, what fools these mortals be!",
+		"The course of true love never did run smooth.",
+		"Cowards die many times before their deaths; the valiant never taste of death but once.",
+		"Neither a borrower nor a lender be; for loan oft loses both itself and friend.",
+		"This above all: to thine own self be true, and it must follow, as the night the day, thou canst not then be false to any man.",
 	}
 
 	// Select a random quote

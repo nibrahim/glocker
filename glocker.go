@@ -784,11 +784,16 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 	}
 	blockSection = append(blockSection, HOSTS_MARKER_END)
 
-	// Combine - ensure proper spacing without adding extra newlines
+	// Combine properly - preserve original file structure
 	var finalLines []string
 	finalLines = append(finalLines, newLines...)
 	finalLines = append(finalLines, blockSection...)
-	newContent := strings.Join(finalLines, "\n") + "\n"
+	
+	// Join and ensure single trailing newline
+	newContent := strings.Join(finalLines, "\n")
+	if !strings.HasSuffix(newContent, "\n") {
+		newContent += "\n"
+	}
 
 	if dryRun {
 		return nil

@@ -353,31 +353,22 @@ func uninstallGlocker(config *Config) {
 	os.Remove(servicePath)
 	exec.Command("systemctl", "daemon-reload").Run()
 
-	// Remove binary (this will be the last step since we're running from it)
+	// Remove binary
 	exec.Command("chattr", "-i", INSTALL_PATH).Run()
-
-	// Create a self-deleting script since we can't delete ourselves while running
-	script := `#!/bin/bash
-sleep 2
-rm -f ` + INSTALL_PATH + `
-rm -f ` + SUDOERS_BACKUP + `
-echo "✓ Glocker binary removed"
-echo ""
-echo "🎉 Glocker has been completely uninstalled!"
-echo "   All protections have been removed and original settings restored."
-rm -f "$0"  # Remove this script
-`
-
-	scriptPath := "/tmp/glocker_cleanup.sh"
-	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
-		log.Printf("Error: couldn't create cleanup script: %v", err)
+	if err := os.Remove(INSTALL_PATH); err != nil {
+		log.Printf("Error removing glocker binary: %v", err)
 	} else {
-		log.Println("Uninstall complete!")
-		// Execute the cleanup script in the background
-		cmd := exec.Command("bash", scriptPath)
-		cmd.Start()
-		defer os.Remove(scriptPath)
+		log.Println("✓ Glocker binary removed")
 	}
+
+	// Remove sudoers backup
+	if err := os.Remove(SUDOERS_BACKUP); err != nil {
+		log.Printf("Error removing sudoers backup: %v", err)
+	}
+
+	log.Println("")
+	log.Println("🎉 Glocker has been completely uninstalled!")
+	log.Println("   All protections have been removed and original settings restored.")
 }
 
 func mindfulDelay(config *Config) {

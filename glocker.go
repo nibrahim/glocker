@@ -1046,10 +1046,20 @@ func captureChecksums(config *Config) []FileChecksum {
 			checksum.Exists = false
 		} else {
 			checksum.Exists = true
-			// Calculate SHA256 checksum
-			if data, err := os.ReadFile(path); err == nil {
-				hash := sha256.Sum256(data)
-				checksum.Checksum = fmt.Sprintf("%x", hash)
+			
+			// For hosts file, only checksum the GLOCKER section
+			if path == config.HostsPath {
+				if data, err := os.ReadFile(path); err == nil {
+					glockerSection := extractGlockerSection(string(data))
+					hash := sha256.Sum256([]byte(glockerSection))
+					checksum.Checksum = fmt.Sprintf("%x", hash)
+				}
+			} else {
+				// Calculate SHA256 checksum for other files
+				if data, err := os.ReadFile(path); err == nil {
+					hash := sha256.Sum256(data)
+					checksum.Checksum = fmt.Sprintf("%x", hash)
+				}
 			}
 		}
 
@@ -1121,6 +1131,30 @@ func raiseAlarm(config *Config, reasons []string) {
 	)
 
 	cmd.Run()
+}
+
+func extractGlockerSection(content string) string {
+	lines := strings.Split(content, "\n")
+	var glockerLines []string
+	inGlockerSection := false
+	
+	for _, line := range lines {
+		if strings.Contains(line, HOSTS_MARKER_START) {
+			inGlockerSection = true
+			glockerLines = append(glockerLines, line)
+			continue
+		}
+		if strings.Contains(line, HOSTS_MARKER_END) {
+			glockerLines = append(glockerLines, line)
+			inGlockerSection = false
+			continue
+		}
+		if inGlockerSection {
+			glockerLines = append(glockerLines, line)
+		}
+	}
+	
+	return strings.Join(glockerLines, "\n")
 }
 
 func sendEmail(config *Config, subject, body string) error {

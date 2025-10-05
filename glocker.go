@@ -398,7 +398,18 @@ func mindfulDelay(config *Config) {
 	fmt.Println("To proceed with uninstallation, please type the following Shakespeare quote")
 	fmt.Println("EXACTLY as shown (including punctuation and capitalization):")
 	fmt.Println()
-	fmt.Printf("Quote: %s", quote)
+	fmt.Println("Quote:")
+	
+	// Print quote with two words per line to prevent copy-paste
+	words := strings.Fields(quote)
+	for i := 0; i < len(words); i += 2 {
+		if i+1 < len(words) {
+			fmt.Printf("%s %s\n", words[i], words[i+1])
+		} else {
+			fmt.Printf("%s\n", words[i])
+		}
+	}
+	
 	fmt.Println()
 	fmt.Print("Type here: ")
 
@@ -412,7 +423,18 @@ func mindfulDelay(config *Config) {
 		fmt.Println()
 		fmt.Println("❌ That doesn't match exactly. Please try again.")
 		fmt.Println()
-		fmt.Printf("Quote: %s", quote)
+		fmt.Println("Quote:")
+		
+		// Print quote with two words per line to prevent copy-paste
+		words := strings.Fields(quote)
+		for i := 0; i < len(words); i += 2 {
+			if i+1 < len(words) {
+				fmt.Printf("%s %s\n", words[i], words[i+1])
+			} else {
+				fmt.Printf("%s\n", words[i])
+			}
+		}
+		
 		fmt.Println()
 		fmt.Print("Type here: ")
 		scanner.Scan()

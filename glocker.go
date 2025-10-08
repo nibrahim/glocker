@@ -248,6 +248,40 @@ func main() {
 		return
 	}
 
+	// If no flags provided, check if glocker is running and show status or help
+	if flag.NFlag() == 0 {
+		// Check if socket exists and is accessible
+		if _, err := os.Stat(GLOCKER_SOCK); err == nil {
+			// Socket exists, try to connect and get live status
+			conn, err := net.Dial("unix", GLOCKER_SOCK)
+			if err == nil {
+				defer conn.Close()
+				
+				log.Println("=== LIVE STATUS ===")
+				
+				// Send status request
+				conn.Write([]byte("status\n"))
+				
+				// Read response
+				scanner := bufio.NewScanner(conn)
+				for scanner.Scan() {
+					line := scanner.Text()
+					if line == "END" {
+						break
+					}
+					fmt.Println(line)
+				}
+				return
+			}
+		}
+		
+		// Socket not available, show help
+		fmt.Println("Glocker - Domain and System Access Control")
+		fmt.Println()
+		fmt.Println("Usage:")
+		flag.PrintDefaults()
+		return
+	}
 }
 
 func setupCommunication(config *Config) {

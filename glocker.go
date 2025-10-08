@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,6 +82,34 @@ type Config struct {
 	MindfulDelay    int                  `yaml:"mindful_delay"`
 	TempUnblockTime int                  `yaml:"temp_unblock_time"`
 	Dev             bool                 `yaml:"dev"`
+	LogLevel        string               `yaml:"log_level"`
+}
+
+func setupLogging(config *Config) {
+	var level slog.Level
+	
+	switch strings.ToLower(config.LogLevel) {
+	case "debug":
+		level = slog.LevelDebug
+	case "info":
+		level = slog.LevelInfo
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+	
+	opts := &slog.HandlerOptions{
+		Level: level,
+	}
+	
+	handler := slog.NewTextHandler(os.Stdout, opts)
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+	
+	slog.Debug("Logging initialized", "level", level.String())
 }
 
 func main() {
@@ -98,6 +127,10 @@ func main() {
 	if err := yaml.Unmarshal(configData, &config); err != nil {
 		log.Fatalf("Failed to parse config: %v", err)
 	}
+
+	// Setup logging
+	setupLogging(&config)
+	slog.Debug("Configuration parsed successfully")
 
 	// Set defaults
 	if config.HostsPath == "" {
@@ -215,30 +248,45 @@ func main() {
 
 func runOnce(config *Config, dryRun bool) {
 	now := time.Now()
+	slog.Debug("Starting enforcement run", "time", now.Format("2006-01-02 15:04:05"), "dry_run", dryRun)
+	
 	blockedDomains := getDomainsToBlock(config, now)
+	slog.Debug("Domains to block determined", "count", len(blockedDomains), "domains", blockedDomains)
 
 	// Self-healing: verify our own integrity
 	if config.SelfHeal && !dryRun {
+		slog.Debug("Running self-healing checks")
 		selfHeal()
 	}
 
 	if config.EnableHosts {
+		slog.Debug("Updating hosts file", "enabled", true)
 		if err := updateHosts(config, blockedDomains, dryRun); err != nil {
 			log.Printf("ERROR updating hosts: %v", err)
 		}
+	} else {
+		slog.Debug("Hosts file management disabled")
 	}
 
 	if config.EnableFirewall {
+		slog.Debug("Updating firewall rules", "enabled", true)
 		if err := updateFirewall(blockedDomains, dryRun); err != nil {
 			log.Printf("ERROR updating firewall: %v", err)
 		}
+	} else {
+		slog.Debug("Firewall management disabled")
 	}
 
 	if config.Sudoers.Enabled {
+		slog.Debug("Updating sudoers configuration", "enabled", true)
 		if err := updateSudoers(config, now, dryRun); err != nil {
 			log.Printf("ERROR updating sudoers: %v", err)
 		}
+	} else {
+		slog.Debug("Sudoers management disabled")
 	}
+	
+	slog.Debug("Enforcement run completed")
 }
 
 func selfHeal() {
@@ -801,38 +849,60 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 	var blocked []string
 	currentDay := now.Weekday().String()[:3] // Mon, Tue, etc.
 	currentTime := now.Format("15:04")
+	
+	slog.Debug("Evaluating domains for blocking", "current_day", currentDay, "current_time", currentTime, "total_domains", len(config.Domains))
 
 	for _, domain := range config.Domains {
+		slog.Debug("Evaluating domain", "domain", domain.Name, "always_block", domain.AlwaysBlock)
+		
 		// Check if domain is temporarily unblocked
 		if isTempUnblocked(domain.Name, now) {
+			slog.Debug("Domain is temporarily unblocked", "domain", domain.Name)
 			continue
 		}
 
 		if domain.AlwaysBlock {
+			slog.Debug("Domain marked for always block", "domain", domain.Name)
 			blocked = append(blocked, domain.Name)
 			continue
 		}
 
 		// Check time windows
+		domainBlocked := false
 		for _, window := range domain.TimeWindows {
+			slog.Debug("Checking time window", "domain", domain.Name, "window_days", window.Days, "window_start", window.Start, "window_end", window.End)
+			
 			if !slices.Contains(window.Days, currentDay) {
+				slog.Debug("Current day not in window", "domain", domain.Name, "current_day", currentDay)
 				continue
 			}
 
 			if isInTimeWindow(currentTime, window.Start, window.End) {
+				slog.Debug("Domain blocked by time window", "domain", domain.Name, "window", fmt.Sprintf("%s-%s", window.Start, window.End))
 				blocked = append(blocked, domain.Name)
+				domainBlocked = true
 				break
 			}
 		}
+		
+		if !domainBlocked && len(domain.TimeWindows) > 0 {
+			slog.Debug("Domain not blocked by any time window", "domain", domain.Name)
+		}
 	}
 
+	slog.Debug("Domain blocking evaluation complete", "blocked_count", len(blocked), "blocked_domains", blocked)
 	return blocked
 }
 
 func isTempUnblocked(domain string, now time.Time) bool {
 	for _, unblock := range tempUnblocks {
-		if unblock.Domain == domain && now.Before(unblock.ExpiresAt) {
-			return true
+		if unblock.Domain == domain {
+			if now.Before(unblock.ExpiresAt) {
+				slog.Debug("Domain is temporarily unblocked", "domain", domain, "expires_at", unblock.ExpiresAt.Format("2006-01-02 15:04:05"))
+				return true
+			} else {
+				slog.Debug("Domain temporary unblock has expired", "domain", domain, "expired_at", unblock.ExpiresAt.Format("2006-01-02 15:04:05"))
+			}
 		}
 	}
 	return false
@@ -840,43 +910,54 @@ func isTempUnblocked(domain string, now time.Time) bool {
 
 func updateHosts(config *Config, domains []string, dryRun bool) error {
 	hostsPath := config.HostsPath
+	slog.Debug("Starting hosts file update", "hosts_path", hostsPath, "domains_count", len(domains), "dry_run", dryRun)
 
 	// Read current hosts file
 	content, err := os.ReadFile(hostsPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("reading hosts file: %w", err)
 	}
+	slog.Debug("Read hosts file", "size_bytes", len(content))
 
 	lines := strings.Split(string(content), "\n")
 	var newLines []string
 	inBlockSection := false
+	removedLines := 0
 
 	// Remove old block section
 	for _, line := range lines {
 		if strings.Contains(line, HOSTS_MARKER_START) {
+			slog.Debug("Found glocker block start marker")
 			inBlockSection = true
 			continue
 		}
 		if strings.Contains(line, HOSTS_MARKER_END) {
+			slog.Debug("Found glocker block end marker")
 			inBlockSection = false
 			continue
 		}
 		if !inBlockSection {
 			newLines = append(newLines, line)
+		} else {
+			removedLines++
 		}
 	}
+	slog.Debug("Removed old glocker block", "removed_lines", removedLines)
 
 	// Add new block section
 	blockSection := []string{HOSTS_MARKER_START}
 	for _, domain := range domains {
-		blockSection = append(blockSection,
+		entries := []string{
 			fmt.Sprintf("127.0.0.1 %s", domain),
 			fmt.Sprintf("127.0.0.1 www.%s", domain),
 			fmt.Sprintf("::1 %s", domain),
 			fmt.Sprintf("::1 www.%s", domain),
-		)
+		}
+		blockSection = append(blockSection, entries...)
+		slog.Debug("Added domain to block section", "domain", domain, "entries", len(entries))
 	}
 	blockSection = append(blockSection, HOSTS_MARKER_END)
+	slog.Debug("Created new glocker block", "total_lines", len(blockSection))
 
 	// Reconstruct file content preserving original structure
 	var newContent string
@@ -902,43 +983,57 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 	}
 
 	if dryRun {
+		slog.Debug("Dry run mode - would write hosts file", "new_size_bytes", len(newContent))
 		return nil
 	}
 
 	// Remove immutable flag temporarily
+	slog.Debug("Removing immutable flag from hosts file")
 	exec.Command("chattr", "-i", hostsPath).Run()
 
 	// Write file
+	slog.Debug("Writing updated hosts file", "size_bytes", len(newContent))
 	if err := os.WriteFile(hostsPath, []byte(newContent), 0644); err != nil {
 		return fmt.Errorf("writing hosts file: %w", err)
 	}
 
 	// Set immutable flag
+	slog.Debug("Setting immutable flag on hosts file")
 	exec.Command("chattr", "+i", hostsPath).Run()
 
 	// Update checksum after legitimate change
 	updateChecksum(hostsPath)
+	slog.Debug("Hosts file update completed successfully")
 
 	return nil
 }
 
 func updateFirewall(domains []string, dryRun bool) error {
+	slog.Debug("Starting firewall update", "domains_count", len(domains), "dry_run", dryRun)
+	
 	if dryRun {
+		slog.Debug("Dry run mode - would update firewall rules")
 		return nil
 	}
 
 	// Clear old rules with our marker
+	slog.Debug("Clearing old IPv4 firewall rules")
 	clearCmd := `iptables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | while read rule; do iptables $rule 2>/dev/null; done`
 	exec.Command("bash", "-c", clearCmd).Run()
 
 	// Also clear ip6tables rules
+	slog.Debug("Clearing old IPv6 firewall rules")
 	clearCmd6 := `ip6tables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | while read rule; do ip6tables $rule 2>/dev/null; done`
 	exec.Command("bash", "-c", clearCmd6).Run()
 
 	totalIPs := 0
 	for _, domain := range domains {
+		slog.Debug("Processing domain for firewall blocking", "domain", domain)
+		
 		// Resolve and block IPv4 addresses
 		ips := resolveIPs(domain, "A")
+		slog.Debug("Resolved IPv4 addresses", "domain", domain, "ips", ips)
+		
 		for _, ip := range ips {
 			cmd := exec.Command("iptables", "-I", "OUTPUT", "-d", ip,
 				"-j", "REJECT", "--reject-with", "icmp-host-unreachable",
@@ -946,11 +1041,16 @@ func updateFirewall(domains []string, dryRun bool) error {
 
 			if err := cmd.Run(); err == nil {
 				totalIPs++
+				slog.Debug("Added IPv4 firewall rule", "domain", domain, "ip", ip)
+			} else {
+				slog.Debug("Failed to add IPv4 firewall rule", "domain", domain, "ip", ip, "error", err)
 			}
 		}
 
 		// Resolve and block IPv6 addresses
 		ips6 := resolveIPs(domain, "AAAA")
+		slog.Debug("Resolved IPv6 addresses", "domain", domain, "ips", ips6)
+		
 		for _, ip := range ips6 {
 			cmd := exec.Command("ip6tables", "-I", "OUTPUT", "-d", ip,
 				"-j", "REJECT", "--reject-with", "icmp6-adm-prohibited",
@@ -958,10 +1058,14 @@ func updateFirewall(domains []string, dryRun bool) error {
 
 			if err := cmd.Run(); err == nil {
 				totalIPs++
+				slog.Debug("Added IPv6 firewall rule", "domain", domain, "ip", ip)
+			} else {
+				slog.Debug("Failed to add IPv6 firewall rule", "domain", domain, "ip", ip, "error", err)
 			}
 		}
 	}
 
+	slog.Debug("Firewall update completed", "total_ips_blocked", totalIPs)
 	return nil
 }
 
@@ -1300,6 +1404,8 @@ func updateChecksum(filePath string) {
 }
 
 func unblockHostsFromFlag(config *Config, hostsStr string) {
+	slog.Debug("Starting temporary unblock process", "hosts_string", hostsStr)
+	
 	hosts := strings.Split(hostsStr, ",")
 	var validHosts []string
 
@@ -1308,12 +1414,16 @@ func unblockHostsFromFlag(config *Config, hostsStr string) {
 		host = strings.TrimSpace(host)
 		if host != "" {
 			validHosts = append(validHosts, host)
+			slog.Debug("Added valid host for unblocking", "host", host)
 		}
 	}
 
 	if len(validHosts) == 0 {
+		slog.Debug("No valid hosts provided for unblocking")
 		log.Fatal("No valid hosts provided")
 	}
+
+	slog.Debug("Valid hosts for unblocking", "count", len(validHosts), "hosts", validHosts)
 
 	fmt.Println("MINDFUL UNBLOCK PROCESS")
 	fmt.Println()
@@ -1328,6 +1438,7 @@ func unblockHostsFromFlag(config *Config, hostsStr string) {
 	}
 
 	expiresAt := time.Now().Add(time.Duration(unblockDuration) * time.Minute)
+	slog.Debug("Temporary unblock configuration", "duration_minutes", unblockDuration, "expires_at", expiresAt.Format("2006-01-02 15:04:05"))
 
 	log.Printf("Temporarily unblocking %d hosts for %d minutes: %v", len(validHosts), unblockDuration, validHosts)
 
@@ -1337,6 +1448,7 @@ func unblockHostsFromFlag(config *Config, hostsStr string) {
 			Domain:    host,
 			ExpiresAt: expiresAt,
 		})
+		slog.Debug("Added host to temporary unblock list", "host", host, "expires_at", expiresAt.Format("2006-01-02 15:04:05"))
 	}
 
 	// Send accountability email
@@ -1394,6 +1506,8 @@ func unblockHostsFromFlag(config *Config, hostsStr string) {
 }
 
 func blockHostsFromFlag(config *Config, hostsStr string) {
+	slog.Debug("Starting permanent block process", "hosts_string", hostsStr)
+	
 	hosts := strings.Split(hostsStr, ",")
 	var validHosts []string
 
@@ -1402,22 +1516,28 @@ func blockHostsFromFlag(config *Config, hostsStr string) {
 		host = strings.TrimSpace(host)
 		if host != "" {
 			validHosts = append(validHosts, host)
+			slog.Debug("Added valid host for blocking", "host", host)
 		}
 	}
 
 	if len(validHosts) == 0 {
+		slog.Debug("No valid hosts provided for blocking")
 		log.Fatal("No valid hosts provided")
 	}
 
+	slog.Debug("Valid hosts for blocking", "count", len(validHosts), "hosts", validHosts)
 	log.Printf("Adding %d hosts to always block list: %v", len(validHosts), validHosts)
 
 	// Add hosts to config as always blocked domains
 	for _, host := range validHosts {
+		slog.Debug("Processing host for permanent blocking", "host", host)
+		
 		// Check if domain already exists
 		found := false
 		for i, domain := range config.Domains {
 			if domain.Name == host {
 				// Update existing domain to always block
+				slog.Debug("Found existing domain, updating to always block", "host", host, "was_always_block", domain.AlwaysBlock)
 				config.Domains[i].AlwaysBlock = true
 				config.Domains[i].TimeWindows = nil // Clear time windows since it's always blocked
 				found = true
@@ -1433,6 +1553,7 @@ func blockHostsFromFlag(config *Config, hostsStr string) {
 				AlwaysBlock: true,
 			}
 			config.Domains = append(config.Domains, newDomain)
+			slog.Debug("Added new domain to always block", "host", host)
 			log.Printf("Added new domain %s to always block", host)
 		}
 	}

@@ -116,7 +116,7 @@ func setupLogging(config *Config) {
 }
 
 func main() {
-	dryRun := flag.Bool("dry-run", false, "Show what would be done without making changes")
+	status := flag.Bool("status", false, "Show current status and configuration")
 	enforce := flag.Bool("enforce", false, "Run enforcement loop (runs continuously)")
 	once := flag.Bool("once", false, "Run enforcement once and exit")
 	install := flag.Bool("install", false, "Install Glocker")
@@ -184,10 +184,8 @@ func main() {
 		return
 	}
 
-	if *dryRun {
-		log.Println("=== DRY RUN MODE ===")
-		printConfig(&config)
-		runOnce(&config, true)
+	if *status {
+		handleStatusCommand(&config)
 		return
 	}
 
@@ -295,23 +293,35 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 		}
 
 		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 {
-			conn.Write([]byte("ERROR: Invalid format. Use 'action:domains'\n"))
+		if len(parts) < 1 {
+			conn.Write([]byte("ERROR: Invalid format\n"))
 			continue
 		}
 
 		action := strings.TrimSpace(parts[0])
-		domains := strings.TrimSpace(parts[1])
 
 		switch action {
+		case "status":
+			response := getStatusResponse(config)
+			conn.Write([]byte(response))
 		case "unblock":
+			if len(parts) != 2 {
+				conn.Write([]byte("ERROR: Invalid format. Use 'unblock:domains'\n"))
+				continue
+			}
+			domains := strings.TrimSpace(parts[1])
 			processUnblockRequest(config, domains)
 			conn.Write([]byte("OK: Unblock request processed\n"))
 		case "block":
+			if len(parts) != 2 {
+				conn.Write([]byte("ERROR: Invalid format. Use 'block:domains'\n"))
+				continue
+			}
+			domains := strings.TrimSpace(parts[1])
 			processBlockRequest(config, domains)
 			conn.Write([]byte("OK: Block request processed\n"))
 		default:
-			conn.Write([]byte("ERROR: Unknown action. Use 'block' or 'unblock'\n"))
+			conn.Write([]byte("ERROR: Unknown action. Use 'block', 'unblock', or 'status'\n"))
 		}
 	}
 }
@@ -1682,7 +1692,13 @@ func sendSocketMessage(action, domains string) {
 	}
 	defer conn.Close()
 
-	message := fmt.Sprintf("%s:%s\n", action, domains)
+	var message string
+	if domains != "" {
+		message = fmt.Sprintf("%s:%s\n", action, domains)
+	} else {
+		message = fmt.Sprintf("%s\n", action)
+	}
+	
 	_, err = conn.Write([]byte(message))
 	if err != nil {
 		log.Fatalf("Failed to send message: %v", err)
@@ -1695,6 +1711,104 @@ func sendSocketMessage(action, domains string) {
 	}
 
 	log.Printf("Response: %s", strings.TrimSpace(response))
+}
+
+func handleStatusCommand(config *Config) {
+	// Check if socket exists and is accessible
+	if _, err := os.Stat(GLOCKER_SOCK); err == nil {
+		// Socket exists, try to connect and get live status
+		conn, err := net.Dial("unix", GLOCKER_SOCK)
+		if err == nil {
+			defer conn.Close()
+			
+			log.Println("=== LIVE STATUS ===")
+			
+			// Send status request
+			conn.Write([]byte("status\n"))
+			
+			// Read response
+			scanner := bufio.NewScanner(conn)
+			for scanner.Scan() {
+				fmt.Println(scanner.Text())
+			}
+			return
+		}
+	}
+	
+	// Socket not available, fall back to static status
+	log.Println("=== STATIC STATUS ===")
+	log.Println("(Service not running - showing configuration only)")
+	printConfig(config)
+	runOnce(config, true)
+}
+
+func getStatusResponse(config *Config) string {
+	var response strings.Builder
+	now := time.Now()
+	
+	response.WriteString("╔════════════════════════════════════════════════╗\n")
+	response.WriteString("║                 LIVE STATUS                    ║\n")
+	response.WriteString("╚════════════════════════════════════════════════╝\n")
+	response.WriteString("\n")
+	
+	response.WriteString(fmt.Sprintf("Current Time: %s\n", now.Format("2006-01-02 15:04:05")))
+	response.WriteString(fmt.Sprintf("Service Status: Running\n"))
+	response.WriteString(fmt.Sprintf("Enforcement Interval: %d seconds\n", config.EnforceInterval))
+	response.WriteString("\n")
+	
+	// Get currently blocked domains
+	blockedDomains := getDomainsToBlock(config, now)
+	response.WriteString(fmt.Sprintf("Currently Blocked Domains: %d\n", len(blockedDomains)))
+	
+	// Show temporary unblocks
+	activeUnblocks := 0
+	for _, unblock := range tempUnblocks {
+		if now.Before(unblock.ExpiresAt) {
+			activeUnblocks++
+		}
+	}
+	response.WriteString(fmt.Sprintf("Temporary Unblocks: %d active\n", activeUnblocks))
+	
+	if activeUnblocks > 0 {
+		response.WriteString("  Active temporary unblocks:\n")
+		for _, unblock := range tempUnblocks {
+			if now.Before(unblock.ExpiresAt) {
+				remaining := unblock.ExpiresAt.Sub(now)
+				response.WriteString(fmt.Sprintf("    - %s (expires in %v)\n", unblock.Domain, remaining.Round(time.Minute)))
+			}
+		}
+	}
+	response.WriteString("\n")
+	
+	// Configuration summary
+	response.WriteString("Configuration:\n")
+	response.WriteString(fmt.Sprintf("  Hosts File Management: %v\n", config.EnableHosts))
+	response.WriteString(fmt.Sprintf("  Firewall Management: %v\n", config.EnableFirewall))
+	response.WriteString(fmt.Sprintf("  Sudoers Management: %v\n", config.Sudoers.Enabled))
+	response.WriteString(fmt.Sprintf("  Tamper Detection: %v\n", config.TamperDetection.Enabled))
+	response.WriteString(fmt.Sprintf("  Accountability: %v\n", config.Accountability.Enabled))
+	response.WriteString("\n")
+	
+	// Count domains by type
+	alwaysBlockCount := 0
+	timeBasedCount := 0
+	loggedCount := 0
+	for _, domain := range config.Domains {
+		if domain.AlwaysBlock {
+			alwaysBlockCount++
+		} else {
+			timeBasedCount++
+		}
+		if domain.LogBlocking {
+			loggedCount++
+		}
+	}
+	
+	response.WriteString(fmt.Sprintf("Total Domains: %d (%d always blocked, %d time-based, %d with detailed logging)\n",
+		len(config.Domains), alwaysBlockCount, timeBasedCount, loggedCount))
+	
+	response.WriteString("END\n")
+	return response.String()
 }
 
 func printConfig(config *Config) {

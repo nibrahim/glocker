@@ -1421,6 +1421,13 @@ func blockHostsFromFlag(config *Config, hostsStr string) {
 	// Apply the blocking immediately
 	log.Println("Applying blocks...")
 	runOnce(config, false)
+	
+	// Update checksum for hosts file after legitimate changes
+	if globalConfig != nil {
+		updateChecksum(config.HostsPath)
+		log.Println("Updated checksum for hosts file after blocking new domains")
+	}
+	
 	log.Println("Hosts have been blocked successfully!")
 }
 

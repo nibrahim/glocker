@@ -369,10 +369,7 @@ func uninstallGlocker(config *Config) {
 	log.Println("╚════════════════════════════════════════════════╝")
 	log.Println()
 
-	fmt.Println("📝 MINDFUL UNINSTALL PROCESS")
-	fmt.Println()
-	fmt.Println("To proceed with uninstallation, please type the following quote")
-	fmt.Println("EXACTLY as shown (including punctuation and capitalization):")
+	fmt.Println("MINDFUL UNINSTALL PROCESS")
 	fmt.Println()
 
 	// Perform mindful delay
@@ -1304,12 +1301,7 @@ func unblockHostsFromFlag(config *Config, hostsStr string) {
 		log.Fatal("No valid hosts provided")
 	}
 
-	fmt.Println("🔓 MINDFUL UNBLOCK PROCESS")
-	fmt.Println()
-	fmt.Printf("You are requesting to temporarily unblock: %s\n", strings.Join(validHosts, ", "))
-	fmt.Println()
-	fmt.Println("To proceed with temporary unblocking, please type the following quote")
-	fmt.Println("EXACTLY as shown (including punctuation and capitalization):")
+	fmt.Println("MINDFUL UNBLOCK PROCESS")
 	fmt.Println()
 
 	// Mindful unblock process

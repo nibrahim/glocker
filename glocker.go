@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -204,8 +203,8 @@ func main() {
 		log.Println("Starting enforcement loop...")
 		log.Printf("Enforcement interval: %d seconds", config.EnforceInterval)
 
-		// Set up signal handling for temporary unblocks
-		setupSignalHandling(&config)
+		// Set up communication channel for block/unblock requests
+		setupCommunication(&config)
 
 		// Start tamper detection in background if enabled
 		if config.TamperDetection.Enabled {
@@ -250,60 +249,51 @@ func main() {
 
 }
 
-func setupSignalHandling(config *Config) {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGUSR1, syscall.SIGUSR2)
+func setupCommunication(config *Config) {
+	// Create named pipes
+	unblockPipe := "/tmp/glocker_unblock"
+	blockPipe := "/tmp/glocker_block"
+	
+	// Remove existing pipes if they exist
+	os.Remove(unblockPipe)
+	os.Remove(blockPipe)
+	
+	// Create the named pipes
+	syscall.Mkfifo(unblockPipe, 0600)
+	syscall.Mkfifo(blockPipe, 0600)
+	
+	// Start goroutines to listen on pipes
+	go listenOnPipe(config, unblockPipe, "unblock")
+	go listenOnPipe(config, blockPipe, "block")
+}
 
-	go func() {
-		for sig := range c {
-			switch sig {
-			case syscall.SIGUSR1:
-				// Read unblock request from a file
-				handleUnblockSignal(config)
-			case syscall.SIGUSR2:
-				// Read block request from a file
-				handleBlockSignal(config)
+func listenOnPipe(config *Config, pipePath string, action string) {
+	for {
+		// Open pipe for reading (blocks until writer connects)
+		file, err := os.OpenFile(pipePath, os.O_RDONLY, 0600)
+		if err != nil {
+			log.Printf("Error opening pipe %s: %v", pipePath, err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		
+		// Read the message
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			message := strings.TrimSpace(scanner.Text())
+			if message != "" {
+				log.Printf("Received %s request: %s", action, message)
+				
+				if action == "unblock" {
+					processUnblockRequest(config, message)
+				} else if action == "block" {
+					processBlockRequest(config, message)
+				}
 			}
 		}
-	}()
-}
-
-func handleUnblockSignal(config *Config) {
-	// Read unblock request from /tmp/glocker_unblock_request
-	data, err := os.ReadFile("/tmp/glocker_unblock_request")
-	if err != nil {
-		return
+		
+		file.Close()
 	}
-
-	hostsStr := strings.TrimSpace(string(data))
-	if hostsStr == "" {
-		return
-	}
-
-	// Process the unblock request
-	processUnblockRequest(config, hostsStr)
-
-	// Clean up the request file
-	os.Remove("/tmp/glocker_unblock_request")
-}
-
-func handleBlockSignal(config *Config) {
-	// Read block request from /tmp/glocker_block_request
-	data, err := os.ReadFile("/tmp/glocker_block_request")
-	if err != nil {
-		return
-	}
-
-	hostsStr := strings.TrimSpace(string(data))
-	if hostsStr == "" {
-		return
-	}
-
-	// Process the block request
-	processBlockRequest(config, hostsStr)
-
-	// Clean up the request file
-	os.Remove("/tmp/glocker_block_request")
 }
 
 func processUnblockRequest(config *Config, hostsStr string) {
@@ -1592,36 +1582,42 @@ func updateChecksum(filePath string) {
 }
 
 func unblockHostsFromFlag(config *Config, hostsStr string) {
-	// Write the request to a file
-	err := os.WriteFile("/tmp/glocker_unblock_request", []byte(hostsStr), 0600)
+	pipePath := "/tmp/glocker_unblock"
+	
+	// Open pipe for writing
+	file, err := os.OpenFile(pipePath, os.O_WRONLY, 0600)
 	if err != nil {
-		log.Fatalf("Failed to write unblock request: %v", err)
+		log.Fatalf("Failed to open unblock pipe. Is glocker service running? %v", err)
 	}
-
-	// Find the running glocker process and send SIGUSR1
-	cmd := exec.Command("pkill", "-SIGUSR1", "-f", "glocker.*-enforce")
-	if err := cmd.Run(); err != nil {
-		log.Fatalf("Failed to signal running glocker process. Is glocker service running?")
+	defer file.Close()
+	
+	// Send the message
+	_, err = file.WriteString(hostsStr + "\n")
+	if err != nil {
+		log.Fatalf("Failed to write to unblock pipe: %v", err)
 	}
-
-	log.Printf("Sent unblock request to running glocker service: %s", hostsStr)
+	
+	log.Printf("Sent unblock request: %s", hostsStr)
 	log.Println("Domains will be temporarily unblocked and automatically re-blocked after the configured time.")
 }
 
 func blockHostsFromFlag(config *Config, hostsStr string) {
-	// Write the request to a file
-	err := os.WriteFile("/tmp/glocker_block_request", []byte(hostsStr), 0600)
+	pipePath := "/tmp/glocker_block"
+	
+	// Open pipe for writing
+	file, err := os.OpenFile(pipePath, os.O_WRONLY, 0600)
 	if err != nil {
-		log.Fatalf("Failed to write block request: %v", err)
+		log.Fatalf("Failed to open block pipe. Is glocker service running? %v", err)
 	}
-
-	// Find the running glocker process and send SIGUSR2
-	cmd := exec.Command("pkill", "-SIGUSR2", "-f", "glocker.*-enforce")
-	if err := cmd.Run(); err != nil {
-		log.Fatalf("Failed to signal running glocker process. Is glocker service running?")
+	defer file.Close()
+	
+	// Send the message
+	_, err = file.WriteString(hostsStr + "\n")
+	if err != nil {
+		log.Fatalf("Failed to write to block pipe: %v", err)
 	}
-
-	log.Printf("Sent block request to running glocker service: %s", hostsStr)
+	
+	log.Printf("Sent block request: %s", hostsStr)
 	log.Println("Domains will be permanently blocked.")
 }
 

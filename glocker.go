@@ -375,6 +375,20 @@ func uninstallGlocker(config *Config) {
 	// Perform mindful delay
 	mindfulDelay(config)
 
+	// Send accountability email
+	if config.Accountability.Enabled {
+		subject := "GLOCKER ALERT: Uninstallation Requested"
+		body := fmt.Sprintf("Glocker uninstallation was requested and approved at %s.\n\n", time.Now().Format("2006-01-02 15:04:05"))
+		body += "All protections will be removed and original settings restored.\n\n"
+		body += "This is an automated alert from Glocker."
+
+		if err := sendEmail(config, subject, body); err != nil {
+			log.Printf("Failed to send accountability email: %v", err)
+		} else {
+			log.Println("Accountability email sent")
+		}
+	}
+
 	// Stop and disable service
 	exec.Command("systemctl", "stop", "glocker.service").Run()
 	exec.Command("systemctl", "disable", "glocker.service").Run()

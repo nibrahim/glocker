@@ -458,7 +458,7 @@ func runOnce(config *Config, dryRun bool) {
 	cleanupExpiredUnblocks(now)
 
 	blockedDomains := getDomainsToBlock(config, now)
-	slog.Debug("Domains to block determined", "count", len(blockedDomains), "domains", blockedDomains)
+	slog.Debug("Domains to block determined", "count", len(blockedDomains))
 
 	// Self-healing: verify our own integrity
 	if config.SelfHeal && !dryRun {

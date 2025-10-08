@@ -288,7 +288,16 @@ func installGlocker(config *Config) {
 
 	// Set setuid bit (4755 = rwsr-xr-x)
 	if err := os.Chmod(INSTALL_PATH, 0o4755); err != nil {
-		log.Printf("Warning: couldn't set setuid bit: %v", err)
+		log.Fatalf("Failed to set setuid bit: %v", err)
+	}
+
+	// Verify setuid bit was set correctly
+	if info, err := os.Stat(INSTALL_PATH); err == nil {
+		mode := info.Mode()
+		if mode&os.ModeSetuid == 0 {
+			log.Fatalf("Setuid bit was not set correctly. Current mode: %o", mode.Perm())
+		}
+		log.Printf("✓ Setuid bit set correctly. Mode: %o", mode.Perm())
 	}
 
 	// Set immutable on the installed binary

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -250,49 +251,66 @@ func main() {
 }
 
 func setupCommunication(config *Config) {
-	// Create named pipes
-	unblockPipe := "/tmp/glocker_unblock"
-	blockPipe := "/tmp/glocker_block"
+	socketPath := "/tmp/glocker.sock"
 	
-	// Remove existing pipes if they exist
-	os.Remove(unblockPipe)
-	os.Remove(blockPipe)
+	// Remove existing socket
+	os.Remove(socketPath)
 	
-	// Create the named pipes
-	syscall.Mkfifo(unblockPipe, 0600)
-	syscall.Mkfifo(blockPipe, 0600)
+	// Create Unix domain socket
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		log.Fatalf("Failed to create socket: %v", err)
+	}
 	
-	// Start goroutines to listen on pipes
-	go listenOnPipe(config, unblockPipe, "unblock")
-	go listenOnPipe(config, blockPipe, "block")
+	// Set permissions
+	os.Chmod(socketPath, 0600)
+	
+	go handleSocketConnections(config, listener)
 }
 
-func listenOnPipe(config *Config, pipePath string, action string) {
+func handleSocketConnections(config *Config, listener net.Listener) {
+	defer listener.Close()
+	
 	for {
-		// Open pipe for reading (blocks until writer connects)
-		file, err := os.OpenFile(pipePath, os.O_RDONLY, 0600)
+		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("Error opening pipe %s: %v", pipePath, err)
-			time.Sleep(1 * time.Second)
+			log.Printf("Socket accept error: %v", err)
 			continue
 		}
 		
-		// Read the message
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			message := strings.TrimSpace(scanner.Text())
-			if message != "" {
-				log.Printf("Received %s request: %s", action, message)
-				
-				if action == "unblock" {
-					processUnblockRequest(config, message)
-				} else if action == "block" {
-					processBlockRequest(config, message)
-				}
-			}
+		go handleSocketConnection(config, conn)
+	}
+}
+
+func handleSocketConnection(config *Config, conn net.Conn) {
+	defer conn.Close()
+	
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
 		}
 		
-		file.Close()
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			conn.Write([]byte("ERROR: Invalid format. Use 'action:domains'\n"))
+			continue
+		}
+		
+		action := strings.TrimSpace(parts[0])
+		domains := strings.TrimSpace(parts[1])
+		
+		switch action {
+		case "unblock":
+			processUnblockRequest(config, domains)
+			conn.Write([]byte("OK: Unblock request processed\n"))
+		case "block":
+			processBlockRequest(config, domains)
+			conn.Write([]byte("OK: Block request processed\n"))
+		default:
+			conn.Write([]byte("ERROR: Unknown action. Use 'block' or 'unblock'\n"))
+		}
 	}
 }
 
@@ -1582,43 +1600,35 @@ func updateChecksum(filePath string) {
 }
 
 func unblockHostsFromFlag(config *Config, hostsStr string) {
-	pipePath := "/tmp/glocker_unblock"
-	
-	// Open pipe for writing
-	file, err := os.OpenFile(pipePath, os.O_WRONLY, 0600)
-	if err != nil {
-		log.Fatalf("Failed to open unblock pipe. Is glocker service running? %v", err)
-	}
-	defer file.Close()
-	
-	// Send the message
-	_, err = file.WriteString(hostsStr + "\n")
-	if err != nil {
-		log.Fatalf("Failed to write to unblock pipe: %v", err)
-	}
-	
-	log.Printf("Sent unblock request: %s", hostsStr)
+	sendSocketMessage("unblock", hostsStr)
 	log.Println("Domains will be temporarily unblocked and automatically re-blocked after the configured time.")
 }
 
 func blockHostsFromFlag(config *Config, hostsStr string) {
-	pipePath := "/tmp/glocker_block"
-	
-	// Open pipe for writing
-	file, err := os.OpenFile(pipePath, os.O_WRONLY, 0600)
-	if err != nil {
-		log.Fatalf("Failed to open block pipe. Is glocker service running? %v", err)
-	}
-	defer file.Close()
-	
-	// Send the message
-	_, err = file.WriteString(hostsStr + "\n")
-	if err != nil {
-		log.Fatalf("Failed to write to block pipe: %v", err)
-	}
-	
-	log.Printf("Sent block request: %s", hostsStr)
+	sendSocketMessage("block", hostsStr)
 	log.Println("Domains will be permanently blocked.")
+}
+
+func sendSocketMessage(action, domains string) {
+	conn, err := net.Dial("unix", "/tmp/glocker.sock")
+	if err != nil {
+		log.Fatalf("Failed to connect to glocker service: %v", err)
+	}
+	defer conn.Close()
+	
+	message := fmt.Sprintf("%s:%s\n", action, domains)
+	_, err = conn.Write([]byte(message))
+	if err != nil {
+		log.Fatalf("Failed to send message: %v", err)
+	}
+	
+	// Read response
+	response, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		log.Fatalf("Failed to read response: %v", err)
+	}
+	
+	log.Printf("Response: %s", strings.TrimSpace(response))
 }
 
 func printConfig(config *Config) {

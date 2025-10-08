@@ -46,6 +46,7 @@ type Domain struct {
 	Name        string       `yaml:"name"`
 	AlwaysBlock bool         `yaml:"always_block"`
 	TimeWindows []TimeWindow `yaml:"time_windows,omitempty"`
+	LogBlocking bool         `yaml:"log_blocking,omitempty"`
 }
 
 type SudoersConfig struct {
@@ -326,7 +327,6 @@ func processUnblockRequest(config *Config, hostsStr string) {
 		host = strings.TrimSpace(host)
 		if host != "" {
 			validHosts = append(validHosts, host)
-			slog.Debug("Added valid host for unblocking", "host", host)
 		}
 	}
 
@@ -344,6 +344,7 @@ func processUnblockRequest(config *Config, hostsStr string) {
 	expiresAt := time.Now().Add(time.Duration(unblockDuration) * time.Minute)
 	slog.Debug("Temporary unblock configuration", "duration_minutes", unblockDuration, "expires_at", expiresAt.Format("2006-01-02 15:04:05"))
 
+	// Log all unblocked hosts since these are manual actions
 	log.Printf("Temporarily unblocking %d hosts for %d minutes: %v", len(validHosts), unblockDuration, validHosts)
 
 	// Add to temporary unblock list
@@ -352,6 +353,7 @@ func processUnblockRequest(config *Config, hostsStr string) {
 			Domain:    host,
 			ExpiresAt: expiresAt,
 		})
+		// Log each host being unblocked since it's a manual action
 		slog.Debug("Added host to temporary unblock list", "host", host, "expires_at", expiresAt.Format("2006-01-02 15:04:05"))
 	}
 
@@ -415,6 +417,7 @@ func processBlockRequest(config *Config, hostsStr string) {
 				slog.Debug("Found existing domain, updating to always block", "host", host, "was_always_block", domain.AlwaysBlock)
 				config.Domains[i].AlwaysBlock = true
 				config.Domains[i].TimeWindows = nil // Clear time windows since it's always blocked
+				config.Domains[i].LogBlocking = true // Enable logging for manually blocked domains
 				found = true
 				log.Printf("Updated existing domain %s to always block", host)
 				break
@@ -426,6 +429,7 @@ func processBlockRequest(config *Config, hostsStr string) {
 			newDomain := Domain{
 				Name:        host,
 				AlwaysBlock: true,
+				LogBlocking: true, // Enable logging for manually blocked domains
 			}
 			config.Domains = append(config.Domains, newDomain)
 			slog.Debug("Added new domain to always block", "host", host)
@@ -1047,50 +1051,87 @@ func createSudoersBackup() error {
 
 func getDomainsToBlock(config *Config, now time.Time) []string {
 	var blocked []string
+	var loggedBlocked []string
 	currentDay := now.Weekday().String()[:3] // Mon, Tue, etc.
 	currentTime := now.Format("15:04")
+
+	alwaysBlockCount := 0
+	timeBasedBlockCount := 0
+	tempUnblockedCount := 0
 
 	slog.Debug("Evaluating domains for blocking", "current_day", currentDay, "current_time", currentTime, "total_domains", len(config.Domains))
 
 	for _, domain := range config.Domains {
-		slog.Debug("Evaluating domain", "domain", domain.Name, "always_block", domain.AlwaysBlock)
+		if domain.LogBlocking {
+			slog.Debug("Evaluating domain", "domain", domain.Name, "always_block", domain.AlwaysBlock)
+		}
 
 		// Check if domain is temporarily unblocked
 		if isTempUnblocked(domain.Name, now) {
-			slog.Debug("Domain is temporarily unblocked", "domain", domain.Name)
+			tempUnblockedCount++
+			if domain.LogBlocking {
+				slog.Debug("Domain is temporarily unblocked", "domain", domain.Name)
+			}
 			continue
 		}
 
 		if domain.AlwaysBlock {
-			slog.Debug("Domain marked for always block", "domain", domain.Name)
+			alwaysBlockCount++
 			blocked = append(blocked, domain.Name)
+			if domain.LogBlocking {
+				slog.Debug("Domain marked for always block", "domain", domain.Name)
+				loggedBlocked = append(loggedBlocked, domain.Name)
+			}
 			continue
 		}
 
 		// Check time windows
 		domainBlocked := false
 		for _, window := range domain.TimeWindows {
-			slog.Debug("Checking time window", "domain", domain.Name, "window_days", window.Days, "window_start", window.Start, "window_end", window.End)
+			if domain.LogBlocking {
+				slog.Debug("Checking time window", "domain", domain.Name, "window_days", window.Days, "window_start", window.Start, "window_end", window.End)
+			}
 
 			if !slices.Contains(window.Days, currentDay) {
-				slog.Debug("Current day not in window", "domain", domain.Name, "current_day", currentDay)
+				if domain.LogBlocking {
+					slog.Debug("Current day not in window", "domain", domain.Name, "current_day", currentDay)
+				}
 				continue
 			}
 
 			if isInTimeWindow(currentTime, window.Start, window.End) {
-				slog.Debug("Domain blocked by time window", "domain", domain.Name, "window", fmt.Sprintf("%s-%s", window.Start, window.End))
+				timeBasedBlockCount++
 				blocked = append(blocked, domain.Name)
 				domainBlocked = true
+				if domain.LogBlocking {
+					slog.Debug("Domain blocked by time window", "domain", domain.Name, "window", fmt.Sprintf("%s-%s", window.Start, window.End))
+					loggedBlocked = append(loggedBlocked, domain.Name)
+				}
 				break
 			}
 		}
 
-		if !domainBlocked && len(domain.TimeWindows) > 0 {
+		if !domainBlocked && len(domain.TimeWindows) > 0 && domain.LogBlocking {
 			slog.Debug("Domain not blocked by any time window", "domain", domain.Name)
 		}
 	}
 
-	slog.Debug("Domain blocking evaluation complete", "blocked_count", len(blocked), "blocked_domains", blocked)
+	// Log summary with counts and detailed domains only for those marked for logging
+	if len(loggedBlocked) > 0 {
+		slog.Debug("Domain blocking evaluation complete", 
+			"total_blocked", len(blocked),
+			"always_block_count", alwaysBlockCount,
+			"time_based_block_count", timeBasedBlockCount,
+			"temp_unblocked_count", tempUnblockedCount,
+			"logged_blocked_domains", loggedBlocked)
+	} else {
+		slog.Debug("Domain blocking evaluation complete", 
+			"total_blocked", len(blocked),
+			"always_block_count", alwaysBlockCount,
+			"time_based_block_count", timeBasedBlockCount,
+			"temp_unblocked_count", tempUnblockedCount)
+	}
+
 	return blocked
 }
 
@@ -1098,9 +1139,11 @@ func isTempUnblocked(domain string, now time.Time) bool {
 	for _, unblock := range tempUnblocks {
 		if unblock.Domain == domain {
 			if now.Before(unblock.ExpiresAt) {
+				// Always log temporary unblocks since they're manual actions
 				slog.Debug("Domain is temporarily unblocked", "domain", domain, "expires_at", unblock.ExpiresAt.Format("2006-01-02 15:04:05"))
 				return true
 			} else {
+				// Always log when temporary unblocks expire since they're manual actions
 				slog.Debug("Domain temporary unblock has expired", "domain", domain, "expired_at", unblock.ExpiresAt.Format("2006-01-02 15:04:05"))
 			}
 		}

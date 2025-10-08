@@ -123,6 +123,10 @@ func main() {
 		if !runningAsRoot() {
 			log.Fatal("Program should run as root for uninstallation.")
 		}
+		// Check if glocker is actually installed
+		if _, err := os.Stat(INSTALL_PATH); os.IsNotExist(err) {
+			log.Fatal("Glocker is not installed. Nothing to uninstall.")
+		}
 		uninstallGlocker(&config)
 		return
 	}

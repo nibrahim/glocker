@@ -33,6 +33,7 @@ const (
 	SUDOERS_BACKUP     = "/etc/sudoers.glocker.backup"
 	SUDOERS_MARKER     = "# GLOCKER-MANAGED"
 	SYSTEMD_FILE       = "./extras/glocker.service"
+	GLOCKER_SOCK       = "/tmp/glocker.sock"
 )
 
 type TimeWindow struct {
@@ -251,56 +252,56 @@ func main() {
 }
 
 func setupCommunication(config *Config) {
-	socketPath := "/tmp/glocker.sock"
-	
+	socketPath := GLOCKER_SOCK
+
 	// Remove existing socket
 	os.Remove(socketPath)
-	
+
 	// Create Unix domain socket
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		log.Fatalf("Failed to create socket: %v", err)
 	}
-	
+
 	// Set permissions
 	os.Chmod(socketPath, 0600)
-	
+
 	go handleSocketConnections(config, listener)
 }
 
 func handleSocketConnections(config *Config, listener net.Listener) {
 	defer listener.Close()
-	
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Printf("Socket accept error: %v", err)
 			continue
 		}
-		
+
 		go handleSocketConnection(config, conn)
 	}
 }
 
 func handleSocketConnection(config *Config, conn net.Conn) {
 	defer conn.Close()
-	
+
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		
+
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
 			conn.Write([]byte("ERROR: Invalid format. Use 'action:domains'\n"))
 			continue
 		}
-		
+
 		action := strings.TrimSpace(parts[0])
 		domains := strings.TrimSpace(parts[1])
-		
+
 		switch action {
 		case "unblock":
 			processUnblockRequest(config, domains)
@@ -1615,19 +1616,19 @@ func sendSocketMessage(action, domains string) {
 		log.Fatalf("Failed to connect to glocker service: %v", err)
 	}
 	defer conn.Close()
-	
+
 	message := fmt.Sprintf("%s:%s\n", action, domains)
 	_, err = conn.Write([]byte(message))
 	if err != nil {
 		log.Fatalf("Failed to send message: %v", err)
 	}
-	
+
 	// Read response
 	response, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil {
 		log.Fatalf("Failed to read response: %v", err)
 	}
-	
+
 	log.Printf("Response: %s", strings.TrimSpace(response))
 }
 

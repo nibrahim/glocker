@@ -87,6 +87,7 @@ func main() {
 	once := flag.Bool("once", false, "Run enforcement once and exit")
 	install := flag.Bool("install", false, "Install Glocker")
 	uninstall := flag.Bool("uninstall", false, "Uninstall Glocker and revert all changes")
+	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
 	flag.Parse()
 
 	// Parse embedded config
@@ -121,6 +122,14 @@ func main() {
 			log.Fatal("Program should run as root for uninstallation.")
 		}
 		uninstallGlocker(&config)
+		return
+	}
+
+	if *blockHosts != "" {
+		if !runningAsRoot() {
+			log.Fatal("Program should run as root for blocking hosts.")
+		}
+		blockHostsFromFlag(&config, *blockHosts)
 		return
 	}
 
@@ -1214,6 +1223,56 @@ func updateChecksum(filePath string) {
 	newChecksum := captureChecksum(globalConfig, filePath)
 	globalChecksums[fileIndex] = newChecksum
 	log.Printf("Updated checksum for %s: %s", filePath, newChecksum.Checksum)
+}
+
+func blockHostsFromFlag(config *Config, hostsStr string) {
+	hosts := strings.Split(hostsStr, ",")
+	var validHosts []string
+	
+	// Clean and validate hosts
+	for _, host := range hosts {
+		host = strings.TrimSpace(host)
+		if host != "" {
+			validHosts = append(validHosts, host)
+		}
+	}
+	
+	if len(validHosts) == 0 {
+		log.Fatal("No valid hosts provided")
+	}
+	
+	log.Printf("Adding %d hosts to always block list: %v", len(validHosts), validHosts)
+	
+	// Add hosts to config as always blocked domains
+	for _, host := range validHosts {
+		// Check if domain already exists
+		found := false
+		for i, domain := range config.Domains {
+			if domain.Name == host {
+				// Update existing domain to always block
+				config.Domains[i].AlwaysBlock = true
+				config.Domains[i].TimeWindows = nil // Clear time windows since it's always blocked
+				found = true
+				log.Printf("Updated existing domain %s to always block", host)
+				break
+			}
+		}
+		
+		if !found {
+			// Add new domain
+			newDomain := Domain{
+				Name:        host,
+				AlwaysBlock: true,
+			}
+			config.Domains = append(config.Domains, newDomain)
+			log.Printf("Added new domain %s to always block", host)
+		}
+	}
+	
+	// Apply the blocking immediately
+	log.Println("Applying blocks...")
+	runOnce(config, false)
+	log.Println("Hosts have been blocked successfully!")
 }
 
 func sendEmail(config *Config, subject, body string) error {

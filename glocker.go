@@ -1028,11 +1028,17 @@ type FileChecksum struct {
 	Exists   bool
 }
 
+type TempUnblock struct {
+	Domain    string
+	ExpiresAt time.Time
+}
+
 // Global variables for tamper detection
 var (
-	globalChecksums    []FileChecksum
+	globalChecksums      []FileChecksum
 	globalFilesToMonitor []string
-	globalConfig       *Config
+	globalConfig         *Config
+	tempUnblocks         []TempUnblock
 )
 
 func (f FileChecksum) String() string {

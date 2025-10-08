@@ -147,7 +147,25 @@ func main() {
 
 		// Start tamper detection in background if enabled
 		if config.TamperDetection.Enabled {
-			go monitorTampering(&config)
+			// Capture initial checksums before starting monitoring
+			filesToMonitor := []string{
+				INSTALL_PATH,
+				config.HostsPath,
+				SUDOERS_PATH,
+				"/etc/systemd/system/glocker.service",
+			}
+		
+			var initialChecksums []FileChecksum
+			for _, filePath := range filesToMonitor {
+				checksum := captureChecksum(&config, filePath)
+				initialChecksums = append(initialChecksums, checksum)
+			}
+			log.Println("Initial checksums:")
+			for _, c := range initialChecksums {
+				log.Println(c)
+			}
+		
+			go monitorTampering(&config, initialChecksums, filesToMonitor)
 		}
 
 		// Initial enforcement
@@ -970,31 +988,13 @@ func (f FileChecksum) String() string {
 	return fmt.Sprintf("Path : %s, Checksum : %s, Exists : %v", f.Path, f.Checksum, f.Exists)
 }
 
-func monitorTampering(config *Config) {
+func monitorTampering(config *Config, checksums []FileChecksum, filesToMonitor []string) {
 	// Set default check interval if not specified
 	checkInterval := config.TamperDetection.CheckInterval
 	if checkInterval == 0 {
 		checkInterval = 30 // Default: check every 30 seconds
 	}
 
-	// Files to monitor
-	filesToMonitor := []string{
-		INSTALL_PATH,
-		config.HostsPath,
-		SUDOERS_PATH,
-		"/etc/systemd/system/glocker.service",
-	}
-
-	// Initial checksums
-	var checksums []FileChecksum
-	for _, filePath := range filesToMonitor {
-		checksum := captureChecksum(config, filePath)
-		checksums = append(checksums, checksum)
-	}
-	log.Println("Checksums:")
-	for _, c := range checksums {
-		log.Println(c)
-	}
 	firewallRuleCount := countFirewallRules()
 
 	ticker := time.NewTicker(time.Duration(checkInterval) * time.Second)

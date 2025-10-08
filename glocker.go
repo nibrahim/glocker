@@ -1217,7 +1217,14 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 			fmt.Sprintf("::1 www.%s", domain),
 		}
 		blockSection = append(blockSection, entries...)
-		slog.Debug("Added domain to block section", "domain", domain, "entries", len(entries))
+		
+		// Only log if this domain has logging enabled
+		for _, configDomain := range config.Domains {
+			if configDomain.Name == domain && configDomain.LogBlocking {
+				slog.Debug("Added domain to block section", "domain", domain, "entries", len(entries))
+				break
+			}
+		}
 	}
 	blockSection = append(blockSection, HOSTS_MARKER_END)
 	slog.Debug("Created new glocker block", "total_lines", len(blockSection))

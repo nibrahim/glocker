@@ -1746,6 +1746,12 @@ func sendEmail(config *Config, subject, body string) error {
 		return nil
 	}
 
+	// Skip sending emails in dev mode
+	if config.Dev {
+		log.Printf("DEV MODE: Skipping email send - Subject: %s, Body: %s", subject, body)
+		return nil
+	}
+
 	from := config.Accountability.FromEmail
 	to := config.Accountability.PartnerEmail
 	apiKey := config.Accountability.ApiKey

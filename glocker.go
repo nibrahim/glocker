@@ -1116,21 +1116,13 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 		}
 	}
 
-	// Log summary with counts and detailed domains only for those marked for logging
-	if len(loggedBlocked) > 0 {
-		slog.Debug("Domain blocking evaluation complete", 
-			"total_blocked", len(blocked),
-			"always_block_count", alwaysBlockCount,
-			"time_based_block_count", timeBasedBlockCount,
-			"temp_unblocked_count", tempUnblockedCount,
-			"logged_blocked_domains", loggedBlocked)
-	} else {
-		slog.Debug("Domain blocking evaluation complete", 
-			"total_blocked", len(blocked),
-			"always_block_count", alwaysBlockCount,
-			"time_based_block_count", timeBasedBlockCount,
-			"temp_unblocked_count", tempUnblockedCount)
-	}
+	// Log summary with counts only
+	slog.Debug("Domain blocking evaluation complete", 
+		"total_blocked", len(blocked),
+		"always_block_count", alwaysBlockCount,
+		"time_based_block_count", timeBasedBlockCount,
+		"temp_unblocked_count", tempUnblockedCount,
+		"logged_domains_count", len(loggedBlocked))
 
 	return blocked
 }

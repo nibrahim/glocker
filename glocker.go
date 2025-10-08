@@ -977,8 +977,24 @@ func monitorTampering(config *Config) {
 		checkInterval = 30 // Default: check every 30 seconds
 	}
 
+	// Files to monitor
+	filesToMonitor := []string{
+		INSTALL_PATH,
+		config.HostsPath,
+		SUDOERS_PATH,
+		"/etc/systemd/system/glocker.service",
+	}
+
 	// Initial checksums
-	checksums := captureChecksums(config)
+	var checksums []FileChecksum
+	for _, filePath := range filesToMonitor {
+		checksum := captureChecksum(config, filePath)
+		checksums = append(checksums, checksum)
+	}
+	log.Println("Checksums:")
+	for _, c := range checksums {
+		log.Println(c)
+	}
 	firewallRuleCount := countFirewallRules()
 
 	ticker := time.NewTicker(time.Duration(checkInterval) * time.Second)
@@ -990,7 +1006,11 @@ func monitorTampering(config *Config) {
 		var tamperReasons []string
 
 		// Check file checksums
-		currentChecksums := captureChecksums(config)
+		var currentChecksums []FileChecksum
+		for _, filePath := range filesToMonitor {
+			checksum := captureChecksum(config, filePath)
+			currentChecksums = append(currentChecksums, checksum)
+		}
 		for i, current := range currentChecksums {
 			original := checksums[i]
 
@@ -1027,7 +1047,11 @@ func monitorTampering(config *Config) {
 			log.Println(tamperReasons)
 			raiseAlarm(config, tamperReasons)
 			// Update baseline checksums after alarm
-			checksums = captureChecksums(config)
+			checksums = nil
+			for _, filePath := range filesToMonitor {
+				checksum := captureChecksum(config, filePath)
+				checksums = append(checksums, checksum)
+			}
 			firewallRuleCount = countFirewallRules()
 		}
 
@@ -1035,50 +1059,32 @@ func monitorTampering(config *Config) {
 
 }
 
-func captureChecksums(config *Config) []FileChecksum {
-	var checksums []FileChecksum
+func captureChecksum(config *Config, path string) FileChecksum {
+	checksum := FileChecksum{Path: path}
 
-	// Files to monitor
-	filesToMonitor := []string{
-		INSTALL_PATH,
-		config.HostsPath,
-		SUDOERS_PATH,
-		"/etc/systemd/system/glocker.service",
-	}
-
-	for _, path := range filesToMonitor {
-		checksum := FileChecksum{Path: path}
-
-		// Check if file exists
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			checksum.Exists = false
+	// Check if file exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		checksum.Exists = false
+	} else {
+		checksum.Exists = true
+		
+		// For hosts file, only checksum the GLOCKER section
+		if path == config.HostsPath {
+			if data, err := os.ReadFile(path); err == nil {
+				glockerSection := extractGlockerSection(string(data))
+				hash := sha256.Sum256([]byte(glockerSection))
+				checksum.Checksum = fmt.Sprintf("%x", hash)
+			}
 		} else {
-			checksum.Exists = true
-			
-			// For hosts file, only checksum the GLOCKER section
-			if path == config.HostsPath {
-				if data, err := os.ReadFile(path); err == nil {
-					glockerSection := extractGlockerSection(string(data))
-					hash := sha256.Sum256([]byte(glockerSection))
-					checksum.Checksum = fmt.Sprintf("%x", hash)
-				}
-			} else {
-				// Calculate SHA256 checksum for other files
-				if data, err := os.ReadFile(path); err == nil {
-					hash := sha256.Sum256(data)
-					checksum.Checksum = fmt.Sprintf("%x", hash)
-				}
+			// Calculate SHA256 checksum for other files
+			if data, err := os.ReadFile(path); err == nil {
+				hash := sha256.Sum256(data)
+				checksum.Checksum = fmt.Sprintf("%x", hash)
 			}
 		}
-
-		checksums = append(checksums, checksum)
-	}
-	log.Println("Checksums:")
-	for _, c := range checksums {
-		log.Println(c)
 	}
 
-	return checksums
+	return checksum
 }
 
 func countFirewallRules() int {

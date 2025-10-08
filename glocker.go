@@ -33,6 +33,7 @@ const (
 	SUDOERS_BACKUP     = "/etc/sudoers.glocker.backup"
 	SUDOERS_MARKER     = "# GLOCKER-MANAGED"
 	SYSTEMD_FILE       = "./extras/glocker.service"
+	NAMED_PIPE_PATH    = "/tmp/glocker.pipe"
 )
 
 type TimeWindow struct {
@@ -266,6 +267,9 @@ func setupCommunication(config *Config) {
 	os.Chmod(socketPath, 0600)
 	
 	go handleSocketConnections(config, listener)
+	
+	// Setup named pipe
+	setupNamedPipe()
 }
 
 func handleSocketConnections(config *Config, listener net.Listener) {
@@ -1693,6 +1697,48 @@ func printConfig(config *Config) {
 	}
 
 	fmt.Println()
+}
+
+func setupNamedPipe() {
+	// Remove existing pipe if it exists
+	os.Remove(NAMED_PIPE_PATH)
+	
+	// Create named pipe (FIFO)
+	err := syscall.Mkfifo(NAMED_PIPE_PATH, 0600)
+	if err != nil {
+		log.Fatalf("Failed to create named pipe: %v", err)
+	}
+	
+	log.Printf("Created named pipe at %s", NAMED_PIPE_PATH)
+	
+	// Start goroutine to listen for messages
+	go listenOnNamedPipe()
+}
+
+func listenOnNamedPipe() {
+	for {
+		// Open the named pipe for reading
+		file, err := os.OpenFile(NAMED_PIPE_PATH, os.O_RDONLY, 0600)
+		if err != nil {
+			log.Printf("Failed to open named pipe: %v", err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		
+		// Read from the pipe
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			message := scanner.Text()
+			if message != "" {
+				fmt.Printf("received message %s\n", message)
+			}
+		}
+		
+		file.Close()
+		
+		// If we reach here, the writer closed the pipe
+		// We'll loop back and reopen it for the next writer
+	}
 }
 
 func sendEmail(config *Config, subject, body string) error {

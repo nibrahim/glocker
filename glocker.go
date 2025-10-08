@@ -69,17 +69,17 @@ type TamperConfig struct {
 }
 
 type Config struct {
-	EnableHosts      bool                 `yaml:"enable_hosts"`
-	EnableFirewall   bool                 `yaml:"enable_firewall"`
-	Domains          []Domain             `yaml:"domains"`
-	HostsPath        string               `yaml:"hosts_path"`
-	SelfHeal         bool                 `yaml:"enable_self_healing"`
-	EnforceInterval  int                  `yaml:"enforce_interval_seconds"`
-	Sudoers          SudoersConfig        `yaml:"sudoers"`
-	TamperDetection  TamperConfig         `yaml:"tamper_detection"`
-	Accountability   AccountabilityConfig `yaml:"accountability"`
-	MindfulDelay     int                  `yaml:"mindful_delay"`
-	TempUnblockTime  int                  `yaml:"temp_unblock_time"`
+	EnableHosts     bool                 `yaml:"enable_hosts"`
+	EnableFirewall  bool                 `yaml:"enable_firewall"`
+	Domains         []Domain             `yaml:"domains"`
+	HostsPath       string               `yaml:"hosts_path"`
+	SelfHeal        bool                 `yaml:"enable_self_healing"`
+	EnforceInterval int                  `yaml:"enforce_interval_seconds"`
+	Sudoers         SudoersConfig        `yaml:"sudoers"`
+	TamperDetection TamperConfig         `yaml:"tamper_detection"`
+	Accountability  AccountabilityConfig `yaml:"accountability"`
+	MindfulDelay    int                  `yaml:"mindful_delay"`
+	TempUnblockTime int                  `yaml:"temp_unblock_time"`
 }
 
 func main() {
@@ -178,7 +178,7 @@ func main() {
 				SUDOERS_PATH,
 				"/etc/systemd/system/glocker.service",
 			}
-		
+
 			var initialChecksums []FileChecksum
 			for _, filePath := range filesToMonitor {
 				checksum := captureChecksum(&config, filePath)
@@ -188,12 +188,12 @@ func main() {
 			for _, c := range initialChecksums {
 				log.Println(c)
 			}
-		
+
 			// Store global references for checksum updates
 			globalChecksums = initialChecksums
 			globalFilesToMonitor = filesToMonitor
 			globalConfig = &config
-		
+
 			go monitorTampering(&config, initialChecksums, filesToMonitor)
 		}
 
@@ -379,14 +379,6 @@ func uninstallGlocker(config *Config) {
 	// Perform mindful delay
 	mindfulDelay(config)
 
-	log.Printf("Waiting %d seconds before proceeding...", config.MindfulDelay)
-	for i := config.MindfulDelay; i > 0; i-- {
-		if i <= 10 || i%5 == 0 {
-			log.Printf("Uninstalling in %d seconds...", i)
-		}
-		time.Sleep(1 * time.Second)
-	}
-
 	// Stop and disable service
 	exec.Command("systemctl", "stop", "glocker.service").Run()
 	exec.Command("systemctl", "disable", "glocker.service").Run()
@@ -478,7 +470,7 @@ func mindfulDelay(config *Config) {
 	fmt.Println("Please type the following quote EXACTLY as shown (including punctuation and capitalization):")
 	fmt.Println()
 	fmt.Println("Quote:")
-	
+
 	// Print quote with two words per line to prevent copy-paste
 	words := strings.Fields(quote)
 	for i := 0; i < len(words); i += 2 {
@@ -488,7 +480,7 @@ func mindfulDelay(config *Config) {
 			fmt.Printf("%s\n", words[i])
 		}
 	}
-	
+
 	fmt.Println()
 	fmt.Print("Type here: ")
 
@@ -503,7 +495,7 @@ func mindfulDelay(config *Config) {
 		fmt.Println("❌ That doesn't match exactly. Please try again.")
 		fmt.Println()
 		fmt.Println("Quote:")
-		
+
 		// Print quote with two words per line to prevent copy-paste
 		words := strings.Fields(quote)
 		for i := 0; i < len(words); i += 2 {
@@ -513,7 +505,7 @@ func mindfulDelay(config *Config) {
 				fmt.Printf("%s\n", words[i])
 			}
 		}
-		
+
 		fmt.Println()
 		fmt.Print("Type here: ")
 		scanner.Scan()
@@ -527,14 +519,14 @@ func mindfulDelay(config *Config) {
 	}
 
 	fmt.Printf("\n✓ Quote verified! Waiting %d seconds before proceeding...\n", delaySeconds)
-	
+
 	for i := delaySeconds; i > 0; i-- {
 		if i <= 10 || i%5 == 0 {
 			fmt.Printf("Proceeding in %d seconds...\n", i)
 		}
 		time.Sleep(1 * time.Second)
 	}
-	
+
 	fmt.Println("✓ Delay complete!")
 }
 
@@ -872,7 +864,7 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 
 	// Reconstruct file content preserving original structure
 	var newContent string
-	
+
 	// Join original content (excluding our block section)
 	if len(newLines) > 0 {
 		// Remove any trailing empty lines from original content
@@ -884,7 +876,7 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 			newContent += "\n"
 		}
 	}
-	
+
 	// Add our block section
 	if len(blockSection) > 0 {
 		if newContent != "" {
@@ -1162,7 +1154,7 @@ func captureChecksum(config *Config, path string) FileChecksum {
 		checksum.Exists = false
 	} else {
 		checksum.Exists = true
-		
+
 		// For hosts file, only checksum the GLOCKER section
 		if path == config.HostsPath {
 			if data, err := os.ReadFile(path); err == nil {
@@ -1246,7 +1238,7 @@ func extractGlockerSection(content string) string {
 	lines := strings.Split(content, "\n")
 	var glockerLines []string
 	inGlockerSection := false
-	
+
 	for _, line := range lines {
 		if strings.Contains(line, HOSTS_MARKER_START) {
 			inGlockerSection = true
@@ -1262,7 +1254,7 @@ func extractGlockerSection(content string) string {
 			glockerLines = append(glockerLines, line)
 		}
 	}
-	
+
 	return strings.Join(glockerLines, "\n")
 }
 
@@ -1271,7 +1263,7 @@ func updateChecksum(filePath string) {
 	if globalConfig == nil || len(globalChecksums) == 0 {
 		return // Tamper detection not initialized
 	}
-	
+
 	// Find the index of the file in our monitoring list
 	fileIndex := -1
 	for i, monitoredFile := range globalFilesToMonitor {
@@ -1280,11 +1272,11 @@ func updateChecksum(filePath string) {
 			break
 		}
 	}
-	
+
 	if fileIndex == -1 {
 		return // File not being monitored
 	}
-	
+
 	// Update the checksum
 	newChecksum := captureChecksum(globalConfig, filePath)
 	globalChecksums[fileIndex] = newChecksum
@@ -1294,7 +1286,7 @@ func updateChecksum(filePath string) {
 func deleteHostsFromFlag(config *Config, hostsStr string) {
 	hosts := strings.Split(hostsStr, ",")
 	var validHosts []string
-	
+
 	// Clean and validate hosts
 	for _, host := range hosts {
 		host = strings.TrimSpace(host)
@@ -1302,11 +1294,11 @@ func deleteHostsFromFlag(config *Config, hostsStr string) {
 			validHosts = append(validHosts, host)
 		}
 	}
-	
+
 	if len(validHosts) == 0 {
 		log.Fatal("No valid hosts provided")
 	}
-	
+
 	fmt.Println("🔓 MINDFUL UNBLOCK PROCESS")
 	fmt.Println()
 	fmt.Printf("You are requesting to temporarily unblock: %s\n", strings.Join(validHosts, ", "))
@@ -1330,17 +1322,17 @@ func deleteHostsFromFlag(config *Config, hostsStr string) {
 		}
 		time.Sleep(1 * time.Second)
 	}
-	
+
 	// Set temporary unblock time (default 30 minutes)
 	unblockDuration := config.TempUnblockTime
 	if unblockDuration == 0 {
 		unblockDuration = 30
 	}
-	
+
 	expiresAt := time.Now().Add(time.Duration(unblockDuration) * time.Minute)
-	
+
 	log.Printf("Temporarily unblocking %d hosts for %d minutes: %v", len(validHosts), unblockDuration, validHosts)
-	
+
 	// Add to temporary unblock list
 	for _, host := range validHosts {
 		tempUnblocks = append(tempUnblocks, TempUnblock{
@@ -1348,7 +1340,7 @@ func deleteHostsFromFlag(config *Config, hostsStr string) {
 			ExpiresAt: expiresAt,
 		})
 	}
-	
+
 	// Send accountability email
 	if config.Accountability.Enabled {
 		subject := "GLOCKER ALERT: Domains Temporarily Unblocked"
@@ -1358,21 +1350,21 @@ func deleteHostsFromFlag(config *Config, hostsStr string) {
 		}
 		body += fmt.Sprintf("\nThey will be automatically re-blocked after %d minutes.\n", unblockDuration)
 		body += "\nThis is an automated alert from Glocker."
-		
+
 		if err := sendEmail(config, subject, body); err != nil {
 			log.Printf("Failed to send accountability email: %v", err)
 		}
 	}
-	
+
 	// Apply the unblocking immediately
 	log.Println("Applying temporary unblocks...")
 	runOnce(config, false)
-	
+
 	// Schedule re-blocking
 	go func() {
 		time.Sleep(time.Duration(unblockDuration) * time.Minute)
 		log.Printf("Re-blocking expired domains: %v", validHosts)
-		
+
 		// Remove from temp unblock list
 		var remaining []TempUnblock
 		for _, unblock := range tempUnblocks {
@@ -1388,20 +1380,19 @@ func deleteHostsFromFlag(config *Config, hostsStr string) {
 			}
 		}
 		tempUnblocks = remaining
-		
+
 		// Re-apply blocking
 		runOnce(config, false)
 		log.Printf("Domains have been re-blocked: %v", validHosts)
 	}()
-	
+
 	log.Printf("Hosts have been temporarily unblocked for %d minutes!", unblockDuration)
 }
-
 
 func blockHostsFromFlag(config *Config, hostsStr string) {
 	hosts := strings.Split(hostsStr, ",")
 	var validHosts []string
-	
+
 	// Clean and validate hosts
 	for _, host := range hosts {
 		host = strings.TrimSpace(host)
@@ -1409,13 +1400,13 @@ func blockHostsFromFlag(config *Config, hostsStr string) {
 			validHosts = append(validHosts, host)
 		}
 	}
-	
+
 	if len(validHosts) == 0 {
 		log.Fatal("No valid hosts provided")
 	}
-	
+
 	log.Printf("Adding %d hosts to always block list: %v", len(validHosts), validHosts)
-	
+
 	// Add hosts to config as always blocked domains
 	for _, host := range validHosts {
 		// Check if domain already exists
@@ -1430,7 +1421,7 @@ func blockHostsFromFlag(config *Config, hostsStr string) {
 				break
 			}
 		}
-		
+
 		if !found {
 			// Add new domain
 			newDomain := Domain{
@@ -1441,7 +1432,7 @@ func blockHostsFromFlag(config *Config, hostsStr string) {
 			log.Printf("Added new domain %s to always block", host)
 		}
 	}
-	
+
 	// Apply the blocking immediately
 	log.Println("Applying blocks...")
 	runOnce(config, false)
@@ -1454,20 +1445,20 @@ func printConfig(config *Config) {
 	fmt.Println("║                 CONFIGURATION                  ║")
 	fmt.Println("╚════════════════════════════════════════════════╝")
 	fmt.Println()
-	
+
 	fmt.Printf("Hosts File Management: %v\n", config.EnableHosts)
 	if config.EnableHosts {
 		fmt.Printf("  Hosts Path: %s\n", config.HostsPath)
 	}
-	
+
 	fmt.Printf("Firewall Management: %v\n", config.EnableFirewall)
 	fmt.Printf("Self Healing: %v\n", config.SelfHeal)
 	fmt.Printf("Enforcement Interval: %d seconds\n", config.EnforceInterval)
 	fmt.Printf("Mindful Delay: %d seconds\n", config.MindfulDelay)
 	fmt.Printf("Temp Unblock Time: %d minutes\n", config.TempUnblockTime)
-	
+
 	fmt.Println()
-	
+
 	// Count domains by type
 	alwaysBlockCount := 0
 	timeBasedCount := 0
@@ -1478,10 +1469,10 @@ func printConfig(config *Config) {
 			timeBasedCount++
 		}
 	}
-	
-	fmt.Printf("Domains: %d total (%d always blocked, %d time-based)\n", 
+
+	fmt.Printf("Domains: %d total (%d always blocked, %d time-based)\n",
 		len(config.Domains), alwaysBlockCount, timeBasedCount)
-	
+
 	fmt.Println()
 	fmt.Printf("Sudoers Management: %v\n", config.Sudoers.Enabled)
 	if config.Sudoers.Enabled {
@@ -1490,14 +1481,14 @@ func printConfig(config *Config) {
 		fmt.Printf("  Blocked Line: %s\n", config.Sudoers.BlockedSudoersLine)
 		fmt.Printf("  Time Windows: %d configured\n", len(config.Sudoers.TimeAllowed))
 	}
-	
+
 	fmt.Println()
 	fmt.Printf("Tamper Detection: %v\n", config.TamperDetection.Enabled)
 	if config.TamperDetection.Enabled {
 		fmt.Printf("  Check Interval: %d seconds\n", config.TamperDetection.CheckInterval)
 		fmt.Printf("  Alarm Command: %s\n", config.TamperDetection.AlarmCommand)
 	}
-	
+
 	fmt.Println()
 	fmt.Printf("Accountability: %v\n", config.Accountability.Enabled)
 	if config.Accountability.Enabled {
@@ -1508,7 +1499,7 @@ func printConfig(config *Config) {
 			fmt.Printf("  Daily Report Time: %s\n", config.Accountability.DailyReportTime)
 		}
 	}
-	
+
 	fmt.Println()
 }
 

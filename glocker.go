@@ -1729,7 +1729,11 @@ func handleStatusCommand(config *Config) {
 			// Read response
 			scanner := bufio.NewScanner(conn)
 			for scanner.Scan() {
-				fmt.Println(scanner.Text())
+				line := scanner.Text()
+				if line == "END" {
+					break
+				}
+				fmt.Println(line)
 			}
 			return
 		}

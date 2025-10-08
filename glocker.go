@@ -280,41 +280,13 @@ func installGlocker(config *Config) {
 	if err := copyFile(exePath, INSTALL_PATH); err != nil {
 		log.Fatalf("Failed to copy binary: %v", err)
 	}
-
 	// Set ownership to root:root
 	if err := os.Chown(INSTALL_PATH, 0, 0); err != nil {
-		log.Printf("Warning: couldn't set ownership to root: %v", err)
+		log.Fatalf("Warning: couldn't set ownership to root: %v", err)
 	}
-
 	// Set setuid bit (4755 = rwsr-xr-x)
-	if err := os.Chmod(INSTALL_PATH, 0o4755); err != nil {
+	if err := os.Chmod(INSTALL_PATH, 0o755|os.ModeSetuid|os.ModeSetgid); err != nil {
 		log.Fatalf("Failed to set setuid bit: %v", err)
-	}
-
-	// Verify setuid bit was set correctly
-	if info, err := os.Stat(INSTALL_PATH); err == nil {
-		mode := info.Mode()
-		if mode&os.ModeSetuid == 0 {
-			log.Printf("WARNING: Setuid bit was not set correctly. Current mode: %o", mode.Perm())
-			log.Printf("This may be due to filesystem restrictions (noexec, nosuid mount options)")
-			log.Printf("Trying alternative approach with chmod command...")
-			
-			// Try using chmod command directly
-			if err := exec.Command("chmod", "4755", INSTALL_PATH).Run(); err != nil {
-				log.Fatalf("Failed to set setuid bit with chmod command: %v", err)
-			}
-			
-			// Verify again
-			if info2, err2 := os.Stat(INSTALL_PATH); err2 == nil {
-				mode2 := info2.Mode()
-				if mode2&os.ModeSetuid == 0 {
-					log.Fatalf("Setuid bit still not set after chmod. Filesystem may not support setuid. Current mode: %o", mode2.Perm())
-				}
-				log.Printf("✓ Setuid bit set correctly with chmod. Mode: %o", mode2.Perm())
-			}
-		} else {
-			log.Printf("✓ Setuid bit set correctly. Mode: %o", mode.Perm())
-		}
 	}
 
 	// Set immutable on the installed binary
@@ -1335,19 +1307,6 @@ func deleteHostsFromFlag(config *Config, hostsStr string) {
 
 	// Mindful unblock process
 	mindfulDelay(config)
-
-	delaySeconds := config.MindfulDelay
-	if delaySeconds == 0 {
-		delaySeconds = 30
-	}
-
-	log.Printf("Waiting %d seconds before proceeding with unblock...", delaySeconds)
-	for i := delaySeconds; i > 0; i-- {
-		if i <= 10 || i%5 == 0 {
-			log.Printf("Unblocking in %d seconds...", i)
-		}
-		time.Sleep(1 * time.Second)
-	}
 
 	// Set temporary unblock time (default 30 minutes)
 	unblockDuration := config.TempUnblockTime

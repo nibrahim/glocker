@@ -69,16 +69,17 @@ type TamperConfig struct {
 }
 
 type Config struct {
-	EnableHosts     bool                 `yaml:"enable_hosts"`
-	EnableFirewall  bool                 `yaml:"enable_firewall"`
-	Domains         []Domain             `yaml:"domains"`
-	HostsPath       string               `yaml:"hosts_path"`
-	SelfHeal        bool                 `yaml:"enable_self_healing"`
-	EnforceInterval int                  `yaml:"enforce_interval_seconds"`
-	Sudoers         SudoersConfig        `yaml:"sudoers"`
-	TamperDetection TamperConfig         `yaml:"tamper_detection"`
-	Accountability  AccountabilityConfig `yaml:"accountability"`
-	MindfulDelay    int                  `yaml:"mindful_delay"`
+	EnableHosts      bool                 `yaml:"enable_hosts"`
+	EnableFirewall   bool                 `yaml:"enable_firewall"`
+	Domains          []Domain             `yaml:"domains"`
+	HostsPath        string               `yaml:"hosts_path"`
+	SelfHeal         bool                 `yaml:"enable_self_healing"`
+	EnforceInterval  int                  `yaml:"enforce_interval_seconds"`
+	Sudoers          SudoersConfig        `yaml:"sudoers"`
+	TamperDetection  TamperConfig         `yaml:"tamper_detection"`
+	Accountability   AccountabilityConfig `yaml:"accountability"`
+	MindfulDelay     int                  `yaml:"mindful_delay"`
+	TempUnblockTime  int                  `yaml:"temp_unblock_time"`
 }
 
 func main() {
@@ -88,6 +89,7 @@ func main() {
 	install := flag.Bool("install", false, "Install Glocker")
 	uninstall := flag.Bool("uninstall", false, "Uninstall Glocker and revert all changes")
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
+	deleteHosts := flag.String("delete", "", "Comma-separated list of hosts to temporarily unblock")
 	flag.Parse()
 
 	// Parse embedded config
@@ -130,6 +132,14 @@ func main() {
 			log.Fatal("Program should run as root for blocking hosts.")
 		}
 		blockHostsFromFlag(&config, *blockHosts)
+		return
+	}
+
+	if *deleteHosts != "" {
+		if !runningAsRoot() {
+			log.Fatal("Program should run as root for unblocking hosts.")
+		}
+		deleteHostsFromFlag(&config, *deleteHosts)
 		return
 	}
 
@@ -749,6 +759,11 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 	currentTime := now.Format("15:04")
 
 	for _, domain := range config.Domains {
+		// Check if domain is temporarily unblocked
+		if isTempUnblocked(domain.Name, now) {
+			continue
+		}
+
 		if domain.AlwaysBlock {
 			blocked = append(blocked, domain.Name)
 			continue
@@ -768,6 +783,15 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 	}
 
 	return blocked
+}
+
+func isTempUnblocked(domain string, now time.Time) bool {
+	for _, unblock := range tempUnblocks {
+		if unblock.Domain == domain && now.Before(unblock.ExpiresAt) {
+			return true
+		}
+	}
+	return false
 }
 
 func updateHosts(config *Config, domains []string, dryRun bool) error {
@@ -1223,6 +1247,163 @@ func updateChecksum(filePath string) {
 	newChecksum := captureChecksum(globalConfig, filePath)
 	globalChecksums[fileIndex] = newChecksum
 	log.Printf("Updated checksum for %s: %s", filePath, newChecksum.Checksum)
+}
+
+func deleteHostsFromFlag(config *Config, hostsStr string) {
+	hosts := strings.Split(hostsStr, ",")
+	var validHosts []string
+	
+	// Clean and validate hosts
+	for _, host := range hosts {
+		host = strings.TrimSpace(host)
+		if host != "" {
+			validHosts = append(validHosts, host)
+		}
+	}
+	
+	if len(validHosts) == 0 {
+		log.Fatal("No valid hosts provided")
+	}
+	
+	// Mindful unblock process
+	mindfulUnblock(config, validHosts)
+	
+	// Set temporary unblock time (default 30 minutes)
+	unblockDuration := config.TempUnblockTime
+	if unblockDuration == 0 {
+		unblockDuration = 30
+	}
+	
+	expiresAt := time.Now().Add(time.Duration(unblockDuration) * time.Minute)
+	
+	log.Printf("Temporarily unblocking %d hosts for %d minutes: %v", len(validHosts), unblockDuration, validHosts)
+	
+	// Add to temporary unblock list
+	for _, host := range validHosts {
+		tempUnblocks = append(tempUnblocks, TempUnblock{
+			Domain:    host,
+			ExpiresAt: expiresAt,
+		})
+	}
+	
+	// Send accountability email
+	if config.Accountability.Enabled {
+		subject := "GLOCKER ALERT: Domains Temporarily Unblocked"
+		body := fmt.Sprintf("The following domains were temporarily unblocked at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
+		for _, host := range validHosts {
+			body += fmt.Sprintf("  - %s (expires at %s)\n", host, expiresAt.Format("2006-01-02 15:04:05"))
+		}
+		body += fmt.Sprintf("\nThey will be automatically re-blocked after %d minutes.\n", unblockDuration)
+		body += "\nThis is an automated alert from Glocker."
+		
+		if err := sendEmail(config, subject, body); err != nil {
+			log.Printf("Failed to send accountability email: %v", err)
+		}
+	}
+	
+	// Apply the unblocking immediately
+	log.Println("Applying temporary unblocks...")
+	runOnce(config, false)
+	
+	// Schedule re-blocking
+	go func() {
+		time.Sleep(time.Duration(unblockDuration) * time.Minute)
+		log.Printf("Re-blocking expired domains: %v", validHosts)
+		
+		// Remove from temp unblock list
+		var remaining []TempUnblock
+		for _, unblock := range tempUnblocks {
+			found := false
+			for _, host := range validHosts {
+				if unblock.Domain == host {
+					found = true
+					break
+				}
+			}
+			if !found {
+				remaining = append(remaining, unblock)
+			}
+		}
+		tempUnblocks = remaining
+		
+		// Re-apply blocking
+		runOnce(config, false)
+		log.Printf("Domains have been re-blocked: %v", validHosts)
+	}()
+	
+	log.Printf("Hosts have been temporarily unblocked for %d minutes!", unblockDuration)
+}
+
+func mindfulUnblock(config *Config, hosts []string) {
+	// Sherlock Holmes quotes for mindful typing
+	quotes := []string{
+		"The game is afoot.",
+		"Elementary, my dear Watson.",
+		"When you have eliminated the impossible, whatever remains, however improbable, must be the truth.",
+		"I never guess. It is a capital mistake to theorize before one has data.",
+		"You see, but you do not observe.",
+		"The world is full of obvious things which nobody by any chance ever observes.",
+		"There is nothing more deceptive than an obvious fact.",
+		"I am not the law, but I represent justice so far as my feeble powers go.",
+		"My mind rebels at stagnation. Give me problems, give me work, give me the most abstruse cryptogram.",
+		"The little things are infinitely the most important.",
+		"Violence does, in truth, recoil upon the violent, and the schemer falls into the pit which he digs for another.",
+		"Education never ends, Watson. It is a series of lessons, with the greatest for the last.",
+		"There is nothing new under the sun. It has all been done before.",
+		"Work is the best antidote to sorrow, my dear Watson.",
+		"The temptation to form premature theories upon insufficient data is the bane of our profession.",
+		"Art in the blood is liable to take the strangest forms.",
+		"Mediocrity knows nothing higher than itself; but talent instantly recognizes genius.",
+		"A man should keep his little brain attic stocked with all the furniture that he is likely to use.",
+	}
+
+	// Select a random quote
+	quote := quotes[time.Now().Unix()%int64(len(quotes))]
+
+	fmt.Println("🔓 MINDFUL UNBLOCK PROCESS")
+	fmt.Println()
+	fmt.Printf("You are requesting to temporarily unblock: %s\n", strings.Join(hosts, ", "))
+	fmt.Println()
+	fmt.Println("To proceed with temporary unblocking, please type the following Sherlock Holmes quote")
+	fmt.Println("EXACTLY as shown (including punctuation and capitalization):")
+	fmt.Println()
+	fmt.Println("Quote:")
+	fmt.Printf("\"%s\"\n", quote)
+	fmt.Println()
+	fmt.Print("Type here: ")
+
+	// Read user input
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	input := scanner.Text()
+
+	// Keep asking until they get it right
+	for input != quote {
+		fmt.Println()
+		fmt.Println("❌ That doesn't match exactly. Please try again.")
+		fmt.Println()
+		fmt.Println("Quote:")
+		fmt.Printf("\"%s\"\n", quote)
+		fmt.Println()
+		fmt.Print("Type here: ")
+		scanner.Scan()
+		input = scanner.Text()
+	}
+
+	// Get delay from config (default to 30 seconds if not set)
+	delaySeconds := config.MindfulDelay
+	if delaySeconds == 0 {
+		delaySeconds = 30
+	}
+
+	log.Printf("Waiting %d seconds before proceeding with unblock...", delaySeconds)
+
+	for i := delaySeconds; i > 0; i-- {
+		if i <= 10 || i%5 == 0 {
+			log.Printf("Unblocking in %d seconds...", i)
+		}
+		time.Sleep(1 * time.Second)
+	}
 }
 
 func blockHostsFromFlag(config *Config, hostsStr string) {

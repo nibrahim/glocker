@@ -20,6 +20,9 @@ hosts_path: "/etc/hosts"
 # Mindful delay for uninstall (seconds)
 mindful_delay: 60
 
+# Temporary unblock time (minutes) - how long domains stay unblocked after -delete
+temp_unblock_time: 30
+
 # Disable sudoers
 sudoers:
   enabled: true

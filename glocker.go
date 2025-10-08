@@ -423,7 +423,7 @@ func uninstallGlocker(config *Config) {
 func mindfulDelay(config *Config) {
 	// Skip mindful delay in dev mode
 	if config.Dev {
-		fmt.Println("⚡ DEV MODE: Skipping mindful delay")
+		fmt.Println("DEV MODE: Skipping mindful delay")
 		return
 	}
 

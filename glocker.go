@@ -526,9 +526,16 @@ func mindfulDelay(config *Config) {
 		delaySeconds = 30
 	}
 
+	fmt.Printf("\n✓ Quote verified! Waiting %d seconds before proceeding...\n", delaySeconds)
+	
 	for i := delaySeconds; i > 0; i-- {
+		if i <= 10 || i%5 == 0 {
+			fmt.Printf("Proceeding in %d seconds...\n", i)
+		}
 		time.Sleep(1 * time.Second)
 	}
+	
+	fmt.Println("✓ Delay complete!")
 }
 
 func cleanupHostsFile(config *Config) error {

@@ -89,7 +89,7 @@ func main() {
 	install := flag.Bool("install", false, "Install Glocker")
 	uninstall := flag.Bool("uninstall", false, "Uninstall Glocker and revert all changes")
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
-	deleteHosts := flag.String("delete", "", "Comma-separated list of hosts to temporarily unblock")
+	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock")
 	flag.Parse()
 
 	// Parse embedded config
@@ -139,11 +139,11 @@ func main() {
 		return
 	}
 
-	if *deleteHosts != "" {
+	if *unblockHosts != "" {
 		if !runningAsRoot() {
 			log.Fatal("Program should run as root for unblocking hosts.")
 		}
-		deleteHostsFromFlag(&config, *deleteHosts)
+		unblockHostsFromFlag(&config, *unblockHosts)
 		return
 	}
 
@@ -1281,7 +1281,7 @@ func updateChecksum(filePath string) {
 	log.Printf("Updated checksum for %s: %s", filePath, newChecksum.Checksum)
 }
 
-func deleteHostsFromFlag(config *Config, hostsStr string) {
+func unblockHostsFromFlag(config *Config, hostsStr string) {
 	hosts := strings.Split(hostsStr, ",")
 	var validHosts []string
 
@@ -1344,6 +1344,12 @@ func deleteHostsFromFlag(config *Config, hostsStr string) {
 	// Apply the unblocking immediately
 	log.Println("Applying temporary unblocks...")
 	runOnce(config, false)
+	
+	// Update checksum for hosts file after legitimate changes
+	if globalConfig != nil {
+		updateChecksum(config.HostsPath)
+		log.Println("Updated checksum for hosts file after unblocking domains")
+	}
 
 	// Schedule re-blocking
 	go func() {

@@ -165,6 +165,11 @@ func main() {
 				log.Println(c)
 			}
 		
+			// Store global references for checksum updates
+			globalChecksums = initialChecksums
+			globalFilesToMonitor = filesToMonitor
+			globalConfig = &config
+		
 			go monitorTampering(&config, initialChecksums, filesToMonitor)
 		}
 
@@ -684,6 +689,9 @@ func updateSudoers(config *Config, now time.Time, dryRun bool) error {
 	// Ensure correct permissions
 	os.Chmod(SUDOERS_PATH, 0440)
 
+	// Update checksum after legitimate change
+	updateChecksum(SUDOERS_PATH)
+
 	return nil
 }
 
@@ -830,6 +838,9 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 
 	// Set immutable flag
 	exec.Command("chattr", "+i", hostsPath).Run()
+
+	// Update checksum after legitimate change
+	updateChecksum(hostsPath)
 
 	return nil
 }
@@ -984,6 +995,13 @@ type FileChecksum struct {
 	Exists   bool
 }
 
+// Global variables for tamper detection
+var (
+	globalChecksums    []FileChecksum
+	globalFilesToMonitor []string
+	globalConfig       *Config
+)
+
 func (f FileChecksum) String() string {
 	return fmt.Sprintf("Path : %s, Checksum : %s, Exists : %v", f.Path, f.Checksum, f.Exists)
 }
@@ -1052,6 +1070,8 @@ func monitorTampering(config *Config, checksums []FileChecksum, filesToMonitor [
 				checksum := captureChecksum(config, filePath)
 				checksums = append(checksums, checksum)
 			}
+			// Also update global checksums
+			globalChecksums = checksums
 			firewallRuleCount = countFirewallRules()
 		}
 
@@ -1169,6 +1189,31 @@ func extractGlockerSection(content string) string {
 	}
 	
 	return strings.Join(glockerLines, "\n")
+}
+
+// updateChecksum updates the checksum for a specific file in the global checksums
+func updateChecksum(filePath string) {
+	if globalConfig == nil || len(globalChecksums) == 0 {
+		return // Tamper detection not initialized
+	}
+	
+	// Find the index of the file in our monitoring list
+	fileIndex := -1
+	for i, monitoredFile := range globalFilesToMonitor {
+		if monitoredFile == filePath {
+			fileIndex = i
+			break
+		}
+	}
+	
+	if fileIndex == -1 {
+		return // File not being monitored
+	}
+	
+	// Update the checksum
+	newChecksum := captureChecksum(globalConfig, filePath)
+	globalChecksums[fileIndex] = newChecksum
+	log.Printf("Updated checksum for %s: %s", filePath, newChecksum.Checksum)
 }
 
 func sendEmail(config *Config, subject, body string) error {

@@ -10,7 +10,8 @@ build:
 
 install: build
 	@sudo cp $(BINARY_NAME) $(INSTALL_PATH)
-	@sudo chmod +x $(INSTALL_PATH)
+	@sudo chown root:root $(INSTALL_PATH)
+	@sudo chmod 4755 $(INSTALL_PATH)
 	@sudo $(INSTALL_PATH) -install
 	@sudo cp extras/$(SERVICE_FILE) $(SERVICE_PATH)
 	@sudo systemctl daemon-reload

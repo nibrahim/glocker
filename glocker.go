@@ -1464,68 +1464,67 @@ func blockHostsFromFlag(config *Config, hostsStr string) {
 }
 
 func printConfig(config *Config) {
-	log.Println()
-	log.Println("╔════════════════════════════════════════════════╗")
-	log.Println("║                 CONFIGURATION                  ║")
-	log.Println("╚════════════════════════════════════════════════╝")
-	log.Println()
+	fmt.Println()
+	fmt.Println("╔════════════════════════════════════════════════╗")
+	fmt.Println("║                 CONFIGURATION                  ║")
+	fmt.Println("╚════════════════════════════════════════════════╝")
+	fmt.Println()
 	
-	log.Printf("Hosts File Management: %v", config.EnableHosts)
+	fmt.Printf("Hosts File Management: %v\n", config.EnableHosts)
 	if config.EnableHosts {
-		log.Printf("  Hosts Path: %s", config.HostsPath)
+		fmt.Printf("  Hosts Path: %s\n", config.HostsPath)
 	}
 	
-	log.Printf("Firewall Management: %v", config.EnableFirewall)
-	log.Printf("Self Healing: %v", config.SelfHeal)
-	log.Printf("Enforcement Interval: %d seconds", config.EnforceInterval)
-	log.Printf("Mindful Delay: %d seconds", config.MindfulDelay)
-	log.Printf("Temp Unblock Time: %d minutes", config.TempUnblockTime)
+	fmt.Printf("Firewall Management: %v\n", config.EnableFirewall)
+	fmt.Printf("Self Healing: %v\n", config.SelfHeal)
+	fmt.Printf("Enforcement Interval: %d seconds\n", config.EnforceInterval)
+	fmt.Printf("Mindful Delay: %d seconds\n", config.MindfulDelay)
+	fmt.Printf("Temp Unblock Time: %d minutes\n", config.TempUnblockTime)
 	
-	log.Println()
-	log.Printf("Domains (%d configured):", len(config.Domains))
-	for i, domain := range config.Domains {
-		log.Printf("  %d. %s", i+1, domain.Name)
+	fmt.Println()
+	
+	// Count domains by type
+	alwaysBlockCount := 0
+	timeBasedCount := 0
+	for _, domain := range config.Domains {
 		if domain.AlwaysBlock {
-			log.Printf("     Always blocked")
+			alwaysBlockCount++
 		} else {
-			log.Printf("     Time-based blocking (%d windows):", len(domain.TimeWindows))
-			for j, window := range domain.TimeWindows {
-				log.Printf("       %d. %s - %s on %v", j+1, window.Start, window.End, window.Days)
-			}
+			timeBasedCount++
 		}
 	}
 	
-	log.Println()
-	log.Printf("Sudoers Management: %v", config.Sudoers.Enabled)
+	fmt.Printf("Domains: %d total (%d always blocked, %d time-based)\n", 
+		len(config.Domains), alwaysBlockCount, timeBasedCount)
+	
+	fmt.Println()
+	fmt.Printf("Sudoers Management: %v\n", config.Sudoers.Enabled)
 	if config.Sudoers.Enabled {
-		log.Printf("  User: %s", config.Sudoers.User)
-		log.Printf("  Allowed Line: %s", config.Sudoers.AllowedSudoersLine)
-		log.Printf("  Blocked Line: %s", config.Sudoers.BlockedSudoersLine)
-		log.Printf("  Time Windows (%d configured):", len(config.Sudoers.TimeAllowed))
-		for i, window := range config.Sudoers.TimeAllowed {
-			log.Printf("    %d. %s - %s on %v", i+1, window.Start, window.End, window.Days)
-		}
+		fmt.Printf("  User: %s\n", config.Sudoers.User)
+		fmt.Printf("  Allowed Line: %s\n", config.Sudoers.AllowedSudoersLine)
+		fmt.Printf("  Blocked Line: %s\n", config.Sudoers.BlockedSudoersLine)
+		fmt.Printf("  Time Windows: %d configured\n", len(config.Sudoers.TimeAllowed))
 	}
 	
-	log.Println()
-	log.Printf("Tamper Detection: %v", config.TamperDetection.Enabled)
+	fmt.Println()
+	fmt.Printf("Tamper Detection: %v\n", config.TamperDetection.Enabled)
 	if config.TamperDetection.Enabled {
-		log.Printf("  Check Interval: %d seconds", config.TamperDetection.CheckInterval)
-		log.Printf("  Alarm Command: %s", config.TamperDetection.AlarmCommand)
+		fmt.Printf("  Check Interval: %d seconds\n", config.TamperDetection.CheckInterval)
+		fmt.Printf("  Alarm Command: %s\n", config.TamperDetection.AlarmCommand)
 	}
 	
-	log.Println()
-	log.Printf("Accountability: %v", config.Accountability.Enabled)
+	fmt.Println()
+	fmt.Printf("Accountability: %v\n", config.Accountability.Enabled)
 	if config.Accountability.Enabled {
-		log.Printf("  Partner Email: %s", config.Accountability.PartnerEmail)
-		log.Printf("  From Email: %s", config.Accountability.FromEmail)
-		log.Printf("  Daily Report: %v", config.Accountability.DailyReportEnabled)
+		fmt.Printf("  Partner Email: %s\n", config.Accountability.PartnerEmail)
+		fmt.Printf("  From Email: %s\n", config.Accountability.FromEmail)
+		fmt.Printf("  Daily Report: %v\n", config.Accountability.DailyReportEnabled)
 		if config.Accountability.DailyReportEnabled {
-			log.Printf("  Daily Report Time: %s", config.Accountability.DailyReportTime)
+			fmt.Printf("  Daily Report Time: %s\n", config.Accountability.DailyReportTime)
 		}
 	}
 	
-	log.Println()
+	fmt.Println()
 }
 
 func sendEmail(config *Config, subject, body string) error {

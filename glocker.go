@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -203,6 +204,9 @@ func main() {
 		log.Println("Starting enforcement loop...")
 		log.Printf("Enforcement interval: %d seconds", config.EnforceInterval)
 
+		// Set up signal handling for temporary unblocks
+		setupSignalHandling(&config)
+
 		// Start tamper detection in background if enabled
 		if config.TamperDetection.Enabled {
 			// Capture initial checksums before starting monitoring
@@ -244,6 +248,193 @@ func main() {
 		return
 	}
 
+}
+
+func setupSignalHandling(config *Config) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGUSR1, syscall.SIGUSR2)
+
+	go func() {
+		for sig := range c {
+			switch sig {
+			case syscall.SIGUSR1:
+				// Read unblock request from a file
+				handleUnblockSignal(config)
+			case syscall.SIGUSR2:
+				// Read block request from a file
+				handleBlockSignal(config)
+			}
+		}
+	}()
+}
+
+func handleUnblockSignal(config *Config) {
+	// Read unblock request from /tmp/glocker_unblock_request
+	data, err := os.ReadFile("/tmp/glocker_unblock_request")
+	if err != nil {
+		return
+	}
+
+	hostsStr := strings.TrimSpace(string(data))
+	if hostsStr == "" {
+		return
+	}
+
+	// Process the unblock request
+	processUnblockRequest(config, hostsStr)
+
+	// Clean up the request file
+	os.Remove("/tmp/glocker_unblock_request")
+}
+
+func handleBlockSignal(config *Config) {
+	// Read block request from /tmp/glocker_block_request
+	data, err := os.ReadFile("/tmp/glocker_block_request")
+	if err != nil {
+		return
+	}
+
+	hostsStr := strings.TrimSpace(string(data))
+	if hostsStr == "" {
+		return
+	}
+
+	// Process the block request
+	processBlockRequest(config, hostsStr)
+
+	// Clean up the request file
+	os.Remove("/tmp/glocker_block_request")
+}
+
+func processUnblockRequest(config *Config, hostsStr string) {
+	slog.Debug("Processing unblock request", "hosts_string", hostsStr)
+
+	hosts := strings.Split(hostsStr, ",")
+	var validHosts []string
+
+	// Clean and validate hosts
+	for _, host := range hosts {
+		host = strings.TrimSpace(host)
+		if host != "" {
+			validHosts = append(validHosts, host)
+			slog.Debug("Added valid host for unblocking", "host", host)
+		}
+	}
+
+	if len(validHosts) == 0 {
+		slog.Debug("No valid hosts provided for unblocking")
+		return
+	}
+
+	// Set temporary unblock time (default 30 minutes)
+	unblockDuration := config.TempUnblockTime
+	if unblockDuration == 0 {
+		unblockDuration = 30
+	}
+
+	expiresAt := time.Now().Add(time.Duration(unblockDuration) * time.Minute)
+	slog.Debug("Temporary unblock configuration", "duration_minutes", unblockDuration, "expires_at", expiresAt.Format("2006-01-02 15:04:05"))
+
+	log.Printf("Temporarily unblocking %d hosts for %d minutes: %v", len(validHosts), unblockDuration, validHosts)
+
+	// Add to temporary unblock list
+	for _, host := range validHosts {
+		tempUnblocks = append(tempUnblocks, TempUnblock{
+			Domain:    host,
+			ExpiresAt: expiresAt,
+		})
+		slog.Debug("Added host to temporary unblock list", "host", host, "expires_at", expiresAt.Format("2006-01-02 15:04:05"))
+	}
+
+	// Apply the unblocking immediately
+	runOnce(config, false)
+
+	// Update checksum for hosts file after legitimate changes
+	if globalConfig != nil {
+		updateChecksum(config.HostsPath)
+		log.Println("Updated checksum for hosts file after unblocking domains")
+	}
+
+	// Send accountability email
+	if config.Accountability.Enabled {
+		subject := "GLOCKER ALERT: Domains Temporarily Unblocked"
+		body := fmt.Sprintf("The following domains were temporarily unblocked at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
+		for _, host := range validHosts {
+			body += fmt.Sprintf("  - %s (expires at %s)\n", host, expiresAt.Format("2006-01-02 15:04:05"))
+		}
+		body += fmt.Sprintf("\nThey will be automatically re-blocked after %d minutes.\n", unblockDuration)
+		body += "\nThis is an automated alert from Glocker."
+
+		if err := sendEmail(config, subject, body); err != nil {
+			log.Printf("Failed to send accountability email: %v", err)
+		}
+	}
+}
+
+func processBlockRequest(config *Config, hostsStr string) {
+	slog.Debug("Processing block request", "hosts_string", hostsStr)
+
+	hosts := strings.Split(hostsStr, ",")
+	var validHosts []string
+
+	// Clean and validate hosts
+	for _, host := range hosts {
+		host = strings.TrimSpace(host)
+		if host != "" {
+			validHosts = append(validHosts, host)
+			slog.Debug("Added valid host for blocking", "host", host)
+		}
+	}
+
+	if len(validHosts) == 0 {
+		slog.Debug("No valid hosts provided for blocking")
+		return
+	}
+
+	slog.Debug("Valid hosts for blocking", "count", len(validHosts), "hosts", validHosts)
+	log.Printf("Adding %d hosts to always block list: %v", len(validHosts), validHosts)
+
+	// Add hosts to config as always blocked domains
+	for _, host := range validHosts {
+		slog.Debug("Processing host for permanent blocking", "host", host)
+
+		// Check if domain already exists
+		found := false
+		for i, domain := range config.Domains {
+			if domain.Name == host {
+				// Update existing domain to always block
+				slog.Debug("Found existing domain, updating to always block", "host", host, "was_always_block", domain.AlwaysBlock)
+				config.Domains[i].AlwaysBlock = true
+				config.Domains[i].TimeWindows = nil // Clear time windows since it's always blocked
+				found = true
+				log.Printf("Updated existing domain %s to always block", host)
+				break
+			}
+		}
+
+		if !found {
+			// Add new domain
+			newDomain := Domain{
+				Name:        host,
+				AlwaysBlock: true,
+			}
+			config.Domains = append(config.Domains, newDomain)
+			slog.Debug("Added new domain to always block", "host", host)
+			log.Printf("Added new domain %s to always block", host)
+		}
+	}
+
+	// Apply the blocking immediately
+	log.Println("Applying blocks...")
+	runOnce(config, false)
+
+	// Update checksum for hosts file after legitimate changes
+	if globalConfig != nil {
+		updateChecksum(config.HostsPath)
+		log.Println("Updated checksum for hosts file after blocking new domains")
+	}
+
+	log.Println("Hosts have been blocked successfully!")
 }
 
 func runOnce(config *Config, dryRun bool) {
@@ -1401,168 +1592,37 @@ func updateChecksum(filePath string) {
 }
 
 func unblockHostsFromFlag(config *Config, hostsStr string) {
-	slog.Debug("Starting temporary unblock process", "hosts_string", hostsStr)
-
-	hosts := strings.Split(hostsStr, ",")
-	var validHosts []string
-
-	// Clean and validate hosts
-	for _, host := range hosts {
-		host = strings.TrimSpace(host)
-		if host != "" {
-			validHosts = append(validHosts, host)
-			slog.Debug("Added valid host for unblocking", "host", host)
-		}
+	// Write the request to a file
+	err := os.WriteFile("/tmp/glocker_unblock_request", []byte(hostsStr), 0600)
+	if err != nil {
+		log.Fatalf("Failed to write unblock request: %v", err)
 	}
 
-	if len(validHosts) == 0 {
-		slog.Debug("No valid hosts provided for unblocking")
-		log.Fatal("No valid hosts provided")
+	// Find the running glocker process and send SIGUSR1
+	cmd := exec.Command("pkill", "-SIGUSR1", "-f", "glocker.*-enforce")
+	if err := cmd.Run(); err != nil {
+		log.Fatalf("Failed to signal running glocker process. Is glocker service running?")
 	}
 
-	slog.Debug("Valid hosts for unblocking", "count", len(validHosts), "hosts", validHosts)
-
-	// Mindful unblock process
-	mindfulDelay(config)
-
-	// Set temporary unblock time (default 30 minutes)
-	unblockDuration := config.TempUnblockTime
-	if unblockDuration == 0 {
-		unblockDuration = 30
-	}
-
-	expiresAt := time.Now().Add(time.Duration(unblockDuration) * time.Minute)
-	slog.Debug("Temporary unblock configuration", "duration_minutes", unblockDuration, "expires_at", expiresAt.Format("2006-01-02 15:04:05"))
-
-	log.Printf("Temporarily unblocking %d hosts for %d minutes: %v", len(validHosts), unblockDuration, validHosts)
-
-	// Add to temporary unblock list
-	for _, host := range validHosts {
-		tempUnblocks = append(tempUnblocks, TempUnblock{
-			Domain:    host,
-			ExpiresAt: expiresAt,
-		})
-		slog.Debug("Added host to temporary unblock list", "host", host, "expires_at", expiresAt.Format("2006-01-02 15:04:05"))
-	}
-
-	// Send accountability email
-	if config.Accountability.Enabled {
-		subject := "GLOCKER ALERT: Domains Temporarily Unblocked"
-		body := fmt.Sprintf("The following domains were temporarily unblocked at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
-		for _, host := range validHosts {
-			body += fmt.Sprintf("  - %s (expires at %s)\n", host, expiresAt.Format("2006-01-02 15:04:05"))
-		}
-		body += fmt.Sprintf("\nThey will be automatically re-blocked after %d minutes.\n", unblockDuration)
-		body += "\nThis is an automated alert from Glocker."
-
-		if err := sendEmail(config, subject, body); err != nil {
-			log.Printf("Failed to send accountability email: %v", err)
-		}
-	}
-
-	// Apply the unblocking immediately
-	log.Println("Applying temporary unblocks...")
-	runOnce(config, false)
-
-	// Update checksum for hosts file after legitimate changes
-	if globalConfig != nil {
-		updateChecksum(config.HostsPath)
-		log.Println("Updated checksum for hosts file after unblocking domains")
-	}
-
-	// Schedule re-blocking - WAIT for it instead of using goroutine
-	log.Printf("Waiting %d minutes before re-blocking...", unblockDuration)
-	time.Sleep(time.Duration(unblockDuration) * time.Minute)
-
-	log.Printf("Re-blocking expired domains: %v", validHosts)
-
-	// Remove from temp unblock list
-	var remaining []TempUnblock
-	for _, unblock := range tempUnblocks {
-		found := false
-		for _, host := range validHosts {
-			if unblock.Domain == host {
-				found = true
-				break
-			}
-		}
-		if !found {
-			remaining = append(remaining, unblock)
-		}
-	}
-	tempUnblocks = remaining
-
-	// Re-apply blocking
-	runOnce(config, false)
-	log.Printf("Domains have been re-blocked: %v", validHosts)
-
-	log.Printf("Hosts have been re-blocked after %d minutes!", unblockDuration)
+	log.Printf("Sent unblock request to running glocker service: %s", hostsStr)
+	log.Println("Domains will be temporarily unblocked and automatically re-blocked after the configured time.")
 }
 
 func blockHostsFromFlag(config *Config, hostsStr string) {
-	slog.Debug("Starting permanent block process", "hosts_string", hostsStr)
-
-	hosts := strings.Split(hostsStr, ",")
-	var validHosts []string
-
-	// Clean and validate hosts
-	for _, host := range hosts {
-		host = strings.TrimSpace(host)
-		if host != "" {
-			validHosts = append(validHosts, host)
-			slog.Debug("Added valid host for blocking", "host", host)
-		}
+	// Write the request to a file
+	err := os.WriteFile("/tmp/glocker_block_request", []byte(hostsStr), 0600)
+	if err != nil {
+		log.Fatalf("Failed to write block request: %v", err)
 	}
 
-	if len(validHosts) == 0 {
-		slog.Debug("No valid hosts provided for blocking")
-		log.Fatal("No valid hosts provided")
+	// Find the running glocker process and send SIGUSR2
+	cmd := exec.Command("pkill", "-SIGUSR2", "-f", "glocker.*-enforce")
+	if err := cmd.Run(); err != nil {
+		log.Fatalf("Failed to signal running glocker process. Is glocker service running?")
 	}
 
-	slog.Debug("Valid hosts for blocking", "count", len(validHosts), "hosts", validHosts)
-	log.Printf("Adding %d hosts to always block list: %v", len(validHosts), validHosts)
-
-	// Add hosts to config as always blocked domains
-	for _, host := range validHosts {
-		slog.Debug("Processing host for permanent blocking", "host", host)
-
-		// Check if domain already exists
-		found := false
-		for i, domain := range config.Domains {
-			if domain.Name == host {
-				// Update existing domain to always block
-				slog.Debug("Found existing domain, updating to always block", "host", host, "was_always_block", domain.AlwaysBlock)
-				config.Domains[i].AlwaysBlock = true
-				config.Domains[i].TimeWindows = nil // Clear time windows since it's always blocked
-				found = true
-				log.Printf("Updated existing domain %s to always block", host)
-				break
-			}
-		}
-
-		if !found {
-			// Add new domain
-			newDomain := Domain{
-				Name:        host,
-				AlwaysBlock: true,
-			}
-			config.Domains = append(config.Domains, newDomain)
-			slog.Debug("Added new domain to always block", "host", host)
-			log.Printf("Added new domain %s to always block", host)
-		}
-	}
-
-	// Apply the blocking immediately
-	log.Println("Applying blocks...")
-	runOnce(config, false)
-
-	// Update checksum for hosts file after legitimate changes
-	if globalConfig != nil {
-		updateChecksum(config.HostsPath)
-		log.Println("Updated checksum for hosts file after blocking new domains")
-	}
-
-	log.Println("Hosts have been blocked successfully!")
+	log.Printf("Sent block request to running glocker service: %s", hostsStr)
+	log.Println("Domains will be permanently blocked.")
 }
 
 func printConfig(config *Config) {

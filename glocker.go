@@ -1470,33 +1470,33 @@ func unblockHostsFromFlag(config *Config, hostsStr string) {
 		log.Println("Updated checksum for hosts file after unblocking domains")
 	}
 
-	// Schedule re-blocking
-	go func() {
-		time.Sleep(time.Duration(unblockDuration) * time.Minute)
-		log.Printf("Re-blocking expired domains: %v", validHosts)
+	// Schedule re-blocking - WAIT for it instead of using goroutine
+	log.Printf("Waiting %d minutes before re-blocking...", unblockDuration)
+	time.Sleep(time.Duration(unblockDuration) * time.Minute)
 
-		// Remove from temp unblock list
-		var remaining []TempUnblock
-		for _, unblock := range tempUnblocks {
-			found := false
-			for _, host := range validHosts {
-				if unblock.Domain == host {
-					found = true
-					break
-				}
-			}
-			if !found {
-				remaining = append(remaining, unblock)
+	log.Printf("Re-blocking expired domains: %v", validHosts)
+
+	// Remove from temp unblock list
+	var remaining []TempUnblock
+	for _, unblock := range tempUnblocks {
+		found := false
+		for _, host := range validHosts {
+			if unblock.Domain == host {
+				found = true
+				break
 			}
 		}
-		tempUnblocks = remaining
+		if !found {
+			remaining = append(remaining, unblock)
+		}
+	}
+	tempUnblocks = remaining
 
-		// Re-apply blocking
-		runOnce(config, false)
-		log.Printf("Domains have been re-blocked: %v", validHosts)
-	}()
+	// Re-apply blocking
+	runOnce(config, false)
+	log.Printf("Domains have been re-blocked: %v", validHosts)
 
-	log.Printf("Hosts have been temporarily unblocked for %d minutes!", unblockDuration)
+	log.Printf("Hosts have been re-blocked after %d minutes!", unblockDuration)
 }
 
 func blockHostsFromFlag(config *Config, hostsStr string) {

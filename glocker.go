@@ -80,6 +80,7 @@ type Config struct {
 	Accountability  AccountabilityConfig `yaml:"accountability"`
 	MindfulDelay    int                  `yaml:"mindful_delay"`
 	TempUnblockTime int                  `yaml:"temp_unblock_time"`
+	Dev             bool                 `yaml:"dev"`
 }
 
 func main() {
@@ -423,6 +424,12 @@ func uninstallGlocker(config *Config) {
 }
 
 func mindfulDelay(config *Config) {
+	// Skip mindful delay in dev mode
+	if config.Dev {
+		fmt.Println("⚡ DEV MODE: Skipping mindful delay")
+		return
+	}
+
 	// Mixed Shakespeare and Sherlock Holmes quotes for mindful typing
 	quotes := []string{
 		"To be, or not to be, that is the question: Whether 'tis nobler in the mind to suffer the slings and arrows of outrageous fortune, or to take arms against a sea of troubles and by opposing end them.",

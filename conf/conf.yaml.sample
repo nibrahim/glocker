@@ -1,6 +1,9 @@
 # Distraction Blocker Configuration
 # This file gets embedded into the compiled binary
 
+# Development mode - bypasses mindful delays for faster testing
+dev: false
+
 # Enable/disable each blocking mechanism
 enable_hosts: true
 enable_firewall: true

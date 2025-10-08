@@ -370,8 +370,22 @@ func uninstallGlocker(config *Config) {
 	log.Println("╚════════════════════════════════════════════════╝")
 	log.Println()
 
+	fmt.Println("📝 MINDFUL UNINSTALL PROCESS")
+	fmt.Println()
+	fmt.Println("To proceed with uninstallation, please type the following quote")
+	fmt.Println("EXACTLY as shown (including punctuation and capitalization):")
+	fmt.Println()
+
 	// Perform mindful delay
 	mindfulDelay(config)
+
+	log.Printf("Waiting %d seconds before proceeding...", config.MindfulDelay)
+	for i := config.MindfulDelay; i > 0; i-- {
+		if i <= 10 || i%5 == 0 {
+			log.Printf("Uninstalling in %d seconds...", i)
+		}
+		time.Sleep(1 * time.Second)
+	}
 
 	// Stop and disable service
 	exec.Command("systemctl", "stop", "glocker.service").Run()
@@ -419,34 +433,49 @@ func uninstallGlocker(config *Config) {
 }
 
 func mindfulDelay(config *Config) {
-	// Shakespeare quotes for mindful typing
+	// Mixed Shakespeare and Sherlock Holmes quotes for mindful typing
 	quotes := []string{
 		"To be, or not to be, that is the question: Whether 'tis nobler in the mind to suffer the slings and arrows of outrageous fortune, or to take arms against a sea of troubles and by opposing end them.",
+		"The game is afoot.",
 		"All the world's a stage, and all the men and women merely players: they have their exits and their entrances; and one man in his time plays many parts, his acts being seven ages.",
+		"Elementary, my dear Watson.",
 		"What's in a name? That which we call a rose by any other name would smell as sweet.",
+		"When you have eliminated the impossible, whatever remains, however improbable, must be the truth.",
 		"The fault, dear Brutus, is not in our stars, but in ourselves, that we are underlings.",
+		"I never guess. It is a capital mistake to theorize before one has data.",
 		"Friends, Romans, countrymen, lend me your ears; I come to bury Caesar, not to praise him.",
+		"You see, but you do not observe.",
 		"Now is the winter of our discontent made glorious summer by this sun of York.",
+		"The world is full of obvious things which nobody by any chance ever observes.",
 		"If music be the food of love, play on; give me excess of it, that, surfeiting, the appetite may sicken, and so die.",
+		"There is nothing more deceptive than an obvious fact.",
 		"Double, double toil and trouble; fire burn and caldron bubble.",
+		"I am not the law, but I represent justice so far as my feeble powers go.",
 		"Out, out, brief candle! Life's but a walking shadow, a poor player that struts and frets his hour upon the stage and then is heard no more.",
+		"My mind rebels at stagnation. Give me problems, give me work, give me the most abstruse cryptogram.",
 		"Tomorrow, and tomorrow, and tomorrow, creeps in this petty pace from day to day to the last syllable of recorded time.",
+		"The little things are infinitely the most important.",
 		"Is this a dagger which I see before me, the handle toward my hand? Come, let me clutch thee.",
+		"Violence does, in truth, recoil upon the violent, and the schemer falls into the pit which he digs for another.",
 		"We are such stuff as dreams are made on, and our little life is rounded with a sleep.",
+		"Education never ends, Watson. It is a series of lessons, with the greatest for the last.",
 		"Lord, what fools these mortals be!",
+		"There is nothing new under the sun. It has all been done before.",
 		"The course of true love never did run smooth.",
+		"Work is the best antidote to sorrow, my dear Watson.",
 		"Cowards die many times before their deaths; the valiant never taste of death but once.",
+		"The temptation to form premature theories upon insufficient data is the bane of our profession.",
 		"Neither a borrower nor a lender be; for loan oft loses both itself and friend.",
+		"Art in the blood is liable to take the strangest forms.",
 		"This above all: to thine own self be true, and it must follow, as the night the day, thou canst not then be false to any man.",
+		"Mediocrity knows nothing higher than itself; but talent instantly recognizes genius.",
+		"A man should keep his little brain attic stocked with all the furniture that he is likely to use.",
 	}
 
 	// Select a random quote
 	quote := quotes[time.Now().Unix()%int64(len(quotes))]
 
-	fmt.Println("📝 MINDFUL UNINSTALL PROCESS")
-	fmt.Println()
-	fmt.Println("To proceed with uninstallation, please type the following Shakespeare quote")
-	fmt.Println("EXACTLY as shown (including punctuation and capitalization):")
+	fmt.Println("Please type the following quote EXACTLY as shown (including punctuation and capitalization):")
 	fmt.Println()
 	fmt.Println("Quote:")
 	
@@ -497,12 +526,7 @@ func mindfulDelay(config *Config) {
 		delaySeconds = 30
 	}
 
-	log.Printf("Waiting %d seconds before proceeding...", delaySeconds)
-
 	for i := delaySeconds; i > 0; i-- {
-		if i <= 10 || i%5 == 0 {
-			log.Printf("Uninstalling in %d seconds...", i)
-		}
 		time.Sleep(1 * time.Second)
 	}
 }
@@ -1276,8 +1300,29 @@ func deleteHostsFromFlag(config *Config, hostsStr string) {
 		log.Fatal("No valid hosts provided")
 	}
 	
+	fmt.Println("🔓 MINDFUL UNBLOCK PROCESS")
+	fmt.Println()
+	fmt.Printf("You are requesting to temporarily unblock: %s\n", strings.Join(validHosts, ", "))
+	fmt.Println()
+	fmt.Println("To proceed with temporary unblocking, please type the following quote")
+	fmt.Println("EXACTLY as shown (including punctuation and capitalization):")
+	fmt.Println()
+
 	// Mindful unblock process
-	mindfulUnblock(config, validHosts)
+	mindfulDelay(config)
+
+	delaySeconds := config.MindfulDelay
+	if delaySeconds == 0 {
+		delaySeconds = 30
+	}
+
+	log.Printf("Waiting %d seconds before proceeding with unblock...", delaySeconds)
+	for i := delaySeconds; i > 0; i-- {
+		if i <= 10 || i%5 == 0 {
+			log.Printf("Unblocking in %d seconds...", i)
+		}
+		time.Sleep(1 * time.Second)
+	}
 	
 	// Set temporary unblock time (default 30 minutes)
 	unblockDuration := config.TempUnblockTime
@@ -1345,77 +1390,6 @@ func deleteHostsFromFlag(config *Config, hostsStr string) {
 	log.Printf("Hosts have been temporarily unblocked for %d minutes!", unblockDuration)
 }
 
-func mindfulUnblock(config *Config, hosts []string) {
-	// Sherlock Holmes quotes for mindful typing
-	quotes := []string{
-		"The game is afoot.",
-		"Elementary, my dear Watson.",
-		"When you have eliminated the impossible, whatever remains, however improbable, must be the truth.",
-		"I never guess. It is a capital mistake to theorize before one has data.",
-		"You see, but you do not observe.",
-		"The world is full of obvious things which nobody by any chance ever observes.",
-		"There is nothing more deceptive than an obvious fact.",
-		"I am not the law, but I represent justice so far as my feeble powers go.",
-		"My mind rebels at stagnation. Give me problems, give me work, give me the most abstruse cryptogram.",
-		"The little things are infinitely the most important.",
-		"Violence does, in truth, recoil upon the violent, and the schemer falls into the pit which he digs for another.",
-		"Education never ends, Watson. It is a series of lessons, with the greatest for the last.",
-		"There is nothing new under the sun. It has all been done before.",
-		"Work is the best antidote to sorrow, my dear Watson.",
-		"The temptation to form premature theories upon insufficient data is the bane of our profession.",
-		"Art in the blood is liable to take the strangest forms.",
-		"Mediocrity knows nothing higher than itself; but talent instantly recognizes genius.",
-		"A man should keep his little brain attic stocked with all the furniture that he is likely to use.",
-	}
-
-	// Select a random quote
-	quote := quotes[time.Now().Unix()%int64(len(quotes))]
-
-	fmt.Println("🔓 MINDFUL UNBLOCK PROCESS")
-	fmt.Println()
-	fmt.Printf("You are requesting to temporarily unblock: %s\n", strings.Join(hosts, ", "))
-	fmt.Println()
-	fmt.Println("To proceed with temporary unblocking, please type the following Sherlock Holmes quote")
-	fmt.Println("EXACTLY as shown (including punctuation and capitalization):")
-	fmt.Println()
-	fmt.Println("Quote:")
-	fmt.Printf("\"%s\"\n", quote)
-	fmt.Println()
-	fmt.Print("Type here: ")
-
-	// Read user input
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Scan()
-	input := scanner.Text()
-
-	// Keep asking until they get it right
-	for input != quote {
-		fmt.Println()
-		fmt.Println("❌ That doesn't match exactly. Please try again.")
-		fmt.Println()
-		fmt.Println("Quote:")
-		fmt.Printf("\"%s\"\n", quote)
-		fmt.Println()
-		fmt.Print("Type here: ")
-		scanner.Scan()
-		input = scanner.Text()
-	}
-
-	// Get delay from config (default to 30 seconds if not set)
-	delaySeconds := config.MindfulDelay
-	if delaySeconds == 0 {
-		delaySeconds = 30
-	}
-
-	log.Printf("Waiting %d seconds before proceeding with unblock...", delaySeconds)
-
-	for i := delaySeconds; i > 0; i-- {
-		if i <= 10 || i%5 == 0 {
-			log.Printf("Unblocking in %d seconds...", i)
-		}
-		time.Sleep(1 * time.Second)
-	}
-}
 
 func blockHostsFromFlag(config *Config, hostsStr string) {
 	hosts := strings.Split(hostsStr, ",")

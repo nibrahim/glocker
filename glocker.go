@@ -310,16 +310,16 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 				continue
 			}
 			domains := strings.TrimSpace(parts[1])
-			processUnblockRequest(config, domains)
-			conn.Write([]byte("OK: Unblock request processed\n"))
+			conn.Write([]byte("OK: Unblock request received\n"))
+			go processUnblockRequest(config, domains)
 		case "block":
 			if len(parts) != 2 {
 				conn.Write([]byte("ERROR: Invalid format. Use 'block:domains'\n"))
 				continue
 			}
 			domains := strings.TrimSpace(parts[1])
-			processBlockRequest(config, domains)
-			conn.Write([]byte("OK: Block request processed\n"))
+			conn.Write([]byte("OK: Block request received\n"))
+			go processBlockRequest(config, domains)
 		default:
 			conn.Write([]byte("ERROR: Unknown action. Use 'block', 'unblock', or 'status'\n"))
 		}

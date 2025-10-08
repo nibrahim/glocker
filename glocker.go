@@ -450,6 +450,9 @@ func runOnce(config *Config, dryRun bool) {
 	now := time.Now()
 	slog.Debug("Starting enforcement run", "time", now.Format("2006-01-02 15:04:05"), "dry_run", dryRun)
 
+	// Clean up expired temporary unblocks
+	cleanupExpiredUnblocks(now)
+
 	blockedDomains := getDomainsToBlock(config, now)
 	slog.Debug("Domains to block determined", "count", len(blockedDomains), "domains", blockedDomains)
 
@@ -1103,6 +1106,26 @@ func isTempUnblocked(domain string, now time.Time) bool {
 		}
 	}
 	return false
+}
+
+// cleanupExpiredUnblocks removes expired temporary unblocks from the slice
+func cleanupExpiredUnblocks(now time.Time) {
+	var activeUnblocks []TempUnblock
+	expiredCount := 0
+	
+	for _, unblock := range tempUnblocks {
+		if now.Before(unblock.ExpiresAt) {
+			activeUnblocks = append(activeUnblocks, unblock)
+		} else {
+			expiredCount++
+			slog.Debug("Removing expired temporary unblock", "domain", unblock.Domain, "expired_at", unblock.ExpiresAt.Format("2006-01-02 15:04:05"))
+		}
+	}
+	
+	if expiredCount > 0 {
+		tempUnblocks = activeUnblocks
+		slog.Debug("Cleaned up expired temporary unblocks", "removed_count", expiredCount, "remaining_count", len(tempUnblocks))
+	}
 }
 
 func updateHosts(config *Config, domains []string, dryRun bool) error {

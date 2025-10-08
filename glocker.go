@@ -145,6 +145,7 @@ func main() {
 
 	if *dryRun {
 		log.Println("=== DRY RUN MODE ===")
+		printConfig(&config)
 		runOnce(&config, true)
 		return
 	}
@@ -1460,6 +1461,71 @@ func blockHostsFromFlag(config *Config, hostsStr string) {
 	log.Println("Applying blocks...")
 	runOnce(config, false)
 	log.Println("Hosts have been blocked successfully!")
+}
+
+func printConfig(config *Config) {
+	log.Println()
+	log.Println("╔════════════════════════════════════════════════╗")
+	log.Println("║                 CONFIGURATION                  ║")
+	log.Println("╚════════════════════════════════════════════════╝")
+	log.Println()
+	
+	log.Printf("Hosts File Management: %v", config.EnableHosts)
+	if config.EnableHosts {
+		log.Printf("  Hosts Path: %s", config.HostsPath)
+	}
+	
+	log.Printf("Firewall Management: %v", config.EnableFirewall)
+	log.Printf("Self Healing: %v", config.SelfHeal)
+	log.Printf("Enforcement Interval: %d seconds", config.EnforceInterval)
+	log.Printf("Mindful Delay: %d seconds", config.MindfulDelay)
+	log.Printf("Temp Unblock Time: %d minutes", config.TempUnblockTime)
+	
+	log.Println()
+	log.Printf("Domains (%d configured):", len(config.Domains))
+	for i, domain := range config.Domains {
+		log.Printf("  %d. %s", i+1, domain.Name)
+		if domain.AlwaysBlock {
+			log.Printf("     Always blocked")
+		} else {
+			log.Printf("     Time-based blocking (%d windows):", len(domain.TimeWindows))
+			for j, window := range domain.TimeWindows {
+				log.Printf("       %d. %s - %s on %v", j+1, window.Start, window.End, window.Days)
+			}
+		}
+	}
+	
+	log.Println()
+	log.Printf("Sudoers Management: %v", config.Sudoers.Enabled)
+	if config.Sudoers.Enabled {
+		log.Printf("  User: %s", config.Sudoers.User)
+		log.Printf("  Allowed Line: %s", config.Sudoers.AllowedSudoersLine)
+		log.Printf("  Blocked Line: %s", config.Sudoers.BlockedSudoersLine)
+		log.Printf("  Time Windows (%d configured):", len(config.Sudoers.TimeAllowed))
+		for i, window := range config.Sudoers.TimeAllowed {
+			log.Printf("    %d. %s - %s on %v", i+1, window.Start, window.End, window.Days)
+		}
+	}
+	
+	log.Println()
+	log.Printf("Tamper Detection: %v", config.TamperDetection.Enabled)
+	if config.TamperDetection.Enabled {
+		log.Printf("  Check Interval: %d seconds", config.TamperDetection.CheckInterval)
+		log.Printf("  Alarm Command: %s", config.TamperDetection.AlarmCommand)
+	}
+	
+	log.Println()
+	log.Printf("Accountability: %v", config.Accountability.Enabled)
+	if config.Accountability.Enabled {
+		log.Printf("  Partner Email: %s", config.Accountability.PartnerEmail)
+		log.Printf("  From Email: %s", config.Accountability.FromEmail)
+		log.Printf("  Daily Report: %v", config.Accountability.DailyReportEnabled)
+		if config.Accountability.DailyReportEnabled {
+			log.Printf("  Daily Report Time: %s", config.Accountability.DailyReportTime)
+		}
+	}
+	
+	log.Println()
 }
 
 func sendEmail(config *Config, subject, body string) error {

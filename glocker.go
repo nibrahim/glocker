@@ -1729,8 +1729,16 @@ func printConfig(config *Config) {
 		}
 	}
 
-	fmt.Printf("Domains: %d total (%d always blocked, %d time-based)\n",
-		len(config.Domains), alwaysBlockCount, timeBasedCount)
+	// Count domains with logging enabled
+	loggedCount := 0
+	for _, domain := range config.Domains {
+		if domain.LogBlocking {
+			loggedCount++
+		}
+	}
+
+	fmt.Printf("Domains: %d total (%d always blocked, %d time-based, %d with detailed logging)\n",
+		len(config.Domains), alwaysBlockCount, timeBasedCount, loggedCount)
 
 	fmt.Println()
 	fmt.Printf("Sudoers Management: %v\n", config.Sudoers.Enabled)

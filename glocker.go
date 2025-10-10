@@ -47,6 +47,7 @@ type Domain struct {
 	AlwaysBlock bool         `yaml:"always_block"`
 	TimeWindows []TimeWindow `yaml:"time_windows,omitempty"`
 	LogBlocking bool         `yaml:"log_blocking,omitempty"`
+	Absolute    bool         `yaml:"absolute,omitempty"`
 }
 
 type SudoersConfig struct {
@@ -365,17 +366,39 @@ func processUnblockRequest(config *Config, hostsStr string) {
 
 	hosts := strings.Split(hostsStr, ",")
 	var validHosts []string
+	var rejectedHosts []string
 
-	// Clean and validate hosts
+	// Clean, validate hosts, and check for absolute domains
 	for _, host := range hosts {
 		host = strings.TrimSpace(host)
 		if host != "" {
-			validHosts = append(validHosts, host)
+			// Check if this domain is marked as absolute
+			isAbsolute := false
+			for _, domain := range config.Domains {
+				if domain.Name == host && domain.Absolute {
+					isAbsolute = true
+					break
+				}
+			}
+			
+			if isAbsolute {
+				rejectedHosts = append(rejectedHosts, host)
+				slog.Debug("Rejected absolute domain for unblocking", "host", host)
+			} else {
+				validHosts = append(validHosts, host)
+			}
 		}
 	}
 
+	if len(rejectedHosts) > 0 {
+		log.Printf("Cannot unblock absolute domains: %v", rejectedHosts)
+	}
+
 	if len(validHosts) == 0 {
-		slog.Debug("No valid hosts provided for unblocking")
+		slog.Debug("No valid hosts provided for unblocking (all rejected or empty)")
+		if len(rejectedHosts) > 0 {
+			log.Println("All requested domains are marked as absolute and cannot be temporarily unblocked.")
+		}
 		return
 	}
 
@@ -390,6 +413,9 @@ func processUnblockRequest(config *Config, hostsStr string) {
 
 	// Log all unblocked hosts since these are manual actions
 	log.Printf("Temporarily unblocking %d hosts for %d minutes: %v", len(validHosts), unblockDuration, validHosts)
+	if len(rejectedHosts) > 0 {
+		log.Printf("Rejected %d absolute domains that cannot be unblocked: %v", len(rejectedHosts), rejectedHosts)
+	}
 
 	// Add to temporary unblock list
 	for _, host := range validHosts {
@@ -422,6 +448,20 @@ func processUnblockRequest(config *Config, hostsStr string) {
 
 		if err := sendEmail(config, subject, body); err != nil {
 			log.Printf("Failed to send accountability email: %v", err)
+		}
+	}
+
+	// Log rejected domains in accountability email if any
+	if len(rejectedHosts) > 0 && config.Accountability.Enabled {
+		subject := "GLOCKER ALERT: Unblock Request Partially Rejected"
+		body := fmt.Sprintf("An unblock request was partially rejected at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
+		body += fmt.Sprintf("Successfully unblocked domains: %v\n", validHosts)
+		body += fmt.Sprintf("Rejected absolute domains: %v\n\n", rejectedHosts)
+		body += "Absolute domains cannot be temporarily unblocked due to their configuration.\n"
+		body += "\nThis is an automated alert from Glocker."
+
+		if err := sendEmail(config, subject, body); err != nil {
+			log.Printf("Failed to send accountability email for rejected domains: %v", err)
 		}
 	}
 }

@@ -123,7 +123,7 @@ func main() {
 	install := flag.Bool("install", false, "Install Glocker")
 	uninstall := flag.Bool("uninstall", false, "Uninstall Glocker and revert all changes")
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
-	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock")
+	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock (format: 'domain1,domain2:reason')")
 	flag.Parse()
 
 	// Parse embedded config
@@ -341,12 +341,24 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 			conn.Write([]byte(response))
 		case "unblock":
 			if len(parts) != 2 {
-				conn.Write([]byte("ERROR: Invalid format. Use 'unblock:domains'\n"))
+				conn.Write([]byte("ERROR: Invalid format. Use 'unblock:domains:reason'\n"))
 				continue
 			}
-			domains := strings.TrimSpace(parts[1])
+			payload := strings.TrimSpace(parts[1])
+			// Split payload into domains and reason
+			payloadParts := strings.SplitN(payload, ":", 2)
+			if len(payloadParts) != 2 {
+				conn.Write([]byte("ERROR: Reason required. Use 'unblock:domains:reason'\n"))
+				continue
+			}
+			domains := strings.TrimSpace(payloadParts[0])
+			reason := strings.TrimSpace(payloadParts[1])
+			if reason == "" {
+				conn.Write([]byte("ERROR: Reason cannot be empty\n"))
+				continue
+			}
 			conn.Write([]byte("OK: Unblock request received\n"))
-			go processUnblockRequest(config, domains)
+			go processUnblockRequestWithReason(config, domains, reason)
 		case "block":
 			if len(parts) != 2 {
 				conn.Write([]byte("ERROR: Invalid format. Use 'block:domains'\n"))
@@ -356,12 +368,12 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 			conn.Write([]byte("OK: Block request received\n"))
 			go processBlockRequest(config, domains)
 		default:
-			conn.Write([]byte("ERROR: Unknown action. Use 'block', 'unblock', or 'status'\n"))
+			conn.Write([]byte("ERROR: Unknown action. Use 'block:domains', 'unblock:domains:reason', or 'status'\n"))
 		}
 	}
 }
 
-func processUnblockRequest(config *Config, hostsStr string) {
+func processUnblockRequestWithReason(config *Config, hostsStr string, reason string) {
 	slog.Debug("Processing unblock request", "hosts_string", hostsStr)
 
 	hosts := strings.Split(hostsStr, ",")
@@ -412,7 +424,7 @@ func processUnblockRequest(config *Config, hostsStr string) {
 	slog.Debug("Temporary unblock configuration", "duration_minutes", unblockDuration, "expires_at", expiresAt.Format("2006-01-02 15:04:05"))
 
 	// Log all unblocked hosts since these are manual actions
-	log.Printf("Temporarily unblocking %d hosts for %d minutes: %v", len(validHosts), unblockDuration, validHosts)
+	log.Printf("Temporarily unblocking %d hosts for %d minutes: %v (Reason: %s)", len(validHosts), unblockDuration, validHosts, reason)
 	if len(rejectedHosts) > 0 {
 		log.Printf("Rejected %d absolute domains that cannot be unblocked: %v", len(rejectedHosts), rejectedHosts)
 	}
@@ -443,6 +455,7 @@ func processUnblockRequest(config *Config, hostsStr string) {
 		for _, host := range validHosts {
 			body += fmt.Sprintf("  - %s (expires at %s)\n", host, expiresAt.Format("2006-01-02 15:04:05"))
 		}
+		body += fmt.Sprintf("\nReason provided: %s\n", reason)
 		body += fmt.Sprintf("\nThey will be automatically re-blocked after %d minutes.\n", unblockDuration)
 		body += "\nThis is an automated alert from Glocker."
 
@@ -456,7 +469,8 @@ func processUnblockRequest(config *Config, hostsStr string) {
 		subject := "GLOCKER ALERT: Unblock Request Partially Rejected"
 		body := fmt.Sprintf("An unblock request was partially rejected at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
 		body += fmt.Sprintf("Successfully unblocked domains: %v\n", validHosts)
-		body += fmt.Sprintf("Rejected absolute domains: %v\n\n", rejectedHosts)
+		body += fmt.Sprintf("Rejected absolute domains: %v\n", rejectedHosts)
+		body += fmt.Sprintf("Reason provided: %s\n\n", reason)
 		body += "Absolute domains cannot be temporarily unblocked due to their configuration.\n"
 		body += "\nThis is an automated alert from Glocker."
 
@@ -1750,8 +1764,26 @@ func updateChecksum(filePath string) {
 }
 
 func unblockHostsFromFlag(config *Config, hostsStr string) {
-	sendSocketMessage("unblock", hostsStr)
-	log.Println("Domains will be temporarily unblocked and automatically re-blocked after the configured time.")
+	// Parse the format: "domain1,domain2:reason"
+	parts := strings.SplitN(hostsStr, ":", 2)
+	if len(parts) != 2 {
+		log.Fatal("ERROR: Reason required. Use format: 'domain1,domain2:reason'")
+	}
+	
+	domains := strings.TrimSpace(parts[0])
+	reason := strings.TrimSpace(parts[1])
+	
+	if domains == "" {
+		log.Fatal("ERROR: No domains specified")
+	}
+	
+	if reason == "" {
+		log.Fatal("ERROR: Reason cannot be empty")
+	}
+	
+	payload := fmt.Sprintf("%s:%s", domains, reason)
+	sendSocketMessage("unblock", payload)
+	log.Printf("Domains will be temporarily unblocked (Reason: %s) and automatically re-blocked after the configured time.", reason)
 }
 
 func blockHostsFromFlag(config *Config, hostsStr string) {

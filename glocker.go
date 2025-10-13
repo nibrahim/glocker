@@ -464,12 +464,24 @@ func processUnblockRequestWithReason(config *Config, hostsStr string, reason str
 		}
 	}
 
-	// Log rejected domains in accountability email if any
+	// Send accountability email for rejected absolute domains
 	if len(rejectedHosts) > 0 && config.Accountability.Enabled {
-		subject := "GLOCKER ALERT: Unblock Request Partially Rejected"
-		body := fmt.Sprintf("An unblock request was partially rejected at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
-		body += fmt.Sprintf("Successfully unblocked domains: %v\n", validHosts)
-		body += fmt.Sprintf("Rejected absolute domains: %v\n", rejectedHosts)
+		var subject string
+		var body string
+		
+		if len(validHosts) > 0 {
+			// Partial rejection - some domains were unblocked
+			subject = "GLOCKER ALERT: Unblock Request Partially Rejected"
+			body = fmt.Sprintf("An unblock request was partially rejected at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
+			body += fmt.Sprintf("Successfully unblocked domains: %v\n", validHosts)
+			body += fmt.Sprintf("Rejected absolute domains: %v\n", rejectedHosts)
+		} else {
+			// Complete rejection - all domains were absolute
+			subject = "GLOCKER ALERT: Unblock Request Completely Rejected"
+			body = fmt.Sprintf("An unblock request was completely rejected at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
+			body += fmt.Sprintf("All requested domains are marked as absolute: %v\n", rejectedHosts)
+		}
+		
 		body += fmt.Sprintf("Reason provided: %s\n\n", reason)
 		body += "Absolute domains cannot be temporarily unblocked due to their configuration.\n"
 		body += "\nThis is an automated alert from Glocker."

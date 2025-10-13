@@ -158,8 +158,8 @@ func main() {
 	}
 
 	if *uninstall {
-		if !runningAsRoot() {
-			log.Fatal("Program should run as root for uninstallation.")
+		if !runningWithSudo() {
+			log.Fatal("Uninstallation requires running with sudo. Please run: sudo glocker -uninstall")
 		}
 		// Check if glocker is actually installed
 		if _, err := os.Stat(INSTALL_PATH); os.IsNotExist(err) {
@@ -699,6 +699,12 @@ func runningAsRoot() bool {
 	} else {
 		return true
 	}
+}
+
+func runningWithSudo() bool {
+	// Check if SUDO_USER environment variable is set
+	// This is set by sudo when a command is run with sudo
+	return os.Getenv("SUDO_USER") != ""
 }
 
 func copyFile(src, dst string) error {

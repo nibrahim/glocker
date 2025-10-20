@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -1542,6 +1543,87 @@ func isInTimeWindow(current, start, end string) bool {
 func init() {
 	// Set process priority to make it less likely to be killed by OOM
 	syscall.Setpriority(syscall.PRIO_PROCESS, 0, -10)
+	
+	// Set up signal trapping
+	setupSignalTrapping()
+}
+
+func setupSignalTrapping() {
+	// Create a channel to receive OS signals
+	sigChan := make(chan os.Signal, 1)
+	
+	// Register the channel to receive specific signals
+	// We trap most termination signals but allow some system signals to pass through
+	signal.Notify(sigChan,
+		syscall.SIGTERM,  // Termination request
+		syscall.SIGINT,   // Interrupt (Ctrl+C)
+		syscall.SIGQUIT,  // Quit (Ctrl+\)
+		syscall.SIGHUP,   // Hangup
+		syscall.SIGUSR1,  // User-defined signal 1
+		syscall.SIGUSR2,  // User-defined signal 2
+		syscall.SIGPIPE,  // Broken pipe
+		syscall.SIGALRM,  // Alarm clock
+		syscall.SIGTSTP,  // Terminal stop (Ctrl+Z)
+		syscall.SIGCONT,  // Continue after stop
+	)
+	
+	// Start a goroutine to handle signals
+	go handleSignals(sigChan)
+}
+
+func handleSignals(sigChan chan os.Signal) {
+	for sig := range sigChan {
+		// Parse embedded config to send accountability email
+		var config Config
+		if err := yaml.Unmarshal(configData, &config); err != nil {
+			log.Printf("Failed to parse config for signal handling: %v", err)
+			continue
+		}
+		
+		// Send accountability email about the termination attempt
+		if config.Accountability.Enabled {
+			subject := "GLOCKER ALERT: Termination Attempt Detected"
+			body := fmt.Sprintf("An attempt to terminate Glocker was detected at %s.\n\n", time.Now().Format("2006-01-02 15:04:05"))
+			body += fmt.Sprintf("Signal received: %s (%d)\n", sig.String(), sig)
+			body += fmt.Sprintf("Process ID: %d\n", os.Getpid())
+			body += fmt.Sprintf("Parent Process ID: %d\n", os.Getppid())
+			
+			// Try to get information about who sent the signal
+			if uid := os.Getuid(); uid != -1 {
+				body += fmt.Sprintf("User ID: %d\n", uid)
+			}
+			if gid := os.Getgid(); gid != -1 {
+				body += fmt.Sprintf("Group ID: %d\n", gid)
+			}
+			
+			body += "\nGlocker is designed to resist termination attempts to maintain system protection.\n"
+			body += "If this termination was intentional, please use the proper uninstall procedure.\n\n"
+			body += "This is an automated alert from Glocker."
+			
+			// Send the email (this will handle dev mode appropriately)
+			if err := sendEmail(&config, subject, body); err != nil {
+				log.Printf("Failed to send signal accountability email: %v", err)
+			} else {
+				log.Printf("Sent accountability email for signal: %s", sig.String())
+			}
+		}
+		
+		// Log the signal attempt
+		log.Printf("SECURITY ALERT: Received termination signal %s (%d) - ignoring", sig.String(), sig)
+		
+		// For certain signals, we might want to take additional action
+		switch sig {
+		case syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT:
+			log.Printf("Ignoring termination signal %s - use 'glocker -uninstall' for proper removal", sig.String())
+		case syscall.SIGTSTP:
+			log.Printf("Ignoring stop signal %s - process cannot be suspended", sig.String())
+		default:
+			log.Printf("Ignoring signal %s", sig.String())
+		}
+		
+		// We don't exit or stop - we just log and continue running
+		// This makes the process resistant to casual termination attempts
+	}
 }
 
 // ============================================================================

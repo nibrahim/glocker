@@ -10,6 +10,7 @@ import (
 	"log"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -74,6 +75,11 @@ type TamperConfig struct {
 	AlarmCommand  string `yaml:"alarm_command"`
 }
 
+type WebTrackingConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Command string `yaml:"command"`
+}
+
 type Config struct {
 	EnableHosts     bool                 `yaml:"enable_hosts"`
 	EnableFirewall  bool                 `yaml:"enable_firewall"`
@@ -84,6 +90,7 @@ type Config struct {
 	Sudoers         SudoersConfig        `yaml:"sudoers"`
 	TamperDetection TamperConfig         `yaml:"tamper_detection"`
 	Accountability  AccountabilityConfig `yaml:"accountability"`
+	WebTracking     WebTrackingConfig    `yaml:"web_tracking"`
 	MindfulDelay    int                  `yaml:"mindful_delay"`
 	TempUnblockTime int                  `yaml:"temp_unblock_time"`
 	Dev             bool                 `yaml:"dev"`
@@ -235,6 +242,11 @@ func main() {
 			globalConfig = &config
 
 			go monitorTampering(&config, initialChecksums, filesToMonitor)
+		}
+
+		// Start web tracking server if enabled
+		if config.WebTracking.Enabled {
+			go startWebTrackingServer(&config)
 		}
 
 		// Initial enforcement
@@ -2091,6 +2103,147 @@ func printConfig(config *Config) {
 	}
 
 	fmt.Println()
+	fmt.Printf("Web Tracking: %v\n", config.WebTracking.Enabled)
+	if config.WebTracking.Enabled {
+		fmt.Printf("  Command: %s\n", config.WebTracking.Command)
+	}
+
+	fmt.Println()
+}
+
+func startWebTrackingServer(config *Config) {
+	slog.Debug("Starting web tracking server on port 80")
+	
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		handleWebTrackingRequest(config, w, r)
+	})
+	
+	server := &http.Server{
+		Addr:    ":80",
+		Handler: nil,
+	}
+	
+	log.Printf("Web tracking server started on port 80")
+	if err := server.ListenAndServe(); err != nil {
+		log.Printf("Web tracking server error: %v", err)
+	}
+}
+
+func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Request) {
+	host := r.Host
+	if host == "" {
+		host = r.Header.Get("Host")
+	}
+	
+	// Remove port if present
+	if colonIndex := strings.Index(host, ":"); colonIndex != -1 {
+		host = host[:colonIndex]
+	}
+	
+	slog.Debug("Web tracking request received", "host", host, "url", r.URL.String(), "method", r.Method)
+	
+	// Check if this host is in our blocked domains list
+	isBlocked := false
+	now := time.Now()
+	blockedDomains := getDomainsToBlock(config, now)
+	
+	for _, blockedDomain := range blockedDomains {
+		if host == blockedDomain || host == "www."+blockedDomain || strings.HasSuffix(host, "."+blockedDomain) {
+			isBlocked = true
+			break
+		}
+	}
+	
+	if isBlocked {
+		log.Printf("BLOCKED SITE ACCESS ATTEMPT: %s", host)
+		
+		// Execute the configured command
+		if config.WebTracking.Command != "" {
+			go executeWebTrackingCommand(config, host, r)
+		}
+		
+		// Send accountability email
+		if config.Accountability.Enabled {
+			subject := "GLOCKER ALERT: Blocked Site Access Attempt"
+			body := fmt.Sprintf("An attempt to access a blocked site was detected at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
+			body += fmt.Sprintf("Host: %s\n", host)
+			body += fmt.Sprintf("URL: %s\n", r.URL.String())
+			body += fmt.Sprintf("Method: %s\n", r.Method)
+			body += fmt.Sprintf("User-Agent: %s\n", r.Header.Get("User-Agent"))
+			body += fmt.Sprintf("Remote Address: %s\n", r.RemoteAddr)
+			body += "\nThis is an automated alert from Glocker."
+			
+			if err := sendEmail(config, subject, body); err != nil {
+				log.Printf("Failed to send web tracking accountability email: %v", err)
+			}
+		}
+		
+		// Return a blocked page response
+		w.WriteHeader(http.StatusForbidden)
+		w.Header().Set("Content-Type", "text/html")
+		blockedPage := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Site Blocked - Glocker</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin-top: 100px; background-color: #f0f0f0; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: white; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #d32f2f; }
+        p { color: #666; line-height: 1.6; }
+        .domain { font-weight: bold; color: #1976d2; }
+        .time { color: #888; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚫 Site Blocked</h1>
+        <p>Access to <span class="domain">%s</span> has been blocked by Glocker.</p>
+        <p>This site is currently in your blocked domains list.</p>
+        <p class="time">Blocked at: %s</p>
+        <p>If you need to access this site, you can temporarily unblock it using the glocker command.</p>
+    </div>
+</body>
+</html>`, host, time.Now().Format("2006-01-02 15:04:05"))
+		
+		w.Write([]byte(blockedPage))
+	} else {
+		// Not a blocked domain, return a simple response
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}
+}
+
+func executeWebTrackingCommand(config *Config, host string, r *http.Request) {
+	if config.WebTracking.Command == "" {
+		return
+	}
+	
+	slog.Debug("Executing web tracking command", "host", host, "command", config.WebTracking.Command)
+	
+	// Split command into parts for proper execution
+	parts := strings.Fields(config.WebTracking.Command)
+	if len(parts) == 0 {
+		return
+	}
+	
+	cmd := exec.Command(parts[0], parts[1:]...)
+	
+	// Set environment variables with information about the blocked access attempt
+	cmd.Env = append(os.Environ(),
+		"GLOCKER_BLOCKED_HOST="+host,
+		"GLOCKER_BLOCKED_URL="+r.URL.String(),
+		"GLOCKER_BLOCKED_METHOD="+r.Method,
+		"GLOCKER_BLOCKED_USER_AGENT="+r.Header.Get("User-Agent"),
+		"GLOCKER_BLOCKED_REMOTE_ADDR="+r.RemoteAddr,
+		"GLOCKER_BLOCKED_TIME="+time.Now().Format("2006-01-02 15:04:05"),
+	)
+	
+	if err := cmd.Run(); err != nil {
+		log.Printf("Failed to execute web tracking command: %v", err)
+	} else {
+		slog.Debug("Web tracking command executed successfully", "host", host)
+	}
 }
 
 func sendEmail(config *Config, subject, body string) error {

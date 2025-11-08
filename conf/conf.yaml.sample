@@ -106,3 +106,17 @@ domains:
   #     - start: "09:00"
   #       end: "17:00"
   #       days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+
+# Accountability and notifications
+accountability:
+  enabled: false
+  partner_email: "partner@example.com"
+  from_email: "glocker@yourdomain.com"
+  api_key: "your-mailgun-api-key"
+  daily_report_enabled: false
+  daily_report_time: "18:00"
+
+# Web tracking - detects when blocked sites are accessed
+web_tracking:
+  enabled: false
+  command: "mpg123 /home/noufal/Downloads/high-battery-sound.mp3"  # Command to run when blocked site is accessed

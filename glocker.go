@@ -2144,18 +2144,41 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
 	
 	// Check if this host is in our blocked domains list
 	isBlocked := false
+	matchedDomain := ""
 	now := time.Now()
 	blockedDomains := getDomainsToBlock(config, now)
 	
 	for _, blockedDomain := range blockedDomains {
-		if host == blockedDomain || host == "www."+blockedDomain || strings.HasSuffix(host, "."+blockedDomain) {
+		// Direct match
+		if host == blockedDomain {
 			isBlocked = true
+			matchedDomain = blockedDomain
+			break
+		}
+		// www subdomain match
+		if host == "www."+blockedDomain {
+			isBlocked = true
+			matchedDomain = blockedDomain
+			break
+		}
+		// Any subdomain match
+		if strings.HasSuffix(host, "."+blockedDomain) {
+			isBlocked = true
+			matchedDomain = blockedDomain
+			break
+		}
+		// Reverse check - if host is the base domain and blocked domain has www
+		if strings.HasPrefix(blockedDomain, "www.") && host == blockedDomain[4:] {
+			isBlocked = true
+			matchedDomain = blockedDomain
 			break
 		}
 	}
 	
+	slog.Debug("Host blocking check", "host", host, "is_blocked", isBlocked, "matched_domain", matchedDomain, "blocked_domains_count", len(blockedDomains))
+	
 	if isBlocked {
-		log.Printf("BLOCKED SITE ACCESS ATTEMPT: %s", host)
+		log.Printf("BLOCKED SITE ACCESS ATTEMPT: %s (matched: %s)", host, matchedDomain)
 		
 		// Execute the configured command
 		if config.WebTracking.Command != "" {
@@ -2167,6 +2190,7 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
 			subject := "GLOCKER ALERT: Blocked Site Access Attempt"
 			body := fmt.Sprintf("An attempt to access a blocked site was detected at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
 			body += fmt.Sprintf("Host: %s\n", host)
+			body += fmt.Sprintf("Matched Domain: %s\n", matchedDomain)
 			body += fmt.Sprintf("URL: %s\n", r.URL.String())
 			body += fmt.Sprintf("Method: %s\n", r.Method)
 			body += fmt.Sprintf("User-Agent: %s\n", r.Header.Get("User-Agent"))

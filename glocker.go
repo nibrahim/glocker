@@ -2112,21 +2112,46 @@ func printConfig(config *Config) {
 }
 
 func startWebTrackingServer(config *Config) {
-	slog.Debug("Starting web tracking server on port 80")
+	slog.Debug("Starting web tracking servers on ports 80 and 443")
 	
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		handleWebTrackingRequest(config, w, r)
 	})
 	
-	server := &http.Server{
-		Addr:    ":80",
-		Handler: nil,
-	}
+	// Start HTTP server
+	go func() {
+		server := &http.Server{
+			Addr:    ":80",
+			Handler: nil,
+		}
+		
+		log.Printf("Web tracking HTTP server started on port 80")
+		if err := server.ListenAndServe(); err != nil {
+			log.Printf("Web tracking HTTP server error: %v", err)
+		}
+	}()
 	
-	log.Printf("Web tracking server started on port 80")
-	if err := server.ListenAndServe(); err != nil {
-		log.Printf("Web tracking server error: %v", err)
-	}
+	// Start HTTPS server
+	go func() {
+		server := &http.Server{
+			Addr:    ":443",
+			Handler: nil,
+		}
+		
+		// Generate self-signed certificate
+		certFile, keyFile, err := generateSelfSignedCert()
+		if err != nil {
+			log.Printf("Failed to generate SSL certificate: %v", err)
+			return
+		}
+		defer os.Remove(certFile)
+		defer os.Remove(keyFile)
+		
+		log.Printf("Web tracking HTTPS server started on port 443")
+		if err := server.ListenAndServeTLS(certFile, keyFile); err != nil {
+			log.Printf("Web tracking HTTPS server error: %v", err)
+		}
+	}()
 }
 
 func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Request) {
@@ -2268,6 +2293,24 @@ func executeWebTrackingCommand(config *Config, host string, r *http.Request) {
 	} else {
 		slog.Debug("Web tracking command executed successfully", "host", host)
 	}
+}
+
+func generateSelfSignedCert() (string, string, error) {
+	// Generate a private key
+	priv, err := exec.Command("openssl", "genrsa", "-out", "/tmp/glocker-key.pem", "2048").CombinedOutput()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate private key: %v, output: %s", err, priv)
+	}
+	
+	// Generate a self-signed certificate
+	cert, err := exec.Command("openssl", "req", "-new", "-x509", "-key", "/tmp/glocker-key.pem", 
+		"-out", "/tmp/glocker-cert.pem", "-days", "365", "-subj", "/CN=localhost").CombinedOutput()
+	if err != nil {
+		os.Remove("/tmp/glocker-key.pem")
+		return "", "", fmt.Errorf("failed to generate certificate: %v, output: %s", err, cert)
+	}
+	
+	return "/tmp/glocker-cert.pem", "/tmp/glocker-key.pem", nil
 }
 
 func sendEmail(config *Config, subject, body string) error {

@@ -2067,6 +2067,8 @@ func getStatusResponse(config *Config) string {
 	response.WriteString(fmt.Sprintf("  Sudoers Management: %v\n", config.Sudoers.Enabled))
 	response.WriteString(fmt.Sprintf("  Tamper Detection: %v\n", config.TamperDetection.Enabled))
 	response.WriteString(fmt.Sprintf("  Accountability: %v\n", config.Accountability.Enabled))
+	response.WriteString(fmt.Sprintf("  Web Tracking: %v\n", config.WebTracking.Enabled))
+	response.WriteString(fmt.Sprintf("  Content Monitoring: %v\n", config.ContentMonitoring.Enabled))
 	response.WriteString("\n")
 	
 	// Count domains by type

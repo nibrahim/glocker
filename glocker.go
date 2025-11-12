@@ -98,23 +98,23 @@ type ForbiddenProgramsConfig struct {
 }
 
 type Config struct {
-	EnableHosts            bool                    `yaml:"enable_hosts"`
-	EnableFirewall         bool                    `yaml:"enable_firewall"`
-	EnableForbiddenPrograms bool                   `yaml:"enable_forbidden_programs"`
-	Domains                []Domain                `yaml:"domains"`
-	HostsPath              string                  `yaml:"hosts_path"`
-	SelfHeal               bool                    `yaml:"enable_self_healing"`
-	EnforceInterval        int                     `yaml:"enforce_interval_seconds"`
-	Sudoers                SudoersConfig           `yaml:"sudoers"`
-	TamperDetection        TamperConfig            `yaml:"tamper_detection"`
-	Accountability         AccountabilityConfig    `yaml:"accountability"`
-	WebTracking            WebTrackingConfig       `yaml:"web_tracking"`
-	ContentMonitoring      ContentMonitoringConfig `yaml:"content_monitoring"`
-	ForbiddenPrograms      ForbiddenProgramsConfig `yaml:"forbidden_programs"`
-	MindfulDelay           int                     `yaml:"mindful_delay"`
-	TempUnblockTime        int                     `yaml:"temp_unblock_time"`
-	Dev                    bool                    `yaml:"dev"`
-	LogLevel               string                  `yaml:"log_level"`
+	EnableHosts             bool                    `yaml:"enable_hosts"`
+	EnableFirewall          bool                    `yaml:"enable_firewall"`
+	EnableForbiddenPrograms bool                    `yaml:"enable_forbidden_programs"`
+	Domains                 []Domain                `yaml:"domains"`
+	HostsPath               string                  `yaml:"hosts_path"`
+	SelfHeal                bool                    `yaml:"enable_self_healing"`
+	EnforceInterval         int                     `yaml:"enforce_interval_seconds"`
+	Sudoers                 SudoersConfig           `yaml:"sudoers"`
+	TamperDetection         TamperConfig            `yaml:"tamper_detection"`
+	Accountability          AccountabilityConfig    `yaml:"accountability"`
+	WebTracking             WebTrackingConfig       `yaml:"web_tracking"`
+	ContentMonitoring       ContentMonitoringConfig `yaml:"content_monitoring"`
+	ForbiddenPrograms       ForbiddenProgramsConfig `yaml:"forbidden_programs"`
+	MindfulDelay            int                     `yaml:"mindful_delay"`
+	TempUnblockTime         int                     `yaml:"temp_unblock_time"`
+	Dev                     bool                    `yaml:"dev"`
+	LogLevel                string                  `yaml:"log_level"`
 }
 
 func setupLogging(config *Config) {
@@ -295,12 +295,12 @@ func main() {
 			conn, err := net.Dial("unix", GLOCKER_SOCK)
 			if err == nil {
 				defer conn.Close()
-				
+
 				log.Println("=== LIVE STATUS ===")
-				
+
 				// Send status request
 				conn.Write([]byte("status\n"))
-				
+
 				// Read response
 				scanner := bufio.NewScanner(conn)
 				for scanner.Scan() {
@@ -313,7 +313,7 @@ func main() {
 				return
 			}
 		}
-		
+
 		// Socket not available, show help
 		fmt.Println("Glocker - Domain and System Access Control")
 		fmt.Println()
@@ -430,7 +430,7 @@ func processUnblockRequestWithReason(config *Config, hostsStr string, reason str
 					break
 				}
 			}
-			
+
 			if isAbsolute {
 				rejectedHosts = append(rejectedHosts, host)
 				slog.Debug("Rejected absolute domain for unblocking", "host", host)
@@ -506,7 +506,7 @@ func processUnblockRequestWithReason(config *Config, hostsStr string, reason str
 	if len(rejectedHosts) > 0 && config.Accountability.Enabled {
 		var subject string
 		var body string
-		
+
 		if len(validHosts) > 0 {
 			// Partial rejection - some domains were unblocked
 			subject = "GLOCKER ALERT: Unblock Request Partially Rejected"
@@ -519,7 +519,7 @@ func processUnblockRequestWithReason(config *Config, hostsStr string, reason str
 			body = fmt.Sprintf("An unblock request was completely rejected at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
 			body += fmt.Sprintf("All requested domains are marked as absolute: %v\n", rejectedHosts)
 		}
-		
+
 		body += fmt.Sprintf("Reason provided: %s\n\n", reason)
 		body += "Absolute domains cannot be temporarily unblocked due to their configuration.\n"
 		body += "\nThis is an automated alert from Glocker."
@@ -564,7 +564,7 @@ func processBlockRequest(config *Config, hostsStr string) {
 				// Update existing domain to always block
 				slog.Debug("Found existing domain, updating to always block", "host", host, "was_always_block", domain.AlwaysBlock)
 				config.Domains[i].AlwaysBlock = true
-				config.Domains[i].TimeWindows = nil // Clear time windows since it's always blocked
+				config.Domains[i].TimeWindows = nil  // Clear time windows since it's always blocked
 				config.Domains[i].LogBlocking = true // Enable logging for manually blocked domains
 				found = true
 				log.Printf("Updated existing domain %s to always block", host)
@@ -1279,7 +1279,7 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 	}
 
 	// Log summary with counts only
-	slog.Debug("Domain blocking evaluation complete", 
+	slog.Debug("Domain blocking evaluation complete",
 		"total_blocked", len(blocked),
 		"always_block_count", alwaysBlockCount,
 		"time_based_block_count", timeBasedBlockCount,
@@ -1309,7 +1309,7 @@ func isTempUnblocked(domain string, now time.Time) bool {
 func cleanupExpiredUnblocks(now time.Time) {
 	var activeUnblocks []TempUnblock
 	expiredCount := 0
-	
+
 	for _, unblock := range tempUnblocks {
 		if now.Before(unblock.ExpiresAt) {
 			activeUnblocks = append(activeUnblocks, unblock)
@@ -1318,7 +1318,7 @@ func cleanupExpiredUnblocks(now time.Time) {
 			slog.Debug("Removing expired temporary unblock", "domain", unblock.Domain, "expired_at", unblock.ExpiresAt.Format("2006-01-02 15:04:05"))
 		}
 	}
-	
+
 	if expiredCount > 0 {
 		tempUnblocks = activeUnblocks
 		slog.Debug("Cleaned up expired temporary unblocks", "removed_count", expiredCount, "remaining_count", len(tempUnblocks))
@@ -1371,7 +1371,7 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 			fmt.Sprintf("::1 www.%s", domain),
 		}
 		blockSection = append(blockSection, entries...)
-		
+
 		// Only log if this domain has logging enabled
 		for _, configDomain := range config.Domains {
 			if configDomain.Name == domain && configDomain.LogBlocking {
@@ -1605,7 +1605,7 @@ func isInTimeWindow(current, start, end string) bool {
 func init() {
 	// Set process priority to make it less likely to be killed by OOM
 	syscall.Setpriority(syscall.PRIO_PROCESS, 0, -10)
-	
+
 	// Set up signal trapping
 	setupSignalTrapping()
 }
@@ -1613,22 +1613,22 @@ func init() {
 func setupSignalTrapping() {
 	// Create a channel to receive OS signals
 	sigChan := make(chan os.Signal, 1)
-	
+
 	// Register the channel to receive specific signals
 	// We trap most termination signals but allow some system signals to pass through
 	signal.Notify(sigChan,
-		syscall.SIGTERM,  // Termination request
-		syscall.SIGINT,   // Interrupt (Ctrl+C)
-		syscall.SIGQUIT,  // Quit (Ctrl+\)
-		syscall.SIGHUP,   // Hangup
-		syscall.SIGUSR1,  // User-defined signal 1
-		syscall.SIGUSR2,  // User-defined signal 2
-		syscall.SIGPIPE,  // Broken pipe
-		syscall.SIGALRM,  // Alarm clock
-		syscall.SIGTSTP,  // Terminal stop (Ctrl+Z)
-		syscall.SIGCONT,  // Continue after stop
+		syscall.SIGTERM, // Termination request
+		syscall.SIGINT,  // Interrupt (Ctrl+C)
+		syscall.SIGQUIT, // Quit (Ctrl+\)
+		syscall.SIGHUP,  // Hangup
+		syscall.SIGUSR1, // User-defined signal 1
+		syscall.SIGUSR2, // User-defined signal 2
+		syscall.SIGPIPE, // Broken pipe
+		syscall.SIGALRM, // Alarm clock
+		syscall.SIGTSTP, // Terminal stop (Ctrl+Z)
+		syscall.SIGCONT, // Continue after stop
 	)
-	
+
 	// Start a goroutine to handle signals
 	go handleSignals(sigChan)
 }
@@ -1641,7 +1641,7 @@ func handleSignals(sigChan chan os.Signal) {
 			log.Printf("Failed to parse config for signal handling: %v", err)
 			continue
 		}
-		
+
 		// Send accountability email about the termination attempt
 		if config.Accountability.Enabled {
 			subject := "GLOCKER ALERT: Termination Attempt Detected"
@@ -1649,7 +1649,7 @@ func handleSignals(sigChan chan os.Signal) {
 			body += fmt.Sprintf("Signal received: %s (%d)\n", sig.String(), sig)
 			body += fmt.Sprintf("Process ID: %d\n", os.Getpid())
 			body += fmt.Sprintf("Parent Process ID: %d\n", os.Getppid())
-			
+
 			// Try to get information about who sent the signal
 			if uid := os.Getuid(); uid != -1 {
 				body += fmt.Sprintf("User ID: %d\n", uid)
@@ -1657,11 +1657,11 @@ func handleSignals(sigChan chan os.Signal) {
 			if gid := os.Getgid(); gid != -1 {
 				body += fmt.Sprintf("Group ID: %d\n", gid)
 			}
-			
+
 			body += "\nGlocker is designed to resist termination attempts to maintain system protection.\n"
 			body += "If this termination was intentional, please use the proper uninstall procedure.\n\n"
 			body += "This is an automated alert from Glocker."
-			
+
 			// Send the email (this will handle dev mode appropriately)
 			if err := sendEmail(&config, subject, body); err != nil {
 				log.Printf("Failed to send signal accountability email: %v", err)
@@ -1669,10 +1669,10 @@ func handleSignals(sigChan chan os.Signal) {
 				log.Printf("Sent accountability email for signal: %s", sig.String())
 			}
 		}
-		
+
 		// Log the signal attempt
 		log.Printf("SECURITY ALERT: Received termination signal %s (%d) - ignoring", sig.String(), sig)
-		
+
 		// For certain signals, we might want to take additional action
 		switch sig {
 		case syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT:
@@ -1682,7 +1682,7 @@ func handleSignals(sigChan chan os.Signal) {
 		default:
 			log.Printf("Ignoring signal %s", sig.String())
 		}
-		
+
 		// We don't exit or stop - we just log and continue running
 		// This makes the process resistant to casual termination attempts
 	}
@@ -1938,18 +1938,18 @@ func unblockHostsFromFlag(config *Config, hostsStr string) {
 	if len(parts) != 2 {
 		log.Fatal("ERROR: Reason required. Use format: 'domain1,domain2:reason'")
 	}
-	
+
 	domains := strings.TrimSpace(parts[0])
 	reason := strings.TrimSpace(parts[1])
-	
+
 	if domains == "" {
 		log.Fatal("ERROR: No domains specified")
 	}
-	
+
 	if reason == "" {
 		log.Fatal("ERROR: Reason cannot be empty")
 	}
-	
+
 	payload := fmt.Sprintf("%s:%s", domains, reason)
 	sendSocketMessage("unblock", payload)
 	log.Printf("Domains will be temporarily unblocked (Reason: %s) and automatically re-blocked after the configured time.", reason)
@@ -1973,7 +1973,7 @@ func sendSocketMessage(action, domains string) {
 	} else {
 		message = fmt.Sprintf("%s\n", action)
 	}
-	
+
 	_, err = conn.Write([]byte(message))
 	if err != nil {
 		log.Fatalf("Failed to send message: %v", err)
@@ -1995,12 +1995,12 @@ func handleStatusCommand(config *Config) {
 		conn, err := net.Dial("unix", GLOCKER_SOCK)
 		if err == nil {
 			defer conn.Close()
-			
+
 			log.Println("=== LIVE STATUS ===")
-			
+
 			// Send status request
 			conn.Write([]byte("status\n"))
-			
+
 			// Read response
 			scanner := bufio.NewScanner(conn)
 			for scanner.Scan() {
@@ -2013,7 +2013,7 @@ func handleStatusCommand(config *Config) {
 			return
 		}
 	}
-	
+
 	// Socket not available, fall back to static status
 	log.Println("=== STATIC STATUS ===")
 	log.Println("(Service not running - showing configuration only)")
@@ -2024,21 +2024,21 @@ func handleStatusCommand(config *Config) {
 func getStatusResponse(config *Config) string {
 	var response strings.Builder
 	now := time.Now()
-	
+
 	response.WriteString("╔════════════════════════════════════════════════╗\n")
 	response.WriteString("║                 LIVE STATUS                    ║\n")
 	response.WriteString("╚════════════════════════════════════════════════╝\n")
 	response.WriteString("\n")
-	
+
 	response.WriteString(fmt.Sprintf("Current Time: %s\n", now.Format("2006-01-02 15:04:05")))
 	response.WriteString(fmt.Sprintf("Service Status: Running\n"))
 	response.WriteString(fmt.Sprintf("Enforcement Interval: %d seconds\n", config.EnforceInterval))
 	response.WriteString("\n")
-	
+
 	// Get currently blocked domains
 	blockedDomains := getDomainsToBlock(config, now)
 	response.WriteString(fmt.Sprintf("Currently Blocked Domains: %d\n", len(blockedDomains)))
-	
+
 	// Show temporary unblocks
 	activeUnblocks := 0
 	for _, unblock := range tempUnblocks {
@@ -2047,7 +2047,7 @@ func getStatusResponse(config *Config) string {
 		}
 	}
 	response.WriteString(fmt.Sprintf("Temporary Unblocks: %d active\n", activeUnblocks))
-	
+
 	if activeUnblocks > 0 {
 		response.WriteString("  Active temporary unblocks:\n")
 		for _, unblock := range tempUnblocks {
@@ -2058,7 +2058,7 @@ func getStatusResponse(config *Config) string {
 		}
 	}
 	response.WriteString("\n")
-	
+
 	// Configuration summary
 	response.WriteString("Configuration:\n")
 	response.WriteString(fmt.Sprintf("  Hosts File Management: %v\n", config.EnableHosts))
@@ -2070,7 +2070,7 @@ func getStatusResponse(config *Config) string {
 	response.WriteString(fmt.Sprintf("  Web Tracking: %v\n", config.WebTracking.Enabled))
 	response.WriteString(fmt.Sprintf("  Content Monitoring: %v\n", config.ContentMonitoring.Enabled))
 	response.WriteString("\n")
-	
+
 	// Count domains by type
 	alwaysBlockCount := 0
 	timeBasedCount := 0
@@ -2085,10 +2085,10 @@ func getStatusResponse(config *Config) string {
 			loggedCount++
 		}
 	}
-	
+
 	response.WriteString(fmt.Sprintf("Total Domains: %d (%d always blocked, %d time-based, %d with detailed logging)\n",
 		len(config.Domains), alwaysBlockCount, timeBasedCount, loggedCount))
-	
+
 	response.WriteString("END\n")
 	return response.String()
 }
@@ -2184,36 +2184,36 @@ func printConfig(config *Config) {
 
 func startWebTrackingServer(config *Config) {
 	slog.Debug("Starting web tracking servers on ports 80 and 443")
-	
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		handleWebTrackingRequest(config, w, r)
 	})
-	
+
 	// Add report endpoint for browser extensions
 	http.HandleFunc("/report", func(w http.ResponseWriter, r *http.Request) {
 		handleReportRequest(config, w, r)
 	})
-	
+
 	// Start HTTP server
 	go func() {
 		server := &http.Server{
 			Addr:    ":80",
 			Handler: nil,
 		}
-		
+
 		log.Printf("Web tracking HTTP server started on port 80")
 		if err := server.ListenAndServe(); err != nil {
 			log.Printf("Web tracking HTTP server error: %v", err)
 		}
 	}()
-	
+
 	// Start HTTPS server
 	go func() {
 		server := &http.Server{
 			Addr:    ":443",
 			Handler: nil,
 		}
-		
+
 		// Generate self-signed certificate
 		certFile, keyFile, err := generateSelfSignedCert()
 		if err != nil {
@@ -2222,7 +2222,7 @@ func startWebTrackingServer(config *Config) {
 		}
 		defer os.Remove(certFile)
 		defer os.Remove(keyFile)
-		
+
 		log.Printf("Web tracking HTTPS server started on port 443")
 		if err := server.ListenAndServeTLS(certFile, keyFile); err != nil {
 			log.Printf("Web tracking HTTPS server error: %v", err)
@@ -2235,20 +2235,20 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
 	if host == "" {
 		host = r.Header.Get("Host")
 	}
-	
+
 	// Remove port if present
 	if colonIndex := strings.Index(host, ":"); colonIndex != -1 {
 		host = host[:colonIndex]
 	}
-	
+
 	slog.Debug("Web tracking request received", "host", host, "url", r.URL.String(), "method", r.Method)
-	
+
 	// Check if this host is in our blocked domains list
 	isBlocked := false
 	matchedDomain := ""
 	now := time.Now()
 	blockedDomains := getDomainsToBlock(config, now)
-	
+
 	for _, blockedDomain := range blockedDomains {
 		// Direct match
 		if host == blockedDomain {
@@ -2275,17 +2275,17 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
 			break
 		}
 	}
-	
+
 	slog.Debug("Host blocking check", "host", host, "is_blocked", isBlocked, "matched_domain", matchedDomain, "blocked_domains_count", len(blockedDomains))
-	
+
 	if isBlocked {
 		log.Printf("BLOCKED SITE ACCESS ATTEMPT: %s (matched: %s)", host, matchedDomain)
-		
+
 		// Execute the configured command
 		if config.WebTracking.Command != "" {
 			go executeWebTrackingCommand(config, host, r)
 		}
-		
+
 		// Send accountability email
 		if config.Accountability.Enabled {
 			subject := "GLOCKER ALERT: Blocked Site Access Attempt"
@@ -2297,12 +2297,12 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
 			body += fmt.Sprintf("User-Agent: %s\n", r.Header.Get("User-Agent"))
 			body += fmt.Sprintf("Remote Address: %s\n", r.RemoteAddr)
 			body += "\nThis is an automated alert from Glocker."
-			
+
 			if err := sendEmail(config, subject, body); err != nil {
 				log.Printf("Failed to send web tracking accountability email: %v", err)
 			}
 		}
-		
+
 		// Return a blocked page response
 		w.WriteHeader(http.StatusForbidden)
 		w.Header().Set("Content-Type", "text/html")
@@ -2330,7 +2330,7 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
     </div>
 </body>
 </html>`, host, time.Now().Format("2006-01-02 15:04:05"))
-		
+
 		w.Write([]byte(blockedPage))
 	} else {
 		// Not a blocked domain, return a simple response
@@ -2343,17 +2343,17 @@ func executeWebTrackingCommand(config *Config, host string, r *http.Request) {
 	if config.WebTracking.Command == "" {
 		return
 	}
-	
+
 	slog.Debug("Executing web tracking command", "host", host, "command", config.WebTracking.Command)
-	
+
 	// Split command into parts for proper execution
 	parts := strings.Fields(config.WebTracking.Command)
 	if len(parts) == 0 {
 		return
 	}
-	
+
 	cmd := exec.Command(parts[0], parts[1:]...)
-	
+
 	// Set environment variables with information about the blocked access attempt
 	cmd.Env = append(os.Environ(),
 		"GLOCKER_BLOCKED_HOST="+host,
@@ -2363,7 +2363,7 @@ func executeWebTrackingCommand(config *Config, host string, r *http.Request) {
 		"GLOCKER_BLOCKED_REMOTE_ADDR="+r.RemoteAddr,
 		"GLOCKER_BLOCKED_TIME="+time.Now().Format("2006-01-02 15:04:05"),
 	)
-	
+
 	if err := cmd.Run(); err != nil {
 		log.Printf("Failed to execute web tracking command: %v", err)
 	} else {
@@ -2377,13 +2377,13 @@ func handleReportRequest(config *Config, w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	// Check if content monitoring is enabled
 	if !config.ContentMonitoring.Enabled {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
-	
+
 	// Parse JSON body
 	var report ContentReport
 	if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
@@ -2391,17 +2391,17 @@ func handleReportRequest(config *Config, w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	
+
 	// Log the report
 	if err := logContentReport(config, &report); err != nil {
 		slog.Debug("Failed to log content report", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	
+
 	slog.Debug("Content report logged", "url", report.URL, "trigger", report.Trigger)
 	log.Printf("CONTENT REPORT: %s - %s", report.Trigger, report.URL)
-	
+
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
@@ -2411,7 +2411,7 @@ func logContentReport(config *Config, report *ContentReport) error {
 	if logFile == "" {
 		logFile = "/var/log/glocker-reports.log"
 	}
-	
+
 	// Create log entry
 	timestamp := time.Unix(report.Timestamp/1000, 0).Format("2006-01-02 15:04:05")
 	logEntry := fmt.Sprintf("[%s] %s | %s", timestamp, report.Trigger, report.URL)
@@ -2419,19 +2419,19 @@ func logContentReport(config *Config, report *ContentReport) error {
 		logEntry += fmt.Sprintf(" | %s", report.Domain)
 	}
 	logEntry += "\n"
-	
+
 	// Append to log file
 	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
 	defer file.Close()
-	
+
 	_, err = file.WriteString(logEntry)
 	if err != nil {
 		return fmt.Errorf("failed to write to log file: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -2441,15 +2441,15 @@ func generateSelfSignedCert() (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("failed to generate private key: %v, output: %s", err, priv)
 	}
-	
+
 	// Generate a self-signed certificate
-	cert, err := exec.Command("openssl", "req", "-new", "-x509", "-key", "/tmp/glocker-key.pem", 
+	cert, err := exec.Command("openssl", "req", "-new", "-x509", "-key", "/tmp/glocker-key.pem",
 		"-out", "/tmp/glocker-cert.pem", "-days", "365", "-subj", "/CN=localhost").CombinedOutput()
 	if err != nil {
 		os.Remove("/tmp/glocker-key.pem")
 		return "", "", fmt.Errorf("failed to generate certificate: %v, output: %s", err, cert)
 	}
-	
+
 	return "/tmp/glocker-cert.pem", "/tmp/glocker-key.pem", nil
 }
 

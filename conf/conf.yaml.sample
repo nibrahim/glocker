@@ -122,6 +122,11 @@ web_tracking:
   enabled: false
   command: "mpg123 /home/noufal/Downloads/high-battery-sound.mp3"  # Command to run when blocked site is accessed
 
+# Content monitoring - logs reports from browser extensions
+content_monitoring:
+  enabled: false
+  log_file: "/var/log/glocker-reports.log"  # File to log content reports
+
 # Forbidden programs - kills specified programs during time windows
 forbidden_programs:
   enabled: true

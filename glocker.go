@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	_ "embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -80,6 +81,11 @@ type WebTrackingConfig struct {
 	Command string `yaml:"command"`
 }
 
+type ContentMonitoringConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	LogFile string `yaml:"log_file"`
+}
+
 type ForbiddenProgram struct {
 	Name        string       `yaml:"name"`
 	TimeWindows []TimeWindow `yaml:"time_windows"`
@@ -103,6 +109,7 @@ type Config struct {
 	TamperDetection        TamperConfig            `yaml:"tamper_detection"`
 	Accountability         AccountabilityConfig    `yaml:"accountability"`
 	WebTracking            WebTrackingConfig       `yaml:"web_tracking"`
+	ContentMonitoring      ContentMonitoringConfig `yaml:"content_monitoring"`
 	ForbiddenPrograms      ForbiddenProgramsConfig `yaml:"forbidden_programs"`
 	MindfulDelay           int                     `yaml:"mindful_delay"`
 	TempUnblockTime        int                     `yaml:"temp_unblock_time"`
@@ -257,8 +264,8 @@ func main() {
 			go monitorTampering(&config, initialChecksums, filesToMonitor)
 		}
 
-		// Start web tracking server if enabled
-		if config.WebTracking.Enabled {
+		// Start web tracking server if enabled (also handles content monitoring)
+		if config.WebTracking.Enabled || config.ContentMonitoring.Enabled {
 			go startWebTrackingServer(&config)
 		}
 
@@ -1696,6 +1703,13 @@ type TempUnblock struct {
 	ExpiresAt time.Time
 }
 
+type ContentReport struct {
+	URL       string `json:"url"`
+	Domain    string `json:"domain,omitempty"`
+	Trigger   string `json:"trigger"`
+	Timestamp int64  `json:"timestamp"`
+}
+
 // Global variables for tamper detection
 var (
 	globalChecksums      []FileChecksum
@@ -2158,6 +2172,12 @@ func printConfig(config *Config) {
 	}
 
 	fmt.Println()
+	fmt.Printf("Content Monitoring: %v\n", config.ContentMonitoring.Enabled)
+	if config.ContentMonitoring.Enabled {
+		fmt.Printf("  Log File: %s\n", config.ContentMonitoring.LogFile)
+	}
+
+	fmt.Println()
 }
 
 func startWebTrackingServer(config *Config) {
@@ -2165,6 +2185,11 @@ func startWebTrackingServer(config *Config) {
 	
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		handleWebTrackingRequest(config, w, r)
+	})
+	
+	// Add report endpoint for browser extensions
+	http.HandleFunc("/report", func(w http.ResponseWriter, r *http.Request) {
+		handleReportRequest(config, w, r)
 	})
 	
 	// Start HTTP server
@@ -2342,6 +2367,70 @@ func executeWebTrackingCommand(config *Config, host string, r *http.Request) {
 	} else {
 		slog.Debug("Web tracking command executed successfully", "host", host)
 	}
+}
+
+func handleReportRequest(config *Config, w http.ResponseWriter, r *http.Request) {
+	// Only accept POST requests
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	
+	// Check if content monitoring is enabled
+	if !config.ContentMonitoring.Enabled {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+	
+	// Parse JSON body
+	var report ContentReport
+	if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+		slog.Debug("Failed to parse report JSON", "error", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	
+	// Log the report
+	if err := logContentReport(config, &report); err != nil {
+		slog.Debug("Failed to log content report", "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	
+	slog.Debug("Content report logged", "url", report.URL, "trigger", report.Trigger)
+	log.Printf("CONTENT REPORT: %s - %s", report.Trigger, report.URL)
+	
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+func logContentReport(config *Config, report *ContentReport) error {
+	logFile := config.ContentMonitoring.LogFile
+	if logFile == "" {
+		logFile = "/var/log/glocker-reports.log"
+	}
+	
+	// Create log entry
+	timestamp := time.Unix(report.Timestamp/1000, 0).Format("2006-01-02 15:04:05")
+	logEntry := fmt.Sprintf("[%s] %s | %s", timestamp, report.Trigger, report.URL)
+	if report.Domain != "" {
+		logEntry += fmt.Sprintf(" | %s", report.Domain)
+	}
+	logEntry += "\n"
+	
+	// Append to log file
+	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %w", err)
+	}
+	defer file.Close()
+	
+	_, err = file.WriteString(logEntry)
+	if err != nil {
+		return fmt.Errorf("failed to write to log file: %w", err)
+	}
+	
+	return nil
 }
 
 func generateSelfSignedCert() (string, string, error) {

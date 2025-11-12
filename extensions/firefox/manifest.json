@@ -1,0 +1,23 @@
+{
+  "manifest_version": 2,
+  "name": "Glocker Content Monitor",
+  "version": "1.0",
+  "description": "Reports problematic content to Glocker",
+  
+  "permissions": [
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>",
+    "storage"
+  ],
+  
+  "background": {
+    "scripts": ["background.js"]
+  },
+  
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content.js"],
+    "run_at": "document_start"
+  }]
+}

@@ -80,21 +80,34 @@ type WebTrackingConfig struct {
 	Command string `yaml:"command"`
 }
 
+type ForbiddenProgram struct {
+	Name        string       `yaml:"name"`
+	TimeWindows []TimeWindow `yaml:"time_windows"`
+}
+
+type ForbiddenProgramsConfig struct {
+	Enabled       bool               `yaml:"enabled"`
+	CheckInterval int                `yaml:"check_interval_seconds"`
+	Programs      []ForbiddenProgram `yaml:"programs"`
+}
+
 type Config struct {
-	EnableHosts     bool                 `yaml:"enable_hosts"`
-	EnableFirewall  bool                 `yaml:"enable_firewall"`
-	Domains         []Domain             `yaml:"domains"`
-	HostsPath       string               `yaml:"hosts_path"`
-	SelfHeal        bool                 `yaml:"enable_self_healing"`
-	EnforceInterval int                  `yaml:"enforce_interval_seconds"`
-	Sudoers         SudoersConfig        `yaml:"sudoers"`
-	TamperDetection TamperConfig         `yaml:"tamper_detection"`
-	Accountability  AccountabilityConfig `yaml:"accountability"`
-	WebTracking     WebTrackingConfig    `yaml:"web_tracking"`
-	MindfulDelay    int                  `yaml:"mindful_delay"`
-	TempUnblockTime int                  `yaml:"temp_unblock_time"`
-	Dev             bool                 `yaml:"dev"`
-	LogLevel        string               `yaml:"log_level"`
+	EnableHosts            bool                    `yaml:"enable_hosts"`
+	EnableFirewall         bool                    `yaml:"enable_firewall"`
+	EnableForbiddenPrograms bool                   `yaml:"enable_forbidden_programs"`
+	Domains                []Domain                `yaml:"domains"`
+	HostsPath              string                  `yaml:"hosts_path"`
+	SelfHeal               bool                    `yaml:"enable_self_healing"`
+	EnforceInterval        int                     `yaml:"enforce_interval_seconds"`
+	Sudoers                SudoersConfig           `yaml:"sudoers"`
+	TamperDetection        TamperConfig            `yaml:"tamper_detection"`
+	Accountability         AccountabilityConfig    `yaml:"accountability"`
+	WebTracking            WebTrackingConfig       `yaml:"web_tracking"`
+	ForbiddenPrograms      ForbiddenProgramsConfig `yaml:"forbidden_programs"`
+	MindfulDelay           int                     `yaml:"mindful_delay"`
+	TempUnblockTime        int                     `yaml:"temp_unblock_time"`
+	Dev                    bool                    `yaml:"dev"`
+	LogLevel               string                  `yaml:"log_level"`
 }
 
 func setupLogging(config *Config) {
@@ -247,6 +260,11 @@ func main() {
 		// Start web tracking server if enabled
 		if config.WebTracking.Enabled {
 			go startWebTrackingServer(&config)
+		}
+
+		// Start forbidden programs monitoring if enabled
+		if config.EnableForbiddenPrograms && config.ForbiddenPrograms.Enabled {
+			go monitorForbiddenPrograms(&config)
 		}
 
 		// Initial enforcement
@@ -614,6 +632,14 @@ func runOnce(config *Config, dryRun bool) {
 		}
 	} else {
 		slog.Debug("Sudoers management disabled")
+	}
+
+	if config.EnableForbiddenPrograms && config.ForbiddenPrograms.Enabled {
+		slog.Debug("Forbidden programs monitoring", "enabled", true)
+		// Note: Forbidden programs are monitored in a separate goroutine
+		// This is just for status reporting
+	} else {
+		slog.Debug("Forbidden programs monitoring disabled")
 	}
 
 	slog.Debug("Enforcement run completed")
@@ -1533,6 +1559,23 @@ func validateConfig(config *Config) error {
 		}
 	}
 
+	// Validate forbidden programs config
+	if config.EnableForbiddenPrograms && config.ForbiddenPrograms.Enabled {
+		for _, program := range config.ForbiddenPrograms.Programs {
+			if program.Name == "" {
+				return fmt.Errorf("forbidden program name cannot be empty")
+			}
+			for _, window := range program.TimeWindows {
+				if !isValidTime(window.Start) || !isValidTime(window.End) {
+					return fmt.Errorf("invalid time format for forbidden program %s (use HH:MM)", program.Name)
+				}
+				if len(window.Days) == 0 {
+					return fmt.Errorf("time window for forbidden program %s must specify at least one day", program.Name)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -2006,6 +2049,7 @@ func getStatusResponse(config *Config) string {
 	response.WriteString("Configuration:\n")
 	response.WriteString(fmt.Sprintf("  Hosts File Management: %v\n", config.EnableHosts))
 	response.WriteString(fmt.Sprintf("  Firewall Management: %v\n", config.EnableFirewall))
+	response.WriteString(fmt.Sprintf("  Forbidden Programs: %v\n", config.EnableForbiddenPrograms && config.ForbiddenPrograms.Enabled))
 	response.WriteString(fmt.Sprintf("  Sudoers Management: %v\n", config.Sudoers.Enabled))
 	response.WriteString(fmt.Sprintf("  Tamper Detection: %v\n", config.TamperDetection.Enabled))
 	response.WriteString(fmt.Sprintf("  Accountability: %v\n", config.Accountability.Enabled))
@@ -2046,6 +2090,11 @@ func printConfig(config *Config) {
 	}
 
 	fmt.Printf("Firewall Management: %v\n", config.EnableFirewall)
+	fmt.Printf("Forbidden Programs: %v\n", config.EnableForbiddenPrograms && config.ForbiddenPrograms.Enabled)
+	if config.EnableForbiddenPrograms && config.ForbiddenPrograms.Enabled {
+		fmt.Printf("  Check Interval: %d seconds\n", config.ForbiddenPrograms.CheckInterval)
+		fmt.Printf("  Programs: %d configured\n", len(config.ForbiddenPrograms.Programs))
+	}
 	fmt.Printf("Self Healing: %v\n", config.SelfHeal)
 	fmt.Printf("Enforcement Interval: %d seconds\n", config.EnforceInterval)
 	fmt.Printf("Mindful Delay: %d seconds\n", config.MindfulDelay)
@@ -2311,6 +2360,137 @@ func generateSelfSignedCert() (string, string, error) {
 	}
 	
 	return "/tmp/glocker-cert.pem", "/tmp/glocker-key.pem", nil
+}
+
+func monitorForbiddenPrograms(config *Config) {
+	// Set default check interval if not specified
+	checkInterval := config.ForbiddenPrograms.CheckInterval
+	if checkInterval == 0 {
+		checkInterval = 5 // Default: check every 5 seconds
+	}
+
+	slog.Debug("Starting forbidden programs monitoring", "check_interval_seconds", checkInterval, "programs_count", len(config.ForbiddenPrograms.Programs))
+
+	ticker := time.NewTicker(time.Duration(checkInterval) * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		now := time.Now()
+		currentDay := now.Weekday().String()[:3]
+		currentTime := now.Format("15:04")
+
+		slog.Debug("Checking for forbidden programs", "current_day", currentDay, "current_time", currentTime)
+
+		for _, program := range config.ForbiddenPrograms.Programs {
+			// Check if any time window is active for this program
+			programForbidden := false
+			for _, window := range program.TimeWindows {
+				if !slices.Contains(window.Days, currentDay) {
+					continue
+				}
+
+				if isInTimeWindow(currentTime, window.Start, window.End) {
+					programForbidden = true
+					slog.Debug("Program is forbidden in current time window", "program", program.Name, "window", fmt.Sprintf("%s-%s", window.Start, window.End))
+					break
+				}
+			}
+
+			if programForbidden {
+				killMatchingProcesses(config, program.Name)
+			}
+		}
+	}
+}
+
+func killMatchingProcesses(config *Config, programName string) {
+	// Get list of running processes
+	cmd := exec.Command("ps", "aux")
+	output, err := cmd.Output()
+	if err != nil {
+		slog.Debug("Failed to get process list", "error", err)
+		return
+	}
+
+	lines := strings.Split(string(output), "\n")
+	killedProcesses := []string{}
+
+	for _, line := range lines {
+		// Skip header line and empty lines
+		if strings.Contains(line, "USER") || strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		// Check if the process name contains our forbidden program name (case-insensitive)
+		if strings.Contains(strings.ToLower(line), strings.ToLower(programName)) {
+			// Extract PID (second column in ps aux output)
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+
+			pid := fields[1]
+			processName := extractProcessName(line)
+
+			// Don't kill our own process or system processes
+			if strings.Contains(strings.ToLower(processName), "glocker") ||
+				strings.Contains(strings.ToLower(processName), "systemd") ||
+				strings.Contains(strings.ToLower(processName), "kernel") ||
+				pid == "1" {
+				continue
+			}
+
+			slog.Debug("Found matching forbidden process", "program_filter", programName, "process_name", processName, "pid", pid)
+
+			// Try to kill the process gracefully first (SIGTERM)
+			if err := exec.Command("kill", pid).Run(); err == nil {
+				killedProcesses = append(killedProcesses, fmt.Sprintf("%s (PID: %s)", processName, pid))
+				log.Printf("KILLED FORBIDDEN PROGRAM: %s (PID: %s) - matched filter: %s", processName, pid, programName)
+
+				// Wait a moment then force kill if still running
+				time.Sleep(2 * time.Second)
+				exec.Command("kill", "-9", pid).Run()
+			} else {
+				slog.Debug("Failed to kill process", "pid", pid, "error", err)
+			}
+		}
+	}
+
+	// Send accountability email if processes were killed
+	if len(killedProcesses) > 0 && config.Accountability.Enabled {
+		subject := "GLOCKER ALERT: Forbidden Programs Terminated"
+		body := fmt.Sprintf("Forbidden programs were detected and terminated at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
+		body += fmt.Sprintf("Filter: %s\n", programName)
+		body += "Terminated processes:\n"
+		for _, process := range killedProcesses {
+			body += fmt.Sprintf("  - %s\n", process)
+		}
+		body += "\nThese programs are configured to be blocked during specified time windows.\n"
+		body += "\nThis is an automated alert from Glocker."
+
+		if err := sendEmail(config, subject, body); err != nil {
+			log.Printf("Failed to send forbidden programs accountability email: %v", err)
+		}
+	}
+}
+
+func extractProcessName(psLine string) string {
+	// ps aux format: USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+	fields := strings.Fields(psLine)
+	if len(fields) >= 11 {
+		// Command is everything from field 10 onwards
+		command := strings.Join(fields[10:], " ")
+		// Extract just the program name (first part before any arguments)
+		if spaceIndex := strings.Index(command, " "); spaceIndex != -1 {
+			command = command[:spaceIndex]
+		}
+		// Remove path if present
+		if slashIndex := strings.LastIndex(command, "/"); slashIndex != -1 {
+			command = command[slashIndex+1:]
+		}
+		return command
+	}
+	return "unknown"
 }
 
 func sendEmail(config *Config, subject, body string) error {

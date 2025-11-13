@@ -3,7 +3,6 @@ function debugLog(message) {
   console.log('[GLOCKER CONTENT] ' + message);
   
   // Also create a visible debug element on the page for testing
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     const debugDiv = document.getElementById('glocker-debug') || (() => {
       const div = document.createElement('div');
       div.id = 'glocker-debug';

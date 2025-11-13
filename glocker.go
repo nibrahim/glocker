@@ -2205,6 +2205,11 @@ func startWebTrackingServer(config *Config) {
 		handleKeywordsRequest(config, w, r)
 	})
 
+	// Add blocked page endpoint
+	http.HandleFunc("/blocked", func(w http.ResponseWriter, r *http.Request) {
+		handleBlockedPageRequest(w, r)
+	})
+
 	// Start HTTP server
 	go func() {
 		server := &http.Server{
@@ -2624,6 +2629,78 @@ func extractProcessName(psLine string) string {
 		return command
 	}
 	return "unknown"
+}
+
+func handleBlockedPageRequest(w http.ResponseWriter, r *http.Request) {
+	// Only accept GET requests
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get the reason parameter from the query string
+	reason := r.URL.Query().Get("reason")
+	if reason == "" {
+		reason = "This content has been blocked by Glocker."
+	}
+
+	// Set content type
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusOK)
+
+	// Generate the blocked page HTML
+	blockedPage := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Content Blocked - Glocker</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            margin-top: 100px; 
+            background-color: #f0f0f0; 
+        }
+        .container { 
+            max-width: 600px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            background-color: white; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+        }
+        h1 { 
+            color: #d32f2f; 
+        }
+        p { 
+            color: #666; 
+            line-height: 1.6; 
+        }
+        .reason { 
+            font-weight: bold; 
+            color: #1976d2; 
+            background-color: #e3f2fd; 
+            padding: 10px; 
+            border-radius: 5px; 
+            margin: 20px 0; 
+        }
+        .time { 
+            color: #888; 
+            font-size: 0.9em; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚫 Content Blocked</h1>
+        <div class="reason">%s</div>
+        <p>If you need to access this content, you can temporarily unblock it using the glocker command.</p>
+        <p class="time">Blocked at: %s</p>
+    </div>
+</body>
+</html>`, reason, time.Now().Format("2006-01-02 15:04:05"))
+
+	w.Write([]byte(blockedPage))
 }
 
 func sendEmail(config *Config, subject, body string) error {

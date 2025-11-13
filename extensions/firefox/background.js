@@ -40,7 +40,9 @@ browser.webRequest.onBeforeRequest.addListener(
           })
         }).catch(() => {}); // Ignore failures
         
-        return {cancel: true}; // Block request
+        // Redirect to blocked page with reason
+        const reason = encodeURIComponent(`URL contains blocked keyword: "${keyword}"`);
+        return {redirectUrl: `http://127.0.0.1/blocked?reason=${reason}`};
       }
     }
   },

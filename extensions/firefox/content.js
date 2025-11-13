@@ -37,8 +37,9 @@ function analyzeContent() {
         body: JSON.stringify(reportData)
       }).catch(() => {}); // Ignore failures
       
-      // Redirect to google.com
-      window.location.href = 'https://www.google.com';
+      // Redirect to blocked page with reason
+      const reason = encodeURIComponent(`Page content contains blocked keyword: "${keyword}"`);
+      window.location.href = `http://127.0.0.1/blocked?reason=${reason}`;
       
       break; // Only report once per page
     }

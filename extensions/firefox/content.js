@@ -37,6 +37,9 @@ function analyzeContent() {
         body: JSON.stringify(reportData)
       }).catch(() => {}); // Ignore failures
       
+      // Redirect to google.com
+      window.location.href = 'https://www.google.com';
+      
       break; // Only report once per page
     }
   }

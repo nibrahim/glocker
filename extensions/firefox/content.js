@@ -1,49 +1,66 @@
-console.log('[GLOCKER CONTENT] Script loaded, starting execution');
+// Debug function that creates visible output
+function debugLog(message) {
+  console.log('[GLOCKER CONTENT] ' + message);
+  
+  // Also create a visible debug element on the page for testing
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    const debugDiv = document.getElementById('glocker-debug') || (() => {
+      const div = document.createElement('div');
+      div.id = 'glocker-debug';
+      div.style.cssText = 'position:fixed;top:0;right:0;background:red;color:white;padding:5px;z-index:9999;max-width:300px;font-size:12px;';
+      document.documentElement.appendChild(div);
+      return div;
+    })();
+    debugDiv.innerHTML += message + '<br>';
+  }
+}
+
+debugLog('Script loaded, starting execution');
 
 // Page content analysis - will be populated from server
 let contentKeywords = ['trigger1', 'trigger2']; // fallback defaults
 
 // Fetch keywords from glocker server
 async function fetchKeywords() {
-  console.log('[GLOCKER CONTENT] fetchKeywords() called');
+  debugLog('fetchKeywords() called');
   try {
-    console.log('[GLOCKER CONTENT] Making fetch request to http://127.0.0.1/keywords');
+    debugLog('Making fetch request to http://127.0.0.1/keywords');
     const response = await fetch('http://127.0.0.1/keywords');
-    console.log('[GLOCKER CONTENT] Fetch response received:', response.status, response.ok);
+    debugLog('Fetch response received: ' + response.status + ' ' + response.ok);
     
     if (response.ok) {
       const data = await response.json();
-      console.log('[GLOCKER CONTENT] JSON data parsed:', data);
+      debugLog('JSON data parsed: ' + JSON.stringify(data));
       if (data.content_keywords && Array.isArray(data.content_keywords)) {
         contentKeywords = data.content_keywords;
-        console.log('[GLOCKER CONTENT] Updated content keywords from server:', contentKeywords);
+        debugLog('Updated content keywords from server: ' + JSON.stringify(contentKeywords));
       }
-      console.log('[GLOCKER CONTENT] fetchKeywords() returning data');
+      debugLog('fetchKeywords() returning data');
       return data;
     } else {
-      console.log('[GLOCKER CONTENT] Response not ok, status:', response.status);
+      debugLog('Response not ok, status: ' + response.status);
     }
   } catch (error) {
-    console.log('[GLOCKER CONTENT] Failed to fetch keywords from server, using defaults:', error);
+    debugLog('Failed to fetch keywords from server, using defaults: ' + error);
   }
-  console.log('[GLOCKER CONTENT] fetchKeywords() returning null');
+  debugLog('fetchKeywords() returning null');
   return null;
 }
 
 function analyzeContent() {
-  console.log('[GLOCKER CONTENT] analyzeContent() called');
-  console.log('[GLOCKER CONTENT] Current URL:', window.location.href);
-  console.log('[GLOCKER CONTENT] Document ready state:', document.readyState);
-  console.log('[GLOCKER CONTENT] Document body exists:', !!document.body);
+  debugLog('analyzeContent() called');
+  debugLog('Current URL: ' + window.location.href);
+  debugLog('Document ready state: ' + document.readyState);
+  debugLog('Document body exists: ' + !!document.body);
   
   const text = document.body ? document.body.textContent.toLowerCase() : '';
-  console.log('[GLOCKER CONTENT] Text length:', text.length);
-  console.log('[GLOCKER CONTENT] Using keywords:', contentKeywords);
+  debugLog('Text length: ' + text.length);
+  debugLog('Using keywords: ' + JSON.stringify(contentKeywords));
   
   for (let keyword of contentKeywords) {
-    console.log('[GLOCKER CONTENT] Checking for keyword:', keyword);
+    debugLog('Checking for keyword: ' + keyword);
     if (text.includes(keyword)) {
-      console.log('[GLOCKER CONTENT] MATCH FOUND! Keyword:', keyword, 'in URL:', window.location.href);
+      debugLog('MATCH FOUND! Keyword: ' + keyword + ' in URL: ' + window.location.href);
       
       const reportData = {
         url: window.location.href,
@@ -51,49 +68,49 @@ function analyzeContent() {
         trigger: `content-keyword:${keyword}`,
         timestamp: Date.now()
       };
-      console.log('[GLOCKER CONTENT] Sending report:', reportData);
+      debugLog('Sending report: ' + JSON.stringify(reportData));
       
       fetch('http://127.0.0.1/report', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(reportData)
       }).then(response => {
-        console.log('[GLOCKER CONTENT] Report sent successfully, status:', response.status);
+        debugLog('Report sent successfully, status: ' + response.status);
       }).catch(error => {
-        console.log('[GLOCKER CONTENT] Failed to send report:', error);
+        debugLog('Failed to send report: ' + error);
       });
       
       break; // Only report once per page
     }
   }
-  console.log('[GLOCKER CONTENT] analyzeContent() completed');
+  debugLog('analyzeContent() completed');
 }
 
 // Initialize keywords on startup
-console.log('[GLOCKER CONTENT] Starting initialization');
-console.log('[GLOCKER CONTENT] Initial document ready state:', document.readyState);
+debugLog('Starting initialization');
+debugLog('Initial document ready state: ' + document.readyState);
 
 fetchKeywords().then((result) => {
-  console.log('[GLOCKER CONTENT] fetchKeywords() promise resolved with:', result);
-  console.log('[GLOCKER CONTENT] Current contentKeywords:', contentKeywords);
+  debugLog('fetchKeywords() promise resolved with: ' + JSON.stringify(result));
+  debugLog('Current contentKeywords: ' + JSON.stringify(contentKeywords));
   
   // Run content analysis after keywords are loaded
-  console.log('[GLOCKER CONTENT] Checking document ready state:', document.readyState);
+  debugLog('Checking document ready state: ' + document.readyState);
   if (document.readyState === 'loading') {
-    console.log('[GLOCKER CONTENT] Document still loading, adding DOMContentLoaded listener');
+    debugLog('Document still loading, adding DOMContentLoaded listener');
     document.addEventListener('DOMContentLoaded', () => {
-      console.log('[GLOCKER CONTENT] DOMContentLoaded event fired');
+      debugLog('DOMContentLoaded event fired');
       analyzeContent();
     });
   } else {
-    console.log('[GLOCKER CONTENT] Document already loaded, running analyzeContent immediately');
+    debugLog('Document already loaded, running analyzeContent immediately');
     analyzeContent();
   }
 }).catch((error) => {
-  console.log('[GLOCKER CONTENT] fetchKeywords() promise rejected:', error);
+  debugLog('fetchKeywords() promise rejected: ' + error);
   // Still try to analyze with default keywords
-  console.log('[GLOCKER CONTENT] Running analyzeContent with default keywords');
+  debugLog('Running analyzeContent with default keywords');
   analyzeContent();
 });
 
-console.log('[GLOCKER CONTENT] Initialization setup complete');
+debugLog('Initialization setup complete');

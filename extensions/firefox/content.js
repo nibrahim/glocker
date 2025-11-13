@@ -58,7 +58,7 @@ function analyzeContent() {
   for (let keyword of contentKeywords) {
     debugLog('Checking for keyword: ' + keyword);
     if (text.includes(keyword)) {
-      debugLog('MATCH FOUND! Keyword: ' + keyword + ' in URL: ' + window.location.href);
+      debugLog('MATCH FOUND! Keyword: ' + keyword + ' in BODY: ' + window.location.href);
       
       const reportData = {
         url: window.location.href,

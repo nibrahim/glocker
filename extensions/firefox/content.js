@@ -5,6 +5,7 @@ let contentKeywords = ['trigger1', 'trigger2']; // fallback defaults
 async function fetchKeywords() {
   try {
     const response = await fetch('http://127.0.0.1/keywords');
+      console.log("Fetching content keywords")
     if (response.ok) {
       const data = await response.json();
       if (data.content_keywords && Array.isArray(data.content_keywords)) {
@@ -21,9 +22,10 @@ async function fetchKeywords() {
 
 function analyzeContent() {
   const text = document.body ? document.body.textContent.toLowerCase() : '';
-  
+  console.log("Analyzing content")
   for (let keyword of contentKeywords) {
     if (text.includes(keyword)) {
+        console.log("BODY : Found ", keyword, " in text");
       fetch('http://127.0.0.1/report', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},

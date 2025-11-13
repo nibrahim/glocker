@@ -1,5 +1,23 @@
-// Page content analysis
-const contentKeywords = ['trigger1', 'trigger2'];
+// Page content analysis - will be populated from server
+let contentKeywords = ['trigger1', 'trigger2']; // fallback defaults
+
+// Fetch keywords from glocker server
+async function fetchKeywords() {
+  try {
+    const response = await fetch('http://127.0.0.1/keywords');
+    if (response.ok) {
+      const data = await response.json();
+      if (data.content_keywords && Array.isArray(data.content_keywords)) {
+        contentKeywords = data.content_keywords;
+        console.log('Updated content keywords from server:', contentKeywords);
+      }
+      return data;
+    }
+  } catch (error) {
+    console.log('Failed to fetch keywords from server, using defaults:', error);
+  }
+  return null;
+}
 
 function analyzeContent() {
   const text = document.body ? document.body.textContent.toLowerCase() : '';
@@ -22,9 +40,14 @@ function analyzeContent() {
   }
 }
 
-// Run on page load
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', analyzeContent);
-} else {
-  analyzeContent();
-}
+// Initialize keywords on startup
+fetchKeywords().then(() => {
+  // Run content analysis after keywords are loaded
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', analyzeContent);
+  } else {
+    analyzeContent();
+  }
+});
+
+// Note: Page load handling is now done in the fetchKeywords().then() block above

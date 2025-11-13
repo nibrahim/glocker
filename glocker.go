@@ -86,6 +86,11 @@ type ContentMonitoringConfig struct {
 	LogFile string `yaml:"log_file"`
 }
 
+type ExtensionKeywordsConfig struct {
+	URLKeywords     []string `yaml:"url_keywords"`
+	ContentKeywords []string `yaml:"content_keywords"`
+}
+
 type ForbiddenProgram struct {
 	Name        string       `yaml:"name"`
 	TimeWindows []TimeWindow `yaml:"time_windows"`
@@ -111,6 +116,7 @@ type Config struct {
 	WebTracking             WebTrackingConfig       `yaml:"web_tracking"`
 	ContentMonitoring       ContentMonitoringConfig `yaml:"content_monitoring"`
 	ForbiddenPrograms       ForbiddenProgramsConfig `yaml:"forbidden_programs"`
+	ExtensionKeywords       ExtensionKeywordsConfig `yaml:"extension_keywords"`
 	MindfulDelay            int                     `yaml:"mindful_delay"`
 	TempUnblockTime         int                     `yaml:"temp_unblock_time"`
 	Dev                     bool                    `yaml:"dev"`
@@ -2194,6 +2200,11 @@ func startWebTrackingServer(config *Config) {
 		handleReportRequest(config, w, r)
 	})
 
+	// Add keywords endpoint for browser extensions
+	http.HandleFunc("/keywords", func(w http.ResponseWriter, r *http.Request) {
+		handleKeywordsRequest(config, w, r)
+	})
+
 	// Start HTTP server
 	go func() {
 		server := &http.Server{
@@ -2369,6 +2380,35 @@ func executeWebTrackingCommand(config *Config, host string, r *http.Request) {
 	} else {
 		slog.Debug("Web tracking command executed successfully", "host", host)
 	}
+}
+
+func handleKeywordsRequest(config *Config, w http.ResponseWriter, r *http.Request) {
+	// Only accept GET requests
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Set CORS headers to allow browser extension access
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Content-Type", "application/json")
+
+	// Create response with keywords
+	response := map[string]interface{}{
+		"url_keywords":     config.ExtensionKeywords.URLKeywords,
+		"content_keywords": config.ExtensionKeywords.ContentKeywords,
+	}
+
+	// Encode and send response
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		slog.Debug("Failed to encode keywords response", "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	slog.Debug("Keywords request served", "url_keywords_count", len(config.ExtensionKeywords.URLKeywords), "content_keywords_count", len(config.ExtensionKeywords.ContentKeywords))
 }
 
 func handleReportRequest(config *Config, w http.ResponseWriter, r *http.Request) {

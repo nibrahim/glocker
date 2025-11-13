@@ -2373,6 +2373,8 @@ func executeWebTrackingCommand(config *Config, host string, r *http.Request) {
 
 func handleReportRequest(config *Config, w http.ResponseWriter, r *http.Request) {
 	// Only accept POST requests
+
+	slog.Info("Got a request here", "method", r.Method, "value", http.MethodPost)
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -2414,7 +2416,7 @@ func logContentReport(config *Config, report *ContentReport) error {
 
 	// Create log entry
 	timestamp := time.Unix(report.Timestamp/1000, 0).Format("2006-01-02 15:04:05")
-	logEntry := fmt.Sprintf("[%s] %s | %s", timestamp, report.Trigger, report.URL)
+	logEntry := fmt.Sprintf("[%s] | %s | %s", timestamp, report.Trigger, report.URL)
 	if report.Domain != "" {
 		logEntry += fmt.Sprintf(" | %s", report.Domain)
 	}

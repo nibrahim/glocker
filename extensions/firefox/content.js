@@ -3,15 +3,14 @@ function debugLog(message) {
   console.log('[GLOCKER CONTENT] ' + message);
   
   // Also create a visible debug element on the page for testing
-    const debugDiv = document.getElementById('glocker-debug') || (() => {
-      const div = document.createElement('div');
-      div.id = 'glocker-debug';
-      div.style.cssText = 'position:fixed;top:0;right:0;background:red;color:white;padding:5px;z-index:9999;max-width:300px;font-size:12px;';
-      document.documentElement.appendChild(div);
-      return div;
-    })();
-    debugDiv.innerHTML += message + '<br>';
-  }
+  const debugDiv = document.getElementById('glocker-debug') || (() => {
+    const div = document.createElement('div');
+    div.id = 'glocker-debug';
+    div.style.cssText = 'position:fixed;top:0;right:0;background:red;color:white;padding:5px;z-index:9999;max-width:300px;font-size:12px;';
+    document.documentElement.appendChild(div);
+    return div;
+  })();
+  debugDiv.innerHTML += message + '<br>';
 }
 
 debugLog('Script loaded, starting execution');

@@ -26,6 +26,11 @@ browser.webRequest.onBeforeRequest.addListener(
   function(details) {
     const url = details.url.toLowerCase();
     
+    // Skip checking localhost/127.0.0.1 URLs to prevent redirect loops
+    if (url.includes('127.0.0.1') || url.includes('localhost')) {
+      return;
+    }
+    
     for (let keyword of urlKeywords) {
       if (url.includes(keyword)) {
           console.log("Found ", keyword, " in ", url);

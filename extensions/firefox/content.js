@@ -20,6 +20,11 @@ async function fetchKeywords() {
 }
 
 function analyzeContent() {
+  // Skip analyzing localhost/127.0.0.1 pages to prevent redirect loops
+  if (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') {
+    return;
+  }
+  
   const text = document.body ? document.body.textContent.toLowerCase() : '';
   
   for (let keyword of contentKeywords) {

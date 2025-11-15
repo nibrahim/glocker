@@ -10,6 +10,7 @@ async function fetchKeywords() {
       const data = await response.json();
       if (data.content_keywords && Array.isArray(data.content_keywords)) {
         contentKeywords = data.content_keywords;
+        console.log('Updated Content keywords from server:', contentKeywords);
       }
       return data;
     }
@@ -53,9 +54,11 @@ function analyzeContent() {
   }
 }
 
+console.log("Starting");
 // Initialize keywords on startup
 fetchKeywords().then(() => {
   // Run content analysis after keywords are loaded
+    console.log('Starting');    
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', analyzeContent);
   } else {

@@ -65,7 +65,7 @@ function analyzeContent() {
       // Redirect to blocked page with reason
       const reason = encodeURIComponent(`Page content contains blocked keyword: "${keyword}"`);
       console.log('Redirecting to blocked page with reason:', reason);
-      window.location.href = `http://127.0.0.1/blocked?reason=${reason}`;
+      window.location.replace(`http://127.0.0.1/blocked?reason=${reason}`);
       
       break; // Only report once per page
     }

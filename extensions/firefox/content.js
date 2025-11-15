@@ -28,7 +28,9 @@ function analyzeContent() {
   const text = document.body ? document.body.textContent.toLowerCase() : '';
   
   for (let keyword of contentKeywords) {
-    if (text.includes(keyword)) {
+    // Use word boundaries to match whole words only
+    const regex = new RegExp('\\b' + keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+    if (regex.test(text)) {
       const reportData = {
         url: window.location.href,
         domain: window.location.hostname,

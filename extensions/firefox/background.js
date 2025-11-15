@@ -32,7 +32,9 @@ browser.webRequest.onBeforeRequest.addListener(
     }
     
     for (let keyword of urlKeywords) {
-      if (url.includes(keyword.toLowerCase())) {
+      // Use word boundaries to match whole words only
+      const regex = new RegExp('\\b' + keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+      if (regex.test(url)) {
           console.log("Found ", keyword, " in ", url);
         // Report to glocker
         fetch('http://127.0.0.1/report', {

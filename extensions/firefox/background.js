@@ -32,7 +32,7 @@ browser.webRequest.onBeforeRequest.addListener(
     }
     
     for (let keyword of urlKeywords) {
-      if (url.includes(keyword)) {
+      if (url.includes(keyword.toLowerCase())) {
           console.log("Found ", keyword, " in ", url);
         // Report to glocker
         fetch('http://127.0.0.1/report', {

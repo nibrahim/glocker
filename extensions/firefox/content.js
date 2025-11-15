@@ -54,17 +54,55 @@ function analyzeContent() {
   }
 }
 
+// Set up MutationObserver to watch for dynamically loaded content
+function setupContentMonitoring() {
+  // Initial content analysis
+  analyzeContent();
+  
+  // Watch for new content being added to the page
+  const observer = new MutationObserver((mutations) => {
+    let shouldAnalyze = false;
+    
+    mutations.forEach((mutation) => {
+      // Check if new nodes were added that might contain text
+      if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+        for (let node of mutation.addedNodes) {
+          // Only analyze if text content was actually added
+          if (node.nodeType === Node.TEXT_NODE || 
+              (node.nodeType === Node.ELEMENT_NODE && node.textContent.trim())) {
+            shouldAnalyze = true;
+            break;
+          }
+        }
+      }
+    });
+    
+    if (shouldAnalyze) {
+      // Debounce rapid changes - wait a bit before analyzing
+      clearTimeout(window.glocketContentAnalysisTimeout);
+      window.glocketContentAnalysisTimeout = setTimeout(analyzeContent, 500);
+    }
+  });
+  
+  // Start observing changes to the entire document
+  observer.observe(document.body || document.documentElement, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
+}
+
 console.log("Starting");
 // Initialize keywords on startup
 fetchKeywords().then(() => {
   // Run content analysis after keywords are loaded
-    console.log('Starting');    
+  console.log('Starting');    
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', analyzeContent);
+    document.addEventListener('DOMContentLoaded', setupContentMonitoring);
   } else {
-    analyzeContent();
+    setupContentMonitoring();
   }
 }).catch(() => {
   // Still try to analyze with default keywords
-  analyzeContent();
+  setupContentMonitoring();
 });

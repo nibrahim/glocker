@@ -2990,11 +2990,8 @@ func checkViolationThreshold(config *Config) {
 			sendViolationEmail(config, recentCount)
 		}
 
-		// Reset violations after triggering the command
-		violationsMutex.Lock()
-		violations = []Violation{}
-		violationsMutex.Unlock()
-		log.Printf("Violations reset after threshold exceeded")
+		// Do not reset violations here - they will only be reset during daily reset
+		log.Printf("Violation command executed - violations will continue to trigger until daily reset")
 	}
 }
 

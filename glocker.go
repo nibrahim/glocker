@@ -2538,10 +2538,15 @@ func handleKeywordsRequest(config *Config, w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	w.Header().Set("Content-Type", "application/json")
 
+	// Combine content keywords with URL keywords
+	combinedContentKeywords := make([]string, 0, len(config.ExtensionKeywords.ContentKeywords)+len(config.ExtensionKeywords.URLKeywords))
+	combinedContentKeywords = append(combinedContentKeywords, config.ExtensionKeywords.ContentKeywords...)
+	combinedContentKeywords = append(combinedContentKeywords, config.ExtensionKeywords.URLKeywords...)
+
 	// Create response with keywords
 	response := map[string]interface{}{
 		"url_keywords":     config.ExtensionKeywords.URLKeywords,
-		"content_keywords": config.ExtensionKeywords.ContentKeywords,
+		"content_keywords": combinedContentKeywords,
 	}
 
 	// Encode and send response
@@ -2551,7 +2556,7 @@ func handleKeywordsRequest(config *Config, w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	slog.Debug("Keywords request served", "url_keywords_count", len(config.ExtensionKeywords.URLKeywords), "content_keywords_count", len(config.ExtensionKeywords.ContentKeywords))
+	slog.Debug("Keywords request served", "url_keywords_count", len(config.ExtensionKeywords.URLKeywords), "content_keywords_count", len(combinedContentKeywords))
 }
 
 func handleReportRequest(config *Config, w http.ResponseWriter, r *http.Request) {
@@ -2803,10 +2808,15 @@ func handleSSERequest(config *Config, w http.ResponseWriter, r *http.Request) {
 
 	slog.Debug("SSE client connected", "client_index", clientIndex, "total_clients", len(sseClients))
 
+	// Combine content keywords with URL keywords for initial send
+	combinedContentKeywords := make([]string, 0, len(config.ExtensionKeywords.ContentKeywords)+len(config.ExtensionKeywords.URLKeywords))
+	combinedContentKeywords = append(combinedContentKeywords, config.ExtensionKeywords.ContentKeywords...)
+	combinedContentKeywords = append(combinedContentKeywords, config.ExtensionKeywords.URLKeywords...)
+
 	// Send initial keywords
 	initialKeywords := map[string]interface{}{
 		"url_keywords":     config.ExtensionKeywords.URLKeywords,
-		"content_keywords": config.ExtensionKeywords.ContentKeywords,
+		"content_keywords": combinedContentKeywords,
 	}
 	if keywordsJSON, err := json.Marshal(initialKeywords); err == nil {
 		fmt.Fprintf(w, "data: %s\n\n", keywordsJSON)
@@ -2894,9 +2904,14 @@ func processAddKeywordRequest(config *Config, keywordsStr string) {
 }
 
 func broadcastKeywordUpdate(config *Config) {
+	// Combine content keywords with URL keywords
+	combinedContentKeywords := make([]string, 0, len(config.ExtensionKeywords.ContentKeywords)+len(config.ExtensionKeywords.URLKeywords))
+	combinedContentKeywords = append(combinedContentKeywords, config.ExtensionKeywords.ContentKeywords...)
+	combinedContentKeywords = append(combinedContentKeywords, config.ExtensionKeywords.URLKeywords...)
+
 	keywords := map[string]interface{}{
 		"url_keywords":     config.ExtensionKeywords.URLKeywords,
-		"content_keywords": config.ExtensionKeywords.ContentKeywords,
+		"content_keywords": combinedContentKeywords,
 	}
 
 	keywordsJSON, err := json.Marshal(keywords)

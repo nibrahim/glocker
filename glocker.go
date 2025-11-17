@@ -3029,9 +3029,11 @@ func executeViolationCommand(config *Config, violationCount int) {
 		Setsid: true,
 	}
 
-	if err := cmd.Run(); err != nil {
+	if output, err := cmd.CombinedOutput(); err != nil {
+		slog.Debug("Failed to execute violation command", "error", err, "stdout_stderr", string(output), "command", config.ViolationTracking.Command)
 		log.Printf("Failed to execute violation command: %v", err)
 	} else {
+		slog.Debug("Violation command executed successfully", "command", config.ViolationTracking.Command, "output", string(output))
 		log.Printf("Violation command executed successfully: %s", config.ViolationTracking.Command)
 	}
 }

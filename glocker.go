@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -1768,6 +1769,8 @@ var (
 	globalFilesToMonitor []string
 	globalConfig         *Config
 	tempUnblocks         []TempUnblock
+	sseClients           []chan string
+	sseClientsMutex      sync.RWMutex
 )
 
 func (f FileChecksum) String() string {
@@ -2251,6 +2254,11 @@ func startWebTrackingServer(config *Config) {
 		handleKeywordsRequest(config, w, r)
 	})
 
+	// Add SSE endpoint for real-time keyword updates
+	http.HandleFunc("/keywords-stream", func(w http.ResponseWriter, r *http.Request) {
+		handleSSERequest(config, w, r)
+	})
+
 	// Add blocked page endpoint
 	http.HandleFunc("/blocked", func(w http.ResponseWriter, r *http.Request) {
 		handleBlockedPageRequest(w, r)
@@ -2675,6 +2683,107 @@ func extractProcessName(psLine string) string {
 		return command
 	}
 	return "unknown"
+}
+
+func handleSSERequest(config *Config, w http.ResponseWriter, r *http.Request) {
+	// Only accept GET requests
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Create a channel for this client
+	clientChan := make(chan string, 10)
+
+	// Add client to the list
+	sseClientsMutex.Lock()
+	sseClients = append(sseClients, clientChan)
+	clientIndex := len(sseClients) - 1
+	sseClientsMutex.Unlock()
+
+	slog.Debug("SSE client connected", "client_index", clientIndex, "total_clients", len(sseClients))
+
+	// Send initial keywords
+	initialKeywords := map[string]interface{}{
+		"url_keywords":     config.ExtensionKeywords.URLKeywords,
+		"content_keywords": config.ExtensionKeywords.ContentKeywords,
+	}
+	if keywordsJSON, err := json.Marshal(initialKeywords); err == nil {
+		fmt.Fprintf(w, "data: %s\n\n", keywordsJSON)
+		w.(http.Flusher).Flush()
+	}
+
+	// Handle client disconnect
+	defer func() {
+		sseClientsMutex.Lock()
+		// Remove client from slice
+		if clientIndex < len(sseClients) {
+			sseClients = append(sseClients[:clientIndex], sseClients[clientIndex+1:]...)
+		}
+		sseClientsMutex.Unlock()
+		close(clientChan)
+		slog.Debug("SSE client disconnected", "client_index", clientIndex, "remaining_clients", len(sseClients))
+	}()
+
+	// Keep connection alive and send updates
+	for {
+		select {
+		case message := <-clientChan:
+			fmt.Fprintf(w, "data: %s\n\n", message)
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+		case <-r.Context().Done():
+			return
+		case <-time.After(30 * time.Second):
+			// Send keepalive ping
+			fmt.Fprintf(w, ": keepalive\n\n")
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+		}
+	}
+}
+
+func broadcastKeywordUpdate(config *Config) {
+	keywords := map[string]interface{}{
+		"url_keywords":     config.ExtensionKeywords.URLKeywords,
+		"content_keywords": config.ExtensionKeywords.ContentKeywords,
+	}
+
+	keywordsJSON, err := json.Marshal(keywords)
+	if err != nil {
+		slog.Debug("Failed to marshal keywords for broadcast", "error", err)
+		return
+	}
+
+	sseClientsMutex.RLock()
+	clientCount := len(sseClients)
+	sseClientsMutex.RUnlock()
+
+	if clientCount == 0 {
+		slog.Debug("No SSE clients to broadcast to")
+		return
+	}
+
+	slog.Debug("Broadcasting keyword update to SSE clients", "client_count", clientCount)
+
+	sseClientsMutex.RLock()
+	for i, clientChan := range sseClients {
+		select {
+		case clientChan <- string(keywordsJSON):
+			slog.Debug("Sent keyword update to SSE client", "client_index", i)
+		default:
+			slog.Debug("SSE client channel full, skipping", "client_index", i)
+		}
+	}
+	sseClientsMutex.RUnlock()
 }
 
 func handleBlockedPageRequest(w http.ResponseWriter, r *http.Request) {

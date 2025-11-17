@@ -159,6 +159,7 @@ func main() {
 	uninstall := flag.Bool("uninstall", false, "Uninstall Glocker and revert all changes")
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
 	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock (format: 'domain1,domain2:reason')")
+	addKeyword := flag.String("add-keyword", "", "Comma-separated list of keywords to add to both URL and content keyword lists")
 	flag.Parse()
 
 	// Parse embedded config
@@ -217,6 +218,14 @@ func main() {
 			log.Fatal("Program should run as root for unblocking hosts.")
 		}
 		unblockHostsFromFlag(&config, *unblockHosts)
+		return
+	}
+
+	if *addKeyword != "" {
+		if !runningAsRoot() {
+			log.Fatal("Program should run as root for adding keywords.")
+		}
+		addKeywordsFromFlag(&config, *addKeyword)
 		return
 	}
 
@@ -412,8 +421,16 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 			domains := strings.TrimSpace(parts[1])
 			conn.Write([]byte("OK: Block request received\n"))
 			go processBlockRequest(config, domains)
+		case "add-keyword":
+			if len(parts) != 2 {
+				conn.Write([]byte("ERROR: Invalid format. Use 'add-keyword:keywords'\n"))
+				continue
+			}
+			keywords := strings.TrimSpace(parts[1])
+			conn.Write([]byte("OK: Add keyword request received\n"))
+			go processAddKeywordRequest(config, keywords)
 		default:
-			conn.Write([]byte("ERROR: Unknown action. Use 'block:domains', 'unblock:domains:reason', or 'status'\n"))
+			conn.Write([]byte("ERROR: Unknown action. Use 'block:domains', 'unblock:domains:reason', 'add-keyword:keywords', or 'status'\n"))
 		}
 	}
 }
@@ -2018,6 +2035,11 @@ func blockHostsFromFlag(config *Config, hostsStr string) {
 	log.Println("Domains will be permanently blocked.")
 }
 
+func addKeywordsFromFlag(config *Config, keywordsStr string) {
+	sendSocketMessage("add-keyword", keywordsStr)
+	log.Println("Keywords will be added to both URL and content keyword lists.")
+}
+
 func sendSocketMessage(action, domains string) {
 	conn, err := net.Dial("unix", "/tmp/glocker.sock")
 	if err != nil {
@@ -2752,6 +2774,54 @@ func handleSSERequest(config *Config, w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func processAddKeywordRequest(config *Config, keywordsStr string) {
+	slog.Debug("Processing add keyword request", "keywords_string", keywordsStr)
+
+	keywords := strings.Split(keywordsStr, ",")
+	var validKeywords []string
+
+	// Clean and validate keywords
+	for _, keyword := range keywords {
+		keyword = strings.TrimSpace(keyword)
+		if keyword != "" {
+			validKeywords = append(validKeywords, keyword)
+			slog.Debug("Added valid keyword", "keyword", keyword)
+		}
+	}
+
+	if len(validKeywords) == 0 {
+		slog.Debug("No valid keywords provided")
+		return
+	}
+
+	slog.Debug("Valid keywords for adding", "count", len(validKeywords), "keywords", validKeywords)
+	log.Printf("Adding %d keywords to both URL and content keyword lists: %v", len(validKeywords), validKeywords)
+
+	// Add keywords to both URL and content keyword lists
+	for _, keyword := range validKeywords {
+		// Check if keyword already exists in URL keywords
+		if !slices.Contains(config.ExtensionKeywords.URLKeywords, keyword) {
+			config.ExtensionKeywords.URLKeywords = append(config.ExtensionKeywords.URLKeywords, keyword)
+			log.Printf("Added keyword %s to URL keywords", keyword)
+		} else {
+			log.Printf("Keyword %s already exists in URL keywords", keyword)
+		}
+
+		// Check if keyword already exists in content keywords
+		if !slices.Contains(config.ExtensionKeywords.ContentKeywords, keyword) {
+			config.ExtensionKeywords.ContentKeywords = append(config.ExtensionKeywords.ContentKeywords, keyword)
+			log.Printf("Added keyword %s to content keywords", keyword)
+		} else {
+			log.Printf("Keyword %s already exists in content keywords", keyword)
+		}
+	}
+
+	// Broadcast keyword update to connected browser extensions
+	broadcastKeywordUpdate(config)
+
+	log.Println("Keywords have been added successfully!")
 }
 
 func broadcastKeywordUpdate(config *Config) {

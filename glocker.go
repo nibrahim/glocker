@@ -3024,6 +3024,11 @@ func executeViolationCommand(config *Config, violationCount int) {
 		"GLOCKER_VIOLATION_TRIGGERED=true",
 	)
 
+	// Create a new session for the violation command (needed for screen locking)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true,
+	}
+
 	if err := cmd.Run(); err != nil {
 		log.Printf("Failed to execute violation command: %v", err)
 	} else {

@@ -3033,6 +3033,11 @@ func executeViolationCommand(config *Config, violationCount int) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		slog.Debug("Failed to execute violation command", "error", err, "stdout_stderr", string(output), "command", config.ViolationTracking.Command)
 		log.Printf("Failed to execute violation command: %v", err)
+		log.Printf("Command output: %s", string(output))
+		log.Printf("Environment variables:")
+		for _, env := range cmd.Env {
+			log.Printf("  %s", env)
+		}
 	} else {
 		slog.Debug("Violation command executed successfully", "command", config.ViolationTracking.Command, "output", string(output))
 		log.Printf("Violation command executed successfully: %s", config.ViolationTracking.Command)

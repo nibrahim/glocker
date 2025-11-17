@@ -3022,6 +3022,7 @@ func executeViolationCommand(config *Config, violationCount int) {
 		fmt.Sprintf("GLOCKER_MAX_VIOLATIONS=%d", config.ViolationTracking.MaxViolations),
 		fmt.Sprintf("GLOCKER_TIME_WINDOW=%d", config.ViolationTracking.TimeWindowMinutes),
 		"GLOCKER_VIOLATION_TRIGGERED=true",
+		"DISPLAY=:0",
 	)
 
 	// Create a new session for the violation command (needed for screen locking)

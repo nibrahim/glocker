@@ -92,6 +92,15 @@ type ExtensionKeywordsConfig struct {
 	ContentKeywords []string `yaml:"content_keywords"`
 }
 
+type ViolationTrackingConfig struct {
+	Enabled           bool   `yaml:"enabled"`
+	MaxViolations     int    `yaml:"max_violations"`
+	TimeWindowMinutes int    `yaml:"time_window_minutes"`
+	Command           string `yaml:"command"`
+	ResetDaily        bool   `yaml:"reset_daily"`
+	ResetTime         string `yaml:"reset_time"`
+}
+
 type ForbiddenProgram struct {
 	Name        string       `yaml:"name"`
 	TimeWindows []TimeWindow `yaml:"time_windows"`
@@ -104,24 +113,25 @@ type ForbiddenProgramsConfig struct {
 }
 
 type Config struct {
-	EnableHosts             bool                    `yaml:"enable_hosts"`
-	EnableFirewall          bool                    `yaml:"enable_firewall"`
-	EnableForbiddenPrograms bool                    `yaml:"enable_forbidden_programs"`
-	Domains                 []Domain                `yaml:"domains"`
-	HostsPath               string                  `yaml:"hosts_path"`
-	SelfHeal                bool                    `yaml:"enable_self_healing"`
-	EnforceInterval         int                     `yaml:"enforce_interval_seconds"`
-	Sudoers                 SudoersConfig           `yaml:"sudoers"`
-	TamperDetection         TamperConfig            `yaml:"tamper_detection"`
-	Accountability          AccountabilityConfig    `yaml:"accountability"`
-	WebTracking             WebTrackingConfig       `yaml:"web_tracking"`
-	ContentMonitoring       ContentMonitoringConfig `yaml:"content_monitoring"`
-	ForbiddenPrograms       ForbiddenProgramsConfig `yaml:"forbidden_programs"`
-	ExtensionKeywords       ExtensionKeywordsConfig `yaml:"extension_keywords"`
-	MindfulDelay            int                     `yaml:"mindful_delay"`
-	TempUnblockTime         int                     `yaml:"temp_unblock_time"`
-	Dev                     bool                    `yaml:"dev"`
-	LogLevel                string                  `yaml:"log_level"`
+	EnableHosts             bool                     `yaml:"enable_hosts"`
+	EnableFirewall          bool                     `yaml:"enable_firewall"`
+	EnableForbiddenPrograms bool                     `yaml:"enable_forbidden_programs"`
+	Domains                 []Domain                 `yaml:"domains"`
+	HostsPath               string                   `yaml:"hosts_path"`
+	SelfHeal                bool                     `yaml:"enable_self_healing"`
+	EnforceInterval         int                      `yaml:"enforce_interval_seconds"`
+	Sudoers                 SudoersConfig            `yaml:"sudoers"`
+	TamperDetection         TamperConfig             `yaml:"tamper_detection"`
+	Accountability          AccountabilityConfig     `yaml:"accountability"`
+	WebTracking             WebTrackingConfig        `yaml:"web_tracking"`
+	ContentMonitoring       ContentMonitoringConfig  `yaml:"content_monitoring"`
+	ForbiddenPrograms       ForbiddenProgramsConfig  `yaml:"forbidden_programs"`
+	ExtensionKeywords       ExtensionKeywordsConfig  `yaml:"extension_keywords"`
+	ViolationTracking       ViolationTrackingConfig  `yaml:"violation_tracking"`
+	MindfulDelay            int                      `yaml:"mindful_delay"`
+	TempUnblockTime         int                      `yaml:"temp_unblock_time"`
+	Dev                     bool                     `yaml:"dev"`
+	LogLevel                string                   `yaml:"log_level"`
 }
 
 func setupLogging(config *Config) {
@@ -288,6 +298,11 @@ func main() {
 		// Start forbidden programs monitoring if enabled
 		if config.EnableForbiddenPrograms && config.ForbiddenPrograms.Enabled {
 			go monitorForbiddenPrograms(&config)
+		}
+
+		// Start violation tracking if enabled
+		if config.ViolationTracking.Enabled {
+			go monitorViolations(&config)
 		}
 
 		// Initial enforcement
@@ -1783,6 +1798,13 @@ type ContentReport struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
+type Violation struct {
+	Timestamp time.Time
+	Host      string
+	URL       string
+	Type      string // "web_access", "content_report", "forbidden_program"
+}
+
 // Global variables for tamper detection
 var (
 	globalChecksums      []FileChecksum
@@ -1791,6 +1813,9 @@ var (
 	tempUnblocks         []TempUnblock
 	sseClients           []chan string
 	sseClientsMutex      sync.RWMutex
+	violations           []Violation
+	violationsMutex      sync.RWMutex
+	lastViolationReset   time.Time
 )
 
 func (f FileChecksum) String() string {
@@ -2169,6 +2194,23 @@ func getStatusResponse(config *Config) string {
 	response.WriteString(fmt.Sprintf("Total Domains: %d (%d always blocked, %d time-based, %d with detailed logging)\n",
 		len(config.Domains), alwaysBlockCount, timeBasedCount, loggedCount))
 
+	// Show violation tracking status
+	if config.ViolationTracking.Enabled {
+		violationsMutex.RLock()
+		recentViolations := countRecentViolations(config, now)
+		totalViolations := len(violations)
+		violationsMutex.RUnlock()
+
+		response.WriteString("\n")
+		response.WriteString("Violation Tracking:\n")
+		response.WriteString(fmt.Sprintf("  Recent Violations: %d/%d (in last %d minutes)\n", 
+			recentViolations, config.ViolationTracking.MaxViolations, config.ViolationTracking.TimeWindowMinutes))
+		response.WriteString(fmt.Sprintf("  Total Violations: %d\n", totalViolations))
+		if config.ViolationTracking.ResetDaily {
+			response.WriteString(fmt.Sprintf("  Last Reset: %s\n", lastViolationReset.Format("2006-01-02 15:04:05")))
+		}
+	}
+
 	response.WriteString("END\n")
 	return response.String()
 }
@@ -2376,6 +2418,11 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
 	if isBlocked {
 		log.Printf("BLOCKED SITE ACCESS ATTEMPT: %s (matched: %s)", host, matchedDomain)
 
+		// Record violation
+		if config.ViolationTracking.Enabled {
+			recordViolation(config, "web_access", host, r.URL.String())
+		}
+
 		// Execute the configured command
 		if config.WebTracking.Command != "" {
 			go executeWebTrackingCommand(config, host, r)
@@ -2518,6 +2565,11 @@ func handleReportRequest(config *Config, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Record violation
+	if config.ViolationTracking.Enabled {
+		recordViolation(config, "content_report", report.Domain, report.URL)
+	}
+
 	// Log the report
 	if err := logContentReport(config, &report); err != nil {
 		slog.Debug("Failed to log content report", "error", err)
@@ -2658,6 +2710,11 @@ func killMatchingProcesses(config *Config, programName string) {
 			}
 
 			slog.Debug("Found matching forbidden process", "program_filter", programName, "process_name", processName, "pid", pid)
+
+			// Record violation
+			if config.ViolationTracking.Enabled {
+				recordViolation(config, "forbidden_program", processName, fmt.Sprintf("PID: %s", pid))
+			}
 
 			// Try to kill the process gracefully first (SIGTERM)
 			if err := exec.Command("kill", pid).Run(); err == nil {
@@ -2857,6 +2914,176 @@ func broadcastKeywordUpdate(config *Config) {
 		}
 	}
 	sseClientsMutex.RUnlock()
+}
+
+func recordViolation(config *Config, violationType, host, url string) {
+	if !config.ViolationTracking.Enabled {
+		return
+	}
+
+	violation := Violation{
+		Timestamp: time.Now(),
+		Host:      host,
+		URL:       url,
+		Type:      violationType,
+	}
+
+	violationsMutex.Lock()
+	violations = append(violations, violation)
+	violationsMutex.Unlock()
+
+	slog.Debug("Recorded violation", "type", violationType, "host", host, "url", url)
+	log.Printf("VIOLATION RECORDED: %s - %s (%s)", violationType, host, url)
+
+	// Check if we've exceeded the threshold
+	go checkViolationThreshold(config)
+}
+
+func checkViolationThreshold(config *Config) {
+	if !config.ViolationTracking.Enabled {
+		return
+	}
+
+	now := time.Now()
+	recentCount := countRecentViolations(config, now)
+
+	slog.Debug("Checking violation threshold", "recent_count", recentCount, "max_violations", config.ViolationTracking.MaxViolations)
+
+	if recentCount >= config.ViolationTracking.MaxViolations {
+		log.Printf("VIOLATION THRESHOLD EXCEEDED: %d/%d violations in last %d minutes", 
+			recentCount, config.ViolationTracking.MaxViolations, config.ViolationTracking.TimeWindowMinutes)
+
+		// Execute the configured command
+		if config.ViolationTracking.Command != "" {
+			executeViolationCommand(config, recentCount)
+		}
+
+		// Send accountability email
+		if config.Accountability.Enabled {
+			sendViolationEmail(config, recentCount)
+		}
+
+		// Reset violations after triggering the command
+		violationsMutex.Lock()
+		violations = []Violation{}
+		violationsMutex.Unlock()
+		log.Printf("Violations reset after threshold exceeded")
+	}
+}
+
+func countRecentViolations(config *Config, now time.Time) int {
+	if !config.ViolationTracking.Enabled {
+		return 0
+	}
+
+	timeWindow := time.Duration(config.ViolationTracking.TimeWindowMinutes) * time.Minute
+	cutoff := now.Add(-timeWindow)
+
+	count := 0
+	for _, violation := range violations {
+		if violation.Timestamp.After(cutoff) {
+			count++
+		}
+	}
+
+	return count
+}
+
+func executeViolationCommand(config *Config, violationCount int) {
+	if config.ViolationTracking.Command == "" {
+		return
+	}
+
+	slog.Debug("Executing violation command", "command", config.ViolationTracking.Command, "violation_count", violationCount)
+
+	// Split command into parts for proper execution
+	parts := strings.Fields(config.ViolationTracking.Command)
+	if len(parts) == 0 {
+		return
+	}
+
+	cmd := exec.Command(parts[0], parts[1:]...)
+
+	// Set environment variables with violation information
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("GLOCKER_VIOLATION_COUNT=%d", violationCount),
+		fmt.Sprintf("GLOCKER_MAX_VIOLATIONS=%d", config.ViolationTracking.MaxViolations),
+		fmt.Sprintf("GLOCKER_TIME_WINDOW=%d", config.ViolationTracking.TimeWindowMinutes),
+		"GLOCKER_VIOLATION_TRIGGERED=true",
+	)
+
+	if err := cmd.Run(); err != nil {
+		log.Printf("Failed to execute violation command: %v", err)
+	} else {
+		log.Printf("Violation command executed successfully: %s", config.ViolationTracking.Command)
+	}
+}
+
+func sendViolationEmail(config *Config, violationCount int) {
+	subject := "GLOCKER ALERT: Violation Threshold Exceeded"
+	body := fmt.Sprintf("The violation threshold has been exceeded at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
+	body += fmt.Sprintf("Violations: %d/%d (in last %d minutes)\n", 
+		violationCount, config.ViolationTracking.MaxViolations, config.ViolationTracking.TimeWindowMinutes)
+	body += fmt.Sprintf("Command executed: %s\n\n", config.ViolationTracking.Command)
+
+	// Add recent violations details
+	violationsMutex.RLock()
+	body += "Recent violations:\n"
+	now := time.Now()
+	timeWindow := time.Duration(config.ViolationTracking.TimeWindowMinutes) * time.Minute
+	cutoff := now.Add(-timeWindow)
+
+	for _, violation := range violations {
+		if violation.Timestamp.After(cutoff) {
+			body += fmt.Sprintf("  - %s: %s (%s) at %s\n", 
+				violation.Type, violation.Host, violation.URL, violation.Timestamp.Format("15:04:05"))
+		}
+	}
+	violationsMutex.RUnlock()
+
+	body += "\nThis is an automated alert from Glocker."
+
+	if err := sendEmail(config, subject, body); err != nil {
+		log.Printf("Failed to send violation accountability email: %v", err)
+	}
+}
+
+func monitorViolations(config *Config) {
+	if !config.ViolationTracking.Enabled || !config.ViolationTracking.ResetDaily {
+		return
+	}
+
+	// Initialize last reset time
+	lastViolationReset = time.Now()
+
+	// Parse reset time
+	resetTime := config.ViolationTracking.ResetTime
+	if resetTime == "" {
+		resetTime = "00:00" // Default to midnight
+	}
+
+	slog.Debug("Starting violation monitoring", "reset_daily", config.ViolationTracking.ResetDaily, "reset_time", resetTime)
+
+	ticker := time.NewTicker(1 * time.Minute) // Check every minute
+	defer ticker.Stop()
+
+	for range ticker.C {
+		now := time.Now()
+		currentTime := now.Format("15:04")
+
+		// Check if it's time to reset violations
+		if currentTime == resetTime && now.Sub(lastViolationReset) > 23*time.Hour {
+			violationsMutex.Lock()
+			oldCount := len(violations)
+			violations = []Violation{}
+			lastViolationReset = now
+			violationsMutex.Unlock()
+
+			if oldCount > 0 {
+				log.Printf("Daily violation reset: cleared %d violations at %s", oldCount, resetTime)
+			}
+		}
+	}
 }
 
 func handleBlockedPageRequest(w http.ResponseWriter, r *http.Request) {

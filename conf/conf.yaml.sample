@@ -132,6 +132,15 @@ extension_keywords:
   url_keywords: ["gambling", "casino", "porn", "xxx", "bet", "poker"]
   content_keywords: ["trigger1", "trigger2", "inappropriate", "distraction"]
 
+# Violation tracking - execute command when violations exceed threshold
+violation_tracking:
+  enabled: true
+  max_violations: 5                    # Maximum violations before triggering command
+  time_window_minutes: 60              # Time window to count violations (60 minutes)
+  command: "i3lock -c 000000"          # Command to execute (e.g., lock screen)
+  reset_daily: true                    # Reset violation count daily
+  reset_time: "00:00"                  # Time to reset violations (HH:MM format)
+
 # Forbidden programs - kills specified programs during time windows
 forbidden_programs:
   enabled: true

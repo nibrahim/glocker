@@ -1,6 +1,6 @@
 [Unit]
 Description=Glocker - Distraction Blocker
-After=network-online.target
+After=network-online.target graphical-session.target
 Wants=network-online.target
 
 [Service]
@@ -10,6 +10,10 @@ Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
+# Allow access to user sessions for violation commands
+SupplementaryGroups=users
+# Ensure we can access loginctl and user sessions
+Environment=XDG_RUNTIME_DIR=/run/user/1000
 
 [Install]
 WantedBy=multi-user.target

@@ -2302,6 +2302,18 @@ func printConfig(config *Config) {
 	}
 
 	fmt.Println()
+	fmt.Printf("Violation Tracking: %v\n", config.ViolationTracking.Enabled)
+	if config.ViolationTracking.Enabled {
+		fmt.Printf("  Max Violations: %d\n", config.ViolationTracking.MaxViolations)
+		fmt.Printf("  Time Window: %d minutes\n", config.ViolationTracking.TimeWindowMinutes)
+		fmt.Printf("  Command: %s\n", config.ViolationTracking.Command)
+		fmt.Printf("  Reset Daily: %v\n", config.ViolationTracking.ResetDaily)
+		if config.ViolationTracking.ResetDaily {
+			fmt.Printf("  Reset Time: %s\n", config.ViolationTracking.ResetTime)
+		}
+	}
+
+	fmt.Println()
 }
 
 func startWebTrackingServer(config *Config) {

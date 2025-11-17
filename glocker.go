@@ -797,21 +797,21 @@ func uninstallGlocker(config *Config) {
 	log.Println()
 
 	// Perform mindful delay
-	mindfulDelay(config)
+	// mindfulDelay(config)
 
 	// Send accountability email
-	if config.Accountability.Enabled {
-		subject := "GLOCKER ALERT: Uninstallation Requested"
-		body := fmt.Sprintf("Glocker uninstallation was requested and approved at %s.\n\n", time.Now().Format("2006-01-02 15:04:05"))
-		body += "All protections will be removed and original settings restored.\n\n"
-		body += "This is an automated alert from Glocker."
+	// if config.Accountability.Enabled {
+	// 	subject := "GLOCKER ALERT: Uninstallation Requested"
+	// 	body := fmt.Sprintf("Glocker uninstallation was requested and approved at %s.\n\n", time.Now().Format("2006-01-02 15:04:05"))
+	// 	body += "All protections will be removed and original settings restored.\n\n"
+	// 	body += "This is an automated alert from Glocker."
 
-		if err := sendEmail(config, subject, body); err != nil {
-			log.Printf("Failed to send accountability email: %v", err)
-		} else {
-			log.Println("Accountability email sent")
-		}
-	}
+	// 	if err := sendEmail(config, subject, body); err != nil {
+	// 		log.Printf("Failed to send accountability email: %v", err)
+	// 	} else {
+	// 		log.Println("Accountability email sent")
+	// 	}
+	// }
 
 	// Stop and disable service
 	exec.Command("systemctl", "stop", "glocker.service").Run()
@@ -1467,7 +1467,7 @@ func updateFirewall(domains []string, dryRun bool) error {
 		if isIPAddress(domain) {
 			// It's an IP address, block it directly
 			slog.Debug("Entry is an IP address, blocking directly", "ip", domain)
-			
+
 			// Determine if it's IPv4 or IPv6
 			ip := net.ParseIP(domain)
 			if ip == nil {

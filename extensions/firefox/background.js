@@ -19,8 +19,43 @@ async function fetchKeywords() {
   return null;
 }
 
+// Set up SSE connection for real-time keyword updates
+function setupSSEConnection() {
+  console.log('Setting up SSE connection for keyword updates...');
+  
+  const eventSource = new EventSource('http://127.0.0.1/keywords-stream');
+  
+  eventSource.onopen = function(event) {
+    console.log('SSE connection opened');
+  };
+  
+  eventSource.onmessage = function(event) {
+    console.log('SSE message received:', event.data);
+    try {
+      const data = JSON.parse(event.data);
+      if (data.url_keywords && Array.isArray(data.url_keywords)) {
+        urlKeywords = data.url_keywords;
+        console.log('Updated URL keywords via SSE:', urlKeywords);
+      }
+    } catch (error) {
+      console.log('Failed to parse SSE message:', error);
+    }
+  };
+  
+  eventSource.onerror = function(event) {
+    console.log('SSE connection error:', event);
+    // Connection will automatically retry
+  };
+}
+
 // Initialize keywords on startup
-fetchKeywords();
+fetchKeywords().then(() => {
+  // Set up SSE connection for real-time updates
+  setupSSEConnection();
+}).catch(() => {
+  // Still set up SSE connection even if initial fetch failed
+  setupSSEConnection();
+});
 
 browser.webRequest.onBeforeRequest.addListener(
   function(details) {

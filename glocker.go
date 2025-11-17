@@ -602,6 +602,9 @@ func processBlockRequest(config *Config, hostsStr string) {
 		log.Println("Updated checksum for hosts file after blocking new domains")
 	}
 
+	// Broadcast keyword update to connected browser extensions
+	broadcastKeywordUpdate(config)
+
 	log.Println("Hosts have been blocked successfully!")
 }
 

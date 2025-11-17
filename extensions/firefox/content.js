@@ -27,6 +27,44 @@ async function fetchKeywords() {
   return null;
 }
 
+// Set up SSE connection for real-time keyword updates
+function setupSSEConnection() {
+  console.log('Setting up SSE connection for keyword updates...');
+  
+  const eventSource = new EventSource('http://127.0.0.1/keywords-stream');
+  
+  eventSource.onopen = function(event) {
+    console.log('SSE connection opened');
+  };
+  
+  eventSource.onmessage = function(event) {
+    console.log('SSE message received:', event.data);
+    try {
+      const data = JSON.parse(event.data);
+      if (data.content_keywords && Array.isArray(data.content_keywords)) {
+        contentKeywords = data.content_keywords;
+        console.log('Updated content keywords via SSE:', contentKeywords);
+        
+        // Re-analyze current page with new keywords
+        if (document.readyState === 'complete') {
+          console.log('Re-analyzing page content with updated keywords');
+          analyzeContent();
+        }
+      }
+    } catch (error) {
+      console.log('Failed to parse SSE message:', error);
+    }
+  };
+  
+  eventSource.onerror = function(event) {
+    console.log('SSE connection error:', event);
+    // Connection will automatically retry
+  };
+  
+  // Store reference for cleanup if needed
+  window.glockerSSE = eventSource;
+}
+
 function analyzeContent() {
   console.log('analyzeContent() called for URL:', window.location.href);
   
@@ -126,6 +164,10 @@ console.log("Document ready state:", document.readyState);
 // Initialize keywords on startup
 fetchKeywords().then((data) => {
   console.log('Keywords fetch completed, data:', data);
+  
+  // Set up SSE connection for real-time updates
+  setupSSEConnection();
+  
   // Run content analysis after keywords are loaded
   if (document.readyState === 'loading') {
     console.log('Document still loading, waiting for DOMContentLoaded');
@@ -136,6 +178,10 @@ fetchKeywords().then((data) => {
   }
 }).catch((error) => {
   console.log('Keywords fetch failed, using defaults:', error);
+  
+  // Still set up SSE connection even if initial fetch failed
+  setupSSEConnection();
+  
   // Still try to analyze with default keywords
   setupContentMonitoring();
 });

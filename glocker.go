@@ -196,7 +196,7 @@ func main() {
 	}
 
 	if *install {
-		if !runningAsRoot() {
+		if !runningAsRoot(false) {
 			log.Fatal("Program should run as root for installation.")
 		}
 		installGlocker(&config)
@@ -204,7 +204,7 @@ func main() {
 	}
 
 	if *uninstall != "" {
-		if !runningAsRoot() {
+		if !runningAsRoot(true) {
 			log.Fatal("Program should run as root for uninstalling.")
 		}
 		// Check if glocker is actually installed
@@ -218,7 +218,7 @@ func main() {
 	}
 
 	if *blockHosts != "" {
-		if !runningAsRoot() {
+		if !runningAsRoot(false) {
 			log.Fatal("Program should run as root for blocking hosts.")
 		}
 		blockHostsFromFlag(&config, *blockHosts)
@@ -226,7 +226,7 @@ func main() {
 	}
 
 	if *unblockHosts != "" {
-		if !runningAsRoot() {
+		if !runningAsRoot(false) {
 			log.Fatal("Program should run as root for unblocking hosts.")
 		}
 		unblockHostsFromFlag(&config, *unblockHosts)
@@ -234,7 +234,7 @@ func main() {
 	}
 
 	if *addKeyword != "" {
-		if !runningAsRoot() {
+		if !runningAsRoot(false) {
 			log.Fatal("Program should run as root for adding keywords.")
 		}
 		addKeywordsFromFlag(&config, *addKeyword)
@@ -247,7 +247,7 @@ func main() {
 	}
 
 	if *once {
-		if !runningAsRoot() {
+		if !runningAsRoot(false) {
 			log.Fatal("Program should run as root for running once.")
 		}
 		runOnce(&config, false)
@@ -255,7 +255,7 @@ func main() {
 	}
 
 	if *enforce {
-		if !runningAsRoot() {
+		if !runningAsRoot(false) {
 			log.Fatal("Program should run as root for running once.")
 		}
 		log.Println("Starting enforcement loop...")
@@ -809,13 +809,15 @@ func installGlocker(config *Config) {
 	log.Println("Installation complete!")
 }
 
-func runningAsRoot() bool {
-	fmt.Println(os.Geteuid())
-	if os.Geteuid() != 0 {
-		return false
+func runningAsRoot(real bool) bool {
+	var uid int
+	if real {
+		uid = os.Getuid()  // Real user ID - who actually ran the command
 	} else {
-		return true
+		uid = os.Geteuid() // Effective user ID - current privileges (affected by setuid)
 	}
+	fmt.Println(uid)
+	return uid == 0
 }
 
 func runningWithSudo() bool {

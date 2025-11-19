@@ -113,25 +113,25 @@ type ForbiddenProgramsConfig struct {
 }
 
 type Config struct {
-	EnableHosts             bool                     `yaml:"enable_hosts"`
-	EnableFirewall          bool                     `yaml:"enable_firewall"`
-	EnableForbiddenPrograms bool                     `yaml:"enable_forbidden_programs"`
-	Domains                 []Domain                 `yaml:"domains"`
-	HostsPath               string                   `yaml:"hosts_path"`
-	SelfHeal                bool                     `yaml:"enable_self_healing"`
-	EnforceInterval         int                      `yaml:"enforce_interval_seconds"`
-	Sudoers                 SudoersConfig            `yaml:"sudoers"`
-	TamperDetection         TamperConfig             `yaml:"tamper_detection"`
-	Accountability          AccountabilityConfig     `yaml:"accountability"`
-	WebTracking             WebTrackingConfig        `yaml:"web_tracking"`
-	ContentMonitoring       ContentMonitoringConfig  `yaml:"content_monitoring"`
-	ForbiddenPrograms       ForbiddenProgramsConfig  `yaml:"forbidden_programs"`
-	ExtensionKeywords       ExtensionKeywordsConfig  `yaml:"extension_keywords"`
-	ViolationTracking       ViolationTrackingConfig  `yaml:"violation_tracking"`
-	MindfulDelay            int                      `yaml:"mindful_delay"`
-	TempUnblockTime         int                      `yaml:"temp_unblock_time"`
-	Dev                     bool                     `yaml:"dev"`
-	LogLevel                string                   `yaml:"log_level"`
+	EnableHosts             bool                    `yaml:"enable_hosts"`
+	EnableFirewall          bool                    `yaml:"enable_firewall"`
+	EnableForbiddenPrograms bool                    `yaml:"enable_forbidden_programs"`
+	Domains                 []Domain                `yaml:"domains"`
+	HostsPath               string                  `yaml:"hosts_path"`
+	SelfHeal                bool                    `yaml:"enable_self_healing"`
+	EnforceInterval         int                     `yaml:"enforce_interval_seconds"`
+	Sudoers                 SudoersConfig           `yaml:"sudoers"`
+	TamperDetection         TamperConfig            `yaml:"tamper_detection"`
+	Accountability          AccountabilityConfig    `yaml:"accountability"`
+	WebTracking             WebTrackingConfig       `yaml:"web_tracking"`
+	ContentMonitoring       ContentMonitoringConfig `yaml:"content_monitoring"`
+	ForbiddenPrograms       ForbiddenProgramsConfig `yaml:"forbidden_programs"`
+	ExtensionKeywords       ExtensionKeywordsConfig `yaml:"extension_keywords"`
+	ViolationTracking       ViolationTrackingConfig `yaml:"violation_tracking"`
+	MindfulDelay            int                     `yaml:"mindful_delay"`
+	TempUnblockTime         int                     `yaml:"temp_unblock_time"`
+	Dev                     bool                    `yaml:"dev"`
+	LogLevel                string                  `yaml:"log_level"`
 }
 
 func setupLogging(config *Config) {
@@ -810,6 +810,7 @@ func installGlocker(config *Config) {
 }
 
 func runningAsRoot() bool {
+	fmt.Println(os.Geteuid())
 	if os.Geteuid() != 0 {
 		return false
 	} else {
@@ -849,7 +850,6 @@ func copyFile(src, dst string) error {
 
 	return os.Chmod(dst, sourceInfo.Mode())
 }
-
 
 func mindfulDelay(config *Config) {
 	// Skip mindful delay in dev mode
@@ -2164,7 +2164,7 @@ func getStatusResponse(config *Config) string {
 
 		response.WriteString("\n")
 		response.WriteString("Violation Tracking:\n")
-		response.WriteString(fmt.Sprintf("  Recent Violations: %d/%d (in last %d minutes)\n", 
+		response.WriteString(fmt.Sprintf("  Recent Violations: %d/%d (in last %d minutes)\n",
 			recentViolations, config.ViolationTracking.MaxViolations, config.ViolationTracking.TimeWindowMinutes))
 		response.WriteString(fmt.Sprintf("  Total Violations: %d\n", totalViolations))
 		if config.ViolationTracking.ResetDaily {
@@ -3026,7 +3026,7 @@ func checkViolationThreshold(config *Config) {
 	slog.Debug("Checking violation threshold", "recent_count", recentCount, "max_violations", config.ViolationTracking.MaxViolations)
 
 	if recentCount >= config.ViolationTracking.MaxViolations {
-		log.Printf("VIOLATION THRESHOLD EXCEEDED: %d/%d violations in last %d minutes", 
+		log.Printf("VIOLATION THRESHOLD EXCEEDED: %d/%d violations in last %d minutes",
 			recentCount, config.ViolationTracking.MaxViolations, config.ViolationTracking.TimeWindowMinutes)
 
 		// Execute the configured command
@@ -3108,7 +3108,7 @@ func executeViolationCommand(config *Config, violationCount int) {
 func sendViolationEmail(config *Config, violationCount int) {
 	subject := "GLOCKER ALERT: Violation Threshold Exceeded"
 	body := fmt.Sprintf("The violation threshold has been exceeded at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
-	body += fmt.Sprintf("Violations: %d/%d (in last %d minutes)\n", 
+	body += fmt.Sprintf("Violations: %d/%d (in last %d minutes)\n",
 		violationCount, config.ViolationTracking.MaxViolations, config.ViolationTracking.TimeWindowMinutes)
 	body += fmt.Sprintf("Command executed: %s\n\n", config.ViolationTracking.Command)
 
@@ -3121,7 +3121,7 @@ func sendViolationEmail(config *Config, violationCount int) {
 
 	for _, violation := range violations {
 		if violation.Timestamp.After(cutoff) {
-			body += fmt.Sprintf("  - %s: %s (%s) at %s\n", 
+			body += fmt.Sprintf("  - %s: %s (%s) at %s\n",
 				violation.Type, violation.Host, violation.URL, violation.Timestamp.Format("15:04:05"))
 		}
 	}

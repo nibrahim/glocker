@@ -2072,6 +2072,28 @@ func handleUninstallRequest(reason string) {
 
 	log.Printf("Completion: %s", strings.TrimSpace(completionResponse))
 
+	// Now stop and disable the systemd service
+	log.Println("Stopping and disabling glocker service...")
+	if err := exec.Command("systemctl", "stop", "glocker.service").Run(); err != nil {
+		log.Printf("   Warning: couldn't stop service: %v", err)
+	} else {
+		log.Println("✓ Service stopped")
+	}
+
+	if err := exec.Command("systemctl", "disable", "glocker.service").Run(); err != nil {
+		log.Printf("   Warning: couldn't disable service: %v", err)
+	} else {
+		log.Println("✓ Service disabled")
+	}
+
+	// Reload systemd daemon
+	log.Println("Reloading systemd daemon...")
+	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
+		log.Printf("   Warning: couldn't reload systemd daemon: %v", err)
+	} else {
+		log.Println("✓ Systemd daemon reloaded")
+	}
+
 	// Now print the manual deletion commands
 	log.Println()
 	log.Println("🎉 Glocker system changes have been restored!")
@@ -2081,7 +2103,6 @@ func handleUninstallRequest(reason string) {
 	log.Println("To complete the uninstall, manually run these commands:")
 	log.Printf("   rm -f %s", "/etc/systemd/system/glocker.service")
 	log.Printf("   rm -f %s", INSTALL_PATH)
-	log.Println("   systemctl daemon-reload")
 }
 
 func handleStatusCommand(config *Config) {
@@ -2926,20 +2947,6 @@ func processUninstallRequestWithCompletion(config *Config, reason string, conn n
 	// Restore all system changes
 	log.Println("Starting uninstall process...")
 	restoreSystemChanges(config)
-
-	// Stop and disable service
-	log.Println("Stopping and disabling glocker service...")
-	if err := exec.Command("systemctl", "stop", "glocker.service").Run(); err != nil {
-		log.Printf("   Warning: couldn't stop service: %v", err)
-	} else {
-		log.Println("✓ Service stopped")
-	}
-
-	if err := exec.Command("systemctl", "disable", "glocker.service").Run(); err != nil {
-		log.Printf("   Warning: couldn't disable service: %v", err)
-	} else {
-		log.Println("✓ Service disabled")
-	}
 
 	// Make service file mutable
 	log.Println("Making service file mutable...")

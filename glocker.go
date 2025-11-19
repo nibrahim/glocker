@@ -218,25 +218,16 @@ func main() {
 	}
 
 	if *blockHosts != "" {
-		if !runningAsRoot(false) {
-			log.Fatal("Program should run as root for blocking hosts.")
-		}
 		blockHostsFromFlag(&config, *blockHosts)
 		return
 	}
 
 	if *unblockHosts != "" {
-		if !runningAsRoot(false) {
-			log.Fatal("Program should run as root for unblocking hosts.")
-		}
 		unblockHostsFromFlag(&config, *unblockHosts)
 		return
 	}
 
 	if *addKeyword != "" {
-		if !runningAsRoot(false) {
-			log.Fatal("Program should run as root for adding keywords.")
-		}
 		addKeywordsFromFlag(&config, *addKeyword)
 		return
 	}
@@ -247,17 +238,11 @@ func main() {
 	}
 
 	if *once {
-		if !runningAsRoot(false) {
-			log.Fatal("Program should run as root for running once.")
-		}
 		runOnce(&config, false)
 		return
 	}
 
 	if *enforce {
-		if !runningAsRoot(false) {
-			log.Fatal("Program should run as root for running once.")
-		}
 		log.Println("Starting enforcement loop...")
 		log.Printf("Enforcement interval: %d seconds", config.EnforceInterval)
 

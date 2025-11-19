@@ -166,7 +166,6 @@ func main() {
 	enforce := flag.Bool("enforce", false, "Run enforcement loop (runs continuously)")
 	once := flag.Bool("once", false, "Run enforcement once and exit")
 	install := flag.Bool("install", false, "Install Glocker")
-	installReason := flag.String("install-reason", "", "Reason for installing Glocker (required)")
 	uninstall := flag.String("uninstall", "", "Uninstall Glocker and revert all changes (provide reason)")
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
 	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock (format: 'domain1,domain2:reason')")
@@ -200,10 +199,7 @@ func main() {
 		if !runningAsRoot() {
 			log.Fatal("Program should run as root for installation.")
 		}
-		if *installReason == "" {
-			log.Fatal("Installation reason is required. Use -install-reason=\"your reason here\"")
-		}
-		installGlocker(&config, *installReason)
+		installGlocker(&config)
 		return
 	}
 
@@ -731,7 +727,7 @@ func selfHeal() {
 	}
 }
 
-func installGlocker(config *Config, reason string) {
+func installGlocker(config *Config) {
 	log.Println("╔════════════════════════════════════════════════╗")
 	log.Println("║              GLOCKER FULL INSTALL              ║")
 	log.Println("╚════════════════════════════════════════════════╝")
@@ -800,7 +796,6 @@ func installGlocker(config *Config, reason string) {
 	if config.Accountability.Enabled {
 		subject := "GLOCKER ALERT: Installation Completed"
 		body := fmt.Sprintf("Glocker has been successfully installed at %s.\n\n", time.Now().Format("2006-01-02 15:04:05"))
-		body += fmt.Sprintf("Installation reason: %s\n\n", reason)
 		body += "All protections are now active.\n\n"
 		body += "This is an automated alert from Glocker."
 

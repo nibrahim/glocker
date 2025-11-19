@@ -2854,6 +2854,10 @@ func processAddKeywordRequest(config *Config, keywordsStr string) {
 func processUninstallRequest(config *Config, reason string) {
 	log.Printf("Processing uninstall request with reason: %s", reason)
 
+	// Disable signal handlers to prevent extra emails during uninstall
+	signal.Reset()
+	log.Println("Signal handlers disabled for uninstall process")
+
 	// Send accountability email first, before disabling anything
 	if config.Accountability.Enabled {
 		subject := "GLOCKER ALERT: Uninstallation Started"

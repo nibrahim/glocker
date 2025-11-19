@@ -2880,19 +2880,12 @@ func processUninstallRequest(config *Config, reason string) {
 	// Give a moment for the email to be sent
 	time.Sleep(2 * time.Second)
 
-	// Restore all system changes while the process is still running
-	log.Println("Starting system restoration...")
-	restoreSystemChanges(config)
+	// Restore all system changes and prepare for manual file removal
+	log.Println("Starting uninstall process...")
+	prepareUninstall(config, reason)
 
-	// Launch external cleanup process to handle binary/service removal
-	log.Println("Launching external cleanup process...")
-	go launchExternalCleanup(reason)
-
-	// Give the external process a moment to start
-	time.Sleep(1 * time.Second)
-
-	// Exit the process - external cleanup will handle the rest
-	log.Println("System restoration complete. Exiting for external cleanup...")
+	// Exit the process
+	log.Println("Uninstall preparation complete. Exiting...")
 	os.Exit(0)
 }
 
@@ -2953,61 +2946,55 @@ func restoreSystemChanges(config *Config) {
 	log.Println("✓ System changes restored successfully")
 }
 
-func launchExternalCleanup(reason string) {
-	// Create a cleanup script that will run after this process exits
-	cleanupScript := `#!/bin/bash
-# Glocker external cleanup script
-echo "╔════════════════════════════════════════════════╗"
-echo "║           EXTERNAL CLEANUP PROCESS             ║"
-echo "╚════════════════════════════════════════════════╝"
-echo ""
+func prepareUninstall(config *Config, reason string) {
+	log.Println("╔════════════════════════════════════════════════╗")
+	log.Println("║              PREPARE UNINSTALL                 ║")
+	log.Println("╚════════════════════════════════════════════════╝")
+	log.Println()
 
-# Wait a moment for the main process to exit
-sleep 2
+	// Restore all system changes first
+	restoreSystemChanges(config)
 
-# Stop and disable service
-echo "Stopping and disabling glocker service..."
-systemctl stop glocker.service 2>/dev/null
-systemctl disable glocker.service 2>/dev/null
-echo "✓ Service stopped and disabled"
-
-# Remove service file
-echo "Removing service file..."
-chattr -i /etc/systemd/system/glocker.service 2>/dev/null
-rm -f /etc/systemd/system/glocker.service
-systemctl daemon-reload
-echo "✓ Service file removed"
-
-# Remove binary
-echo "Removing glocker binary..."
-chattr -i ` + INSTALL_PATH + ` 2>/dev/null
-if rm -f ` + INSTALL_PATH + `; then
-    echo "✓ Glocker binary removed"
-else
-    echo "   Warning: couldn't remove glocker binary"
-fi
-
-# Clean up this script
-rm -f /tmp/glocker-cleanup.sh
-
-echo ""
-echo "🎉 Glocker has been completely uninstalled!"
-echo "   All protections have been removed and original settings restored."
-echo "   Uninstall reason: ` + reason + `"
-`
-
-	// Write the cleanup script
-	scriptPath := "/tmp/glocker-cleanup.sh"
-	if err := os.WriteFile(scriptPath, []byte(cleanupScript), 0755); err != nil {
-		log.Printf("Failed to create cleanup script: %v", err)
-		return
+	// Stop and disable service
+	log.Println("Stopping and disabling glocker service...")
+	if err := exec.Command("systemctl", "stop", "glocker.service").Run(); err != nil {
+		log.Printf("   Warning: couldn't stop service: %v", err)
+	} else {
+		log.Println("✓ Service stopped")
 	}
 
-	// Execute the cleanup script in the background
-	cmd := exec.Command("bash", scriptPath)
-	cmd.Start() // Don't wait for it to complete
-	
-	log.Println("✓ External cleanup process launched")
+	if err := exec.Command("systemctl", "disable", "glocker.service").Run(); err != nil {
+		log.Printf("   Warning: couldn't disable service: %v", err)
+	} else {
+		log.Println("✓ Service disabled")
+	}
+
+	// Make service file mutable
+	log.Println("Making service file mutable...")
+	servicePath := "/etc/systemd/system/glocker.service"
+	if err := exec.Command("chattr", "-i", servicePath).Run(); err != nil {
+		log.Printf("   Warning: couldn't make service file mutable: %v", err)
+	} else {
+		log.Println("✓ Service file made mutable")
+	}
+
+	// Make binary mutable
+	log.Println("Making glocker binary mutable...")
+	if err := exec.Command("chattr", "-i", INSTALL_PATH).Run(); err != nil {
+		log.Printf("   Warning: couldn't make glocker binary mutable: %v", err)
+	} else {
+		log.Println("✓ Glocker binary made mutable")
+	}
+
+	log.Println()
+	log.Println("🎉 Glocker system changes have been restored!")
+	log.Println("   All protections have been removed and original settings restored.")
+	log.Printf("   Uninstall reason: %s", reason)
+	log.Println()
+	log.Println("To complete the uninstall, manually run these commands:")
+	log.Printf("   rm -f %s", servicePath)
+	log.Printf("   rm -f %s", INSTALL_PATH)
+	log.Println("   systemctl daemon-reload")
 }
 
 func broadcastKeywordUpdate(config *Config) {

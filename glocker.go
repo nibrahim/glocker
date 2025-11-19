@@ -166,7 +166,9 @@ func main() {
 	enforce := flag.Bool("enforce", false, "Run enforcement loop (runs continuously)")
 	once := flag.Bool("once", false, "Run enforcement once and exit")
 	install := flag.Bool("install", false, "Install Glocker")
+	installReason := flag.String("install-reason", "", "Reason for installing Glocker (required)")
 	uninstall := flag.Bool("uninstall", false, "Uninstall Glocker and revert all changes")
+	uninstallReason := flag.String("uninstall-reason", "", "Reason for uninstalling Glocker (required)")
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
 	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock (format: 'domain1,domain2:reason')")
 	addKeyword := flag.String("add-keyword", "", "Comma-separated list of keywords to add to both URL and content keyword lists")
@@ -199,19 +201,24 @@ func main() {
 		if !runningAsRoot() {
 			log.Fatal("Program should run as root for installation.")
 		}
-		installGlocker(&config)
+		if *installReason == "" {
+			log.Fatal("Installation reason is required. Use -install-reason=\"your reason here\"")
+		}
+		installGlocker(&config, *installReason)
 		return
 	}
 
 	if *uninstall {
-		if !runningWithSudo() {
-			log.Fatal("Uninstallation requires running with sudo. Please run: sudo glocker -uninstall")
+		if *uninstallReason == "" {
+			log.Fatal("Uninstall reason is required. Use -uninstall-reason=\"your reason here\"")
 		}
 		// Check if glocker is actually installed
 		if _, err := os.Stat(INSTALL_PATH); os.IsNotExist(err) {
 			log.Fatal("Glocker is not installed. Nothing to uninstall.")
 		}
-		uninstallGlocker(&config)
+		// Send uninstall request via socket
+		sendSocketMessage("uninstall", *uninstallReason)
+		log.Println("Uninstall request sent to running service.")
 		return
 	}
 
@@ -444,8 +451,20 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 			keywords := strings.TrimSpace(parts[1])
 			conn.Write([]byte("OK: Add keyword request received\n"))
 			go processAddKeywordRequest(config, keywords)
+		case "uninstall":
+			if len(parts) != 2 {
+				conn.Write([]byte("ERROR: Invalid format. Use 'uninstall:reason'\n"))
+				continue
+			}
+			reason := strings.TrimSpace(parts[1])
+			if reason == "" {
+				conn.Write([]byte("ERROR: Reason cannot be empty\n"))
+				continue
+			}
+			conn.Write([]byte("OK: Uninstall request received\n"))
+			go processUninstallRequest(config, reason)
 		default:
-			conn.Write([]byte("ERROR: Unknown action. Use 'block:domains', 'unblock:domains:reason', 'add-keyword:keywords', or 'status'\n"))
+			conn.Write([]byte("ERROR: Unknown action. Use 'block:domains', 'unblock:domains:reason', 'add-keyword:keywords', 'uninstall:reason', or 'status'\n"))
 		}
 	}
 }
@@ -713,7 +732,7 @@ func selfHeal() {
 	}
 }
 
-func installGlocker(config *Config) {
+func installGlocker(config *Config, reason string) {
 	log.Println("╔════════════════════════════════════════════════╗")
 	log.Println("║              GLOCKER FULL INSTALL              ║")
 	log.Println("╚════════════════════════════════════════════════╝")
@@ -778,6 +797,21 @@ func installGlocker(config *Config) {
 		createSudoersBackup()
 	}
 
+	// Send installation accountability email
+	if config.Accountability.Enabled {
+		subject := "GLOCKER ALERT: Installation Completed"
+		body := fmt.Sprintf("Glocker has been successfully installed at %s.\n\n", time.Now().Format("2006-01-02 15:04:05"))
+		body += fmt.Sprintf("Installation reason: %s\n\n", reason)
+		body += "All protections are now active.\n\n"
+		body += "This is an automated alert from Glocker."
+
+		if err := sendEmail(config, subject, body); err != nil {
+			log.Printf("Failed to send installation accountability email: %v", err)
+		} else {
+			log.Println("Installation accountability email sent")
+		}
+	}
+
 	log.Println("Installation complete!")
 }
 
@@ -822,73 +856,6 @@ func copyFile(src, dst string) error {
 	return os.Chmod(dst, sourceInfo.Mode())
 }
 
-func uninstallGlocker(config *Config) {
-	log.Println("╔════════════════════════════════════════════════╗")
-	log.Println("║              GLOCKER UNINSTALL                 ║")
-	log.Println("╚════════════════════════════════════════════════╝")
-	log.Println()
-
-	// Perform mindful delay
-	// mindfulDelay(config)
-
-	// Send accountability email
-	// if config.Accountability.Enabled {
-	// 	subject := "GLOCKER ALERT: Uninstallation Requested"
-	// 	body := fmt.Sprintf("Glocker uninstallation was requested and approved at %s.\n\n", time.Now().Format("2006-01-02 15:04:05"))
-	// 	body += "All protections will be removed and original settings restored.\n\n"
-	// 	body += "This is an automated alert from Glocker."
-
-	// 	if err := sendEmail(config, subject, body); err != nil {
-	// 		log.Printf("Failed to send accountability email: %v", err)
-	// 	} else {
-	// 		log.Println("Accountability email sent")
-	// 	}
-	// }
-
-	// Stop and disable service
-	exec.Command("systemctl", "stop", "glocker.service").Run()
-	exec.Command("systemctl", "disable", "glocker.service").Run()
-
-	// Clean up firewall rules
-	clearCmd := `iptables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 iptables`
-	if err := exec.Command("bash", "-c", clearCmd).Run(); err != nil {
-		log.Printf("   Warning: couldn't clear IPv4 rules: %v", err)
-	}
-
-	clearCmd6 := `ip6tables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 ip6tables`
-	exec.Command("bash", "-c", clearCmd6).Run()
-
-	// Clean up hosts file
-	cleanupHostsFile(config)
-
-	// Restore sudoers
-	if config.Sudoers.Enabled {
-		restoreSudoers(config)
-	}
-
-	// Remove service file
-	servicePath := "/etc/systemd/system/glocker.service"
-	exec.Command("chattr", "-i", servicePath).Run()
-	os.Remove(servicePath)
-	exec.Command("systemctl", "daemon-reload").Run()
-
-	// Remove binary
-	exec.Command("chattr", "-i", INSTALL_PATH).Run()
-	if err := os.Remove(INSTALL_PATH); err != nil {
-		log.Printf("Error removing glocker binary: %v", err)
-	} else {
-		log.Println("✓ Glocker binary removed")
-	}
-
-	// Remove sudoers backup
-	if err := os.Remove(SUDOERS_BACKUP); err != nil {
-		log.Printf("Error removing sudoers backup: %v", err)
-	}
-
-	log.Println("")
-	log.Println("🎉 Glocker has been completely uninstalled!")
-	log.Println("   All protections have been removed and original settings restored.")
-}
 
 func mindfulDelay(config *Config) {
 	// Skip mindful delay in dev mode
@@ -2901,6 +2868,94 @@ func processAddKeywordRequest(config *Config, keywordsStr string) {
 	broadcastKeywordUpdate(config)
 
 	log.Println("Keywords have been added successfully!")
+}
+
+func processUninstallRequest(config *Config, reason string) {
+	log.Printf("Processing uninstall request with reason: %s", reason)
+
+	// Send accountability email first, before disabling anything
+	if config.Accountability.Enabled {
+		subject := "GLOCKER ALERT: Uninstallation Started"
+		body := fmt.Sprintf("Glocker uninstallation was requested at %s.\n\n", time.Now().Format("2006-01-02 15:04:05"))
+		body += fmt.Sprintf("Uninstall reason: %s\n\n", reason)
+		body += "All protections will be removed and original settings restored.\n\n"
+		body += "This is an automated alert from Glocker."
+
+		if err := sendEmail(config, subject, body); err != nil {
+			log.Printf("Failed to send uninstall accountability email: %v", err)
+		} else {
+			log.Println("Uninstall accountability email sent")
+		}
+	}
+
+	// Disable tamper detection to prevent spam emails during uninstall
+	log.Println("Disabling tamper detection for uninstall...")
+	config.TamperDetection.Enabled = false
+
+	// Give a moment for the email to be sent
+	time.Sleep(2 * time.Second)
+
+	// Perform the actual uninstall
+	log.Println("Starting uninstall process...")
+	performUninstall(config)
+
+	// Exit the process
+	log.Println("Uninstall complete. Exiting...")
+	os.Exit(0)
+}
+
+func performUninstall(config *Config) {
+	log.Println("╔════════════════════════════════════════════════╗")
+	log.Println("║              GLOCKER UNINSTALL                 ║")
+	log.Println("╚════════════════════════════════════════════════╝")
+	log.Println()
+
+	// Stop and disable service
+	exec.Command("systemctl", "stop", "glocker.service").Run()
+	exec.Command("systemctl", "disable", "glocker.service").Run()
+
+	// Clean up firewall rules
+	clearCmd := `iptables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 iptables`
+	if err := exec.Command("bash", "-c", clearCmd).Run(); err != nil {
+		log.Printf("   Warning: couldn't clear IPv4 rules: %v", err)
+	}
+
+	clearCmd6 := `ip6tables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 ip6tables`
+	exec.Command("bash", "-c", clearCmd6).Run()
+
+	// Clean up hosts file
+	cleanupHostsFile(config)
+
+	// Restore sudoers
+	if config.Sudoers.Enabled {
+		restoreSudoers(config)
+	}
+
+	// Remove service file
+	servicePath := "/etc/systemd/system/glocker.service"
+	exec.Command("chattr", "-i", servicePath).Run()
+	os.Remove(servicePath)
+	exec.Command("systemctl", "daemon-reload").Run()
+
+	// Remove binary
+	exec.Command("chattr", "-i", INSTALL_PATH).Run()
+	if err := os.Remove(INSTALL_PATH); err != nil {
+		log.Printf("Error removing glocker binary: %v", err)
+	} else {
+		log.Println("✓ Glocker binary removed")
+	}
+
+	// Remove sudoers backup
+	if err := os.Remove(SUDOERS_BACKUP); err != nil {
+		log.Printf("Error removing sudoers backup: %v", err)
+	}
+
+	// Remove socket file
+	os.Remove(GLOCKER_SOCK)
+
+	log.Println("")
+	log.Println("🎉 Glocker has been completely uninstalled!")
+	log.Println("   All protections have been removed and original settings restored.")
 }
 
 func broadcastKeywordUpdate(config *Config) {

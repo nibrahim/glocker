@@ -211,9 +211,8 @@ func main() {
 		if _, err := os.Stat(INSTALL_PATH); os.IsNotExist(err) {
 			log.Fatal("Glocker is not installed. Nothing to uninstall.")
 		}
-		// Send uninstall request via socket
-		sendSocketMessage("uninstall", *uninstall)
-		log.Println("Uninstall request sent to running service.")
+		// Send uninstall request via socket and wait for completion
+		handleUninstallRequest(*uninstall)
 		return
 	}
 
@@ -442,7 +441,7 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 				continue
 			}
 			conn.Write([]byte("OK: Uninstall request received\n"))
-			go processUninstallRequest(config, reason)
+			go processUninstallRequestWithCompletion(config, reason, conn)
 		default:
 			conn.Write([]byte("ERROR: Unknown action. Use 'block:domains', 'unblock:domains:reason', 'add-keyword:keywords', 'uninstall:reason', or 'status'\n"))
 		}
@@ -2041,6 +2040,50 @@ func sendSocketMessage(action, domains string) {
 	log.Printf("Response: %s", strings.TrimSpace(response))
 }
 
+func handleUninstallRequest(reason string) {
+	conn, err := net.Dial("unix", "/tmp/glocker.sock")
+	if err != nil {
+		log.Fatalf("Failed to connect to glocker service: %v", err)
+	}
+	defer conn.Close()
+
+	message := fmt.Sprintf("uninstall:%s\n", reason)
+
+	_, err = conn.Write([]byte(message))
+	if err != nil {
+		log.Fatalf("Failed to send uninstall message: %v", err)
+	}
+
+	// Read initial response
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		log.Fatalf("Failed to read initial response: %v", err)
+	}
+
+	log.Printf("Response: %s", strings.TrimSpace(response))
+
+	// Wait for completion signal
+	log.Println("Waiting for uninstall process to complete...")
+	completionResponse, err := reader.ReadString('\n')
+	if err != nil {
+		log.Fatalf("Failed to read completion response: %v", err)
+	}
+
+	log.Printf("Completion: %s", strings.TrimSpace(completionResponse))
+
+	// Now print the manual deletion commands
+	log.Println()
+	log.Println("🎉 Glocker system changes have been restored!")
+	log.Println("   All protections have been removed and original settings restored.")
+	log.Printf("   Uninstall reason: %s", reason)
+	log.Println()
+	log.Println("To complete the uninstall, manually run these commands:")
+	log.Printf("   rm -f %s", "/etc/systemd/system/glocker.service")
+	log.Printf("   rm -f %s", INSTALL_PATH)
+	log.Println("   systemctl daemon-reload")
+}
+
 func handleStatusCommand(config *Config) {
 	// Check if socket exists and is accessible
 	if _, err := os.Stat(GLOCKER_SOCK); err == nil {
@@ -2851,7 +2894,7 @@ func processAddKeywordRequest(config *Config, keywordsStr string) {
 	log.Println("Keywords have been added successfully!")
 }
 
-func processUninstallRequest(config *Config, reason string) {
+func processUninstallRequestWithCompletion(config *Config, reason string, conn net.Conn) {
 	log.Printf("Processing uninstall request with reason: %s", reason)
 
 	// Disable signal handlers to prevent extra emails during uninstall
@@ -2880,12 +2923,46 @@ func processUninstallRequest(config *Config, reason string) {
 	// Give a moment for the email to be sent
 	time.Sleep(2 * time.Second)
 
-	// Restore all system changes and prepare for manual file removal
+	// Restore all system changes
 	log.Println("Starting uninstall process...")
-	prepareUninstall(config, reason)
+	restoreSystemChanges(config)
+
+	// Stop and disable service
+	log.Println("Stopping and disabling glocker service...")
+	if err := exec.Command("systemctl", "stop", "glocker.service").Run(); err != nil {
+		log.Printf("   Warning: couldn't stop service: %v", err)
+	} else {
+		log.Println("✓ Service stopped")
+	}
+
+	if err := exec.Command("systemctl", "disable", "glocker.service").Run(); err != nil {
+		log.Printf("   Warning: couldn't disable service: %v", err)
+	} else {
+		log.Println("✓ Service disabled")
+	}
+
+	// Make service file mutable
+	log.Println("Making service file mutable...")
+	servicePath := "/etc/systemd/system/glocker.service"
+	if err := exec.Command("chattr", "-i", servicePath).Run(); err != nil {
+		log.Printf("   Warning: couldn't make service file mutable: %v", err)
+	} else {
+		log.Println("✓ Service file made mutable")
+	}
+
+	// Make binary mutable
+	log.Println("Making glocker binary mutable...")
+	if err := exec.Command("chattr", "-i", INSTALL_PATH).Run(); err != nil {
+		log.Printf("   Warning: couldn't make glocker binary mutable: %v", err)
+	} else {
+		log.Println("✓ Glocker binary made mutable")
+	}
+
+	// Send completion signal to process ONE
+	conn.Write([]byte("COMPLETED: System changes restored, files made mutable\n"))
+	log.Println("Uninstall preparation complete. Exiting...")
 
 	// Exit the process
-	log.Println("Uninstall preparation complete. Exiting...")
 	os.Exit(0)
 }
 
@@ -2946,56 +3023,6 @@ func restoreSystemChanges(config *Config) {
 	log.Println("✓ System changes restored successfully")
 }
 
-func prepareUninstall(config *Config, reason string) {
-	log.Println("╔════════════════════════════════════════════════╗")
-	log.Println("║              PREPARE UNINSTALL                 ║")
-	log.Println("╚════════════════════════════════════════════════╝")
-	log.Println()
-
-	// Restore all system changes first
-	restoreSystemChanges(config)
-
-	// Stop and disable service
-	log.Println("Stopping and disabling glocker service...")
-	if err := exec.Command("systemctl", "stop", "glocker.service").Run(); err != nil {
-		log.Printf("   Warning: couldn't stop service: %v", err)
-	} else {
-		log.Println("✓ Service stopped")
-	}
-
-	if err := exec.Command("systemctl", "disable", "glocker.service").Run(); err != nil {
-		log.Printf("   Warning: couldn't disable service: %v", err)
-	} else {
-		log.Println("✓ Service disabled")
-	}
-
-	// Make service file mutable
-	log.Println("Making service file mutable...")
-	servicePath := "/etc/systemd/system/glocker.service"
-	if err := exec.Command("chattr", "-i", servicePath).Run(); err != nil {
-		log.Printf("   Warning: couldn't make service file mutable: %v", err)
-	} else {
-		log.Println("✓ Service file made mutable")
-	}
-
-	// Make binary mutable
-	log.Println("Making glocker binary mutable...")
-	if err := exec.Command("chattr", "-i", INSTALL_PATH).Run(); err != nil {
-		log.Printf("   Warning: couldn't make glocker binary mutable: %v", err)
-	} else {
-		log.Println("✓ Glocker binary made mutable")
-	}
-
-	log.Println()
-	log.Println("🎉 Glocker system changes have been restored!")
-	log.Println("   All protections have been removed and original settings restored.")
-	log.Printf("   Uninstall reason: %s", reason)
-	log.Println()
-	log.Println("To complete the uninstall, manually run these commands:")
-	log.Printf("   rm -f %s", servicePath)
-	log.Printf("   rm -f %s", INSTALL_PATH)
-	log.Println("   systemctl daemon-reload")
-}
 
 func broadcastKeywordUpdate(config *Config) {
 	// Combine content keywords with URL keywords

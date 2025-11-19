@@ -167,8 +167,7 @@ func main() {
 	once := flag.Bool("once", false, "Run enforcement once and exit")
 	install := flag.Bool("install", false, "Install Glocker")
 	installReason := flag.String("install-reason", "", "Reason for installing Glocker (required)")
-	uninstall := flag.Bool("uninstall", false, "Uninstall Glocker and revert all changes")
-	uninstallReason := flag.String("uninstall-reason", "", "Reason for uninstalling Glocker (required)")
+	uninstall := flag.String("uninstall", "", "Uninstall Glocker and revert all changes (provide reason)")
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
 	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock (format: 'domain1,domain2:reason')")
 	addKeyword := flag.String("add-keyword", "", "Comma-separated list of keywords to add to both URL and content keyword lists")
@@ -208,16 +207,13 @@ func main() {
 		return
 	}
 
-	if *uninstall {
-		if *uninstallReason == "" {
-			log.Fatal("Uninstall reason is required. Use -uninstall-reason=\"your reason here\"")
-		}
+	if *uninstall != "" {
 		// Check if glocker is actually installed
 		if _, err := os.Stat(INSTALL_PATH); os.IsNotExist(err) {
 			log.Fatal("Glocker is not installed. Nothing to uninstall.")
 		}
 		// Send uninstall request via socket
-		sendSocketMessage("uninstall", *uninstallReason)
+		sendSocketMessage("uninstall", *uninstall)
 		log.Println("Uninstall request sent to running service.")
 		return
 	}

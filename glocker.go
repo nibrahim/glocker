@@ -2880,67 +2880,134 @@ func processUninstallRequest(config *Config, reason string) {
 	// Give a moment for the email to be sent
 	time.Sleep(2 * time.Second)
 
-	// Perform the actual uninstall
-	log.Println("Starting uninstall process...")
-	performUninstall(config)
+	// Restore all system changes while the process is still running
+	log.Println("Starting system restoration...")
+	restoreSystemChanges(config)
 
-	// Exit the process
-	log.Println("Uninstall complete. Exiting...")
+	// Launch external cleanup process to handle binary/service removal
+	log.Println("Launching external cleanup process...")
+	go launchExternalCleanup(reason)
+
+	// Give the external process a moment to start
+	time.Sleep(1 * time.Second)
+
+	// Exit the process - external cleanup will handle the rest
+	log.Println("System restoration complete. Exiting for external cleanup...")
 	os.Exit(0)
 }
 
-func performUninstall(config *Config) {
+func restoreSystemChanges(config *Config) {
 	log.Println("╔════════════════════════════════════════════════╗")
-	log.Println("║              GLOCKER UNINSTALL                 ║")
+	log.Println("║           RESTORING SYSTEM CHANGES             ║")
 	log.Println("╚════════════════════════════════════════════════╝")
 	log.Println()
 
-	// Stop and disable service
-	exec.Command("systemctl", "stop", "glocker.service").Run()
-	exec.Command("systemctl", "disable", "glocker.service").Run()
-
 	// Clean up firewall rules
+	log.Println("Clearing firewall rules...")
 	clearCmd := `iptables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 iptables`
 	if err := exec.Command("bash", "-c", clearCmd).Run(); err != nil {
 		log.Printf("   Warning: couldn't clear IPv4 rules: %v", err)
+	} else {
+		log.Println("✓ IPv4 firewall rules cleared")
 	}
 
 	clearCmd6 := `ip6tables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 ip6tables`
-	exec.Command("bash", "-c", clearCmd6).Run()
+	if err := exec.Command("bash", "-c", clearCmd6).Run(); err != nil {
+		log.Printf("   Warning: couldn't clear IPv6 rules: %v", err)
+	} else {
+		log.Println("✓ IPv6 firewall rules cleared")
+	}
 
 	// Clean up hosts file
-	cleanupHostsFile(config)
+	log.Println("Restoring hosts file...")
+	if err := cleanupHostsFile(config); err != nil {
+		log.Printf("   Warning: couldn't clean hosts file: %v", err)
+	} else {
+		log.Println("✓ Hosts file restored")
+	}
 
 	// Restore sudoers
 	if config.Sudoers.Enabled {
-		restoreSudoers(config)
-	}
-
-	// Remove service file
-	servicePath := "/etc/systemd/system/glocker.service"
-	exec.Command("chattr", "-i", servicePath).Run()
-	os.Remove(servicePath)
-	exec.Command("systemctl", "daemon-reload").Run()
-
-	// Remove binary
-	exec.Command("chattr", "-i", INSTALL_PATH).Run()
-	if err := os.Remove(INSTALL_PATH); err != nil {
-		log.Printf("Error removing glocker binary: %v", err)
-	} else {
-		log.Println("✓ Glocker binary removed")
+		log.Println("Restoring sudoers configuration...")
+		if err := restoreSudoers(config); err != nil {
+			log.Printf("   Warning: couldn't restore sudoers: %v", err)
+		} else {
+			log.Println("✓ Sudoers configuration restored")
+		}
 	}
 
 	// Remove sudoers backup
 	if err := os.Remove(SUDOERS_BACKUP); err != nil {
-		log.Printf("Error removing sudoers backup: %v", err)
+		log.Printf("   Warning: couldn't remove sudoers backup: %v", err)
+	} else {
+		log.Println("✓ Sudoers backup removed")
 	}
 
 	// Remove socket file
-	os.Remove(GLOCKER_SOCK)
+	if err := os.Remove(GLOCKER_SOCK); err != nil {
+		log.Printf("   Warning: couldn't remove socket file: %v", err)
+	} else {
+		log.Println("✓ Socket file removed")
+	}
 
-	log.Println("")
-	log.Println("🎉 Glocker has been completely uninstalled!")
-	log.Println("   All protections have been removed and original settings restored.")
+	log.Println("✓ System changes restored successfully")
+}
+
+func launchExternalCleanup(reason string) {
+	// Create a cleanup script that will run after this process exits
+	cleanupScript := `#!/bin/bash
+# Glocker external cleanup script
+echo "╔════════════════════════════════════════════════╗"
+echo "║           EXTERNAL CLEANUP PROCESS             ║"
+echo "╚════════════════════════════════════════════════╝"
+echo ""
+
+# Wait a moment for the main process to exit
+sleep 2
+
+# Stop and disable service
+echo "Stopping and disabling glocker service..."
+systemctl stop glocker.service 2>/dev/null
+systemctl disable glocker.service 2>/dev/null
+echo "✓ Service stopped and disabled"
+
+# Remove service file
+echo "Removing service file..."
+chattr -i /etc/systemd/system/glocker.service 2>/dev/null
+rm -f /etc/systemd/system/glocker.service
+systemctl daemon-reload
+echo "✓ Service file removed"
+
+# Remove binary
+echo "Removing glocker binary..."
+chattr -i ` + INSTALL_PATH + ` 2>/dev/null
+if rm -f ` + INSTALL_PATH + `; then
+    echo "✓ Glocker binary removed"
+else
+    echo "   Warning: couldn't remove glocker binary"
+fi
+
+# Clean up this script
+rm -f /tmp/glocker-cleanup.sh
+
+echo ""
+echo "🎉 Glocker has been completely uninstalled!"
+echo "   All protections have been removed and original settings restored."
+echo "   Uninstall reason: ` + reason + `"
+`
+
+	// Write the cleanup script
+	scriptPath := "/tmp/glocker-cleanup.sh"
+	if err := os.WriteFile(scriptPath, []byte(cleanupScript), 0755); err != nil {
+		log.Printf("Failed to create cleanup script: %v", err)
+		return
+	}
+
+	// Execute the cleanup script in the background
+	cmd := exec.Command("bash", scriptPath)
+	cmd.Start() // Don't wait for it to complete
+	
+	log.Println("✓ External cleanup process launched")
 }
 
 func broadcastKeywordUpdate(config *Config) {

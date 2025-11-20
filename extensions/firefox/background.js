@@ -1,6 +1,9 @@
 // URL keyword blocking - will be populated from server
 let urlKeywords = ['gambling', 'casino', 'porn', 'xxx']; // fallback defaults
 
+// Global cleanup state for background script
+let backgroundCleanedUp = false;
+
 // Fetch keywords from glocker server
 async function fetchKeywords() {
   try {
@@ -23,6 +26,12 @@ async function fetchKeywords() {
 function setupSSEConnection() {
   console.log('Setting up SSE connection for keyword updates...');
   
+  // Clean up existing connection if any
+  if (window.backgroundSSE) {
+    window.backgroundSSE.close();
+    window.backgroundSSE = null;
+  }
+  
   const eventSource = new EventSource('http://127.0.0.1/keywords-stream');
   
   eventSource.onopen = function(event) {
@@ -30,6 +39,9 @@ function setupSSEConnection() {
   };
   
   eventSource.onmessage = function(event) {
+    // Skip processing if cleaned up
+    if (backgroundCleanedUp) return;
+    
     console.log('SSE message received:', event.data);
     try {
       const data = JSON.parse(event.data);
@@ -44,9 +56,37 @@ function setupSSEConnection() {
   
   eventSource.onerror = function(event) {
     console.log('SSE connection error:', event);
-    // Connection will automatically retry
+    // Connection will automatically retry unless cleaned up
+    if (backgroundCleanedUp) {
+      eventSource.close();
+    }
   };
+  
+  // Store reference for cleanup
+  window.backgroundSSE = eventSource;
 }
+
+// Background script cleanup function
+function cleanupBackground() {
+  if (backgroundCleanedUp) return;
+  
+  console.log('Cleaning up background script resources');
+  backgroundCleanedUp = true;
+  
+  // Close SSE connection
+  if (window.backgroundSSE) {
+    window.backgroundSSE.close();
+    window.backgroundSSE = null;
+  }
+  
+  // Clear keyword arrays
+  urlKeywords = null;
+  
+  console.log('Background cleanup completed');
+}
+
+// Set up cleanup for background script
+browser.runtime.onSuspend.addListener(cleanupBackground);
 
 // Initialize keywords on startup
 fetchKeywords().then(() => {

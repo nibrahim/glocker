@@ -1,6 +1,9 @@
 // Page content analysis - will be populated from server
 let contentKeywords = ['trigger1', 'trigger2']; // fallback defaults
 
+// Global cleanup state
+let isCleanedUp = false;
+
 // Fetch keywords from glocker server
 async function fetchKeywords() {
   console.log('Fetching keywords from server...');
@@ -31,6 +34,12 @@ async function fetchKeywords() {
 function setupSSEConnection() {
   console.log('Setting up SSE connection for keyword updates...');
   
+  // Clean up existing connection if any
+  if (window.glockerSSE) {
+    window.glockerSSE.close();
+    window.glockerSSE = null;
+  }
+  
   const eventSource = new EventSource('http://127.0.0.1/keywords-stream');
   
   eventSource.onopen = function(event) {
@@ -38,6 +47,9 @@ function setupSSEConnection() {
   };
   
   eventSource.onmessage = function(event) {
+    // Skip processing if already cleaned up
+    if (isCleanedUp) return;
+    
     console.log('SSE message received:', event.data);
     try {
       const data = JSON.parse(event.data);
@@ -46,7 +58,7 @@ function setupSSEConnection() {
         console.log('Updated content keywords via SSE:', contentKeywords);
         
         // Re-analyze current page with new keywords
-        if (document.readyState === 'complete') {
+        if (document.readyState === 'complete' && !isCleanedUp) {
           console.log('Re-analyzing page content with updated keywords');
           analyzeContent();
         }
@@ -58,38 +70,73 @@ function setupSSEConnection() {
   
   eventSource.onerror = function(event) {
     console.log('SSE connection error:', event);
-    // Connection will automatically retry
+    // Connection will automatically retry unless we're cleaned up
+    if (isCleanedUp) {
+      eventSource.close();
+    }
   };
   
-  // Store reference for cleanup if needed
+  // Store reference for cleanup
   window.glockerSSE = eventSource;
 }
 
-// Cleanup function for page unload
+// Comprehensive cleanup function
 function cleanup() {
+  if (isCleanedUp) {
+    console.log('Already cleaned up, skipping');
+    return;
+  }
+  
   console.log('Cleaning up glocker extension resources');
+  isCleanedUp = true;
   
   // Clear any pending timeouts
   if (window.glockerContentAnalysisTimeout) {
     clearTimeout(window.glockerContentAnalysisTimeout);
+    window.glockerContentAnalysisTimeout = null;
   }
   
-  // Disconnect observer
+  // Disconnect and clear observer
   if (window.glockerObserver) {
     window.glockerObserver.disconnect();
+    window.glockerObserver = null;
   }
   
-  // Close SSE connection
+  // Close and clear SSE connection
   if (window.glockerSSE) {
     window.glockerSSE.close();
+    window.glockerSSE = null;
   }
+  
+  // Clear keyword arrays to free memory
+  contentKeywords = null;
+  
+  console.log('Cleanup completed');
 }
 
-// Set up cleanup on page unload
-window.addEventListener('beforeunload', cleanup);
-window.addEventListener('unload', cleanup);
+// Set up cleanup on multiple events to ensure it runs
+window.addEventListener('beforeunload', cleanup, { once: true });
+window.addEventListener('unload', cleanup, { once: true });
+window.addEventListener('pagehide', cleanup, { once: true });
+
+// Also cleanup on visibility change (when tab becomes hidden)
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden') {
+    // Don't fully cleanup on visibility change, just pause expensive operations
+    if (window.glockerContentAnalysisTimeout) {
+      clearTimeout(window.glockerContentAnalysisTimeout);
+      window.glockerContentAnalysisTimeout = null;
+    }
+  }
+}, { passive: true });
 
 function analyzeContent() {
+  // Skip if already cleaned up
+  if (isCleanedUp || !contentKeywords) {
+    console.log('Skipping analysis - cleaned up or no keywords');
+    return;
+  }
+  
   console.log('analyzeContent() called for URL:', window.location.href);
   
   // Skip analyzing localhost/127.0.0.1 pages to prevent redirect loops
@@ -186,13 +233,28 @@ function hasTextChanges(mutations) {
 
 // Set up MutationObserver to watch for dynamically loaded content
 function setupContentMonitoring() {
+  // Skip if already cleaned up
+  if (isCleanedUp) {
+    console.log('Skipping content monitoring setup - already cleaned up');
+    return;
+  }
+  
   console.log('Setting up content monitoring...');
+  
+  // Clean up existing observer if any
+  if (window.glockerObserver) {
+    window.glockerObserver.disconnect();
+    window.glockerObserver = null;
+  }
   
   // Initial content analysis
   analyzeContent();
   
   // Watch for text content changes
   const observer = new MutationObserver((mutations) => {
+    // Skip if cleaned up
+    if (isCleanedUp) return;
+    
     console.log('MutationObserver triggered, mutations count:', mutations.length);
     
     // Only analyze if there are actual text changes
@@ -201,8 +263,10 @@ function setupContentMonitoring() {
       // Debounce rapid changes - wait a bit before analyzing
       clearTimeout(window.glockerContentAnalysisTimeout);
       window.glockerContentAnalysisTimeout = setTimeout(() => {
-        console.log('Executing delayed content analysis');
-        analyzeContent();
+        if (!isCleanedUp) {
+          console.log('Executing delayed content analysis');
+          analyzeContent();
+        }
       }, 300); // Reduced timeout for better responsiveness
     } else {
       console.log('No relevant text changes detected, skipping analysis');

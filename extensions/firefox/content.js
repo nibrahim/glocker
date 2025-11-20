@@ -65,6 +65,30 @@ function setupSSEConnection() {
   window.glockerSSE = eventSource;
 }
 
+// Cleanup function for page unload
+function cleanup() {
+  console.log('Cleaning up glocker extension resources');
+  
+  // Clear any pending timeouts
+  if (window.glockerContentAnalysisTimeout) {
+    clearTimeout(window.glockerContentAnalysisTimeout);
+  }
+  
+  // Disconnect observer
+  if (window.glockerObserver) {
+    window.glockerObserver.disconnect();
+  }
+  
+  // Close SSE connection
+  if (window.glockerSSE) {
+    window.glockerSSE.close();
+  }
+}
+
+// Set up cleanup on page unload
+window.addEventListener('beforeunload', cleanup);
+window.addEventListener('unload', cleanup);
+
 function analyzeContent() {
   console.log('analyzeContent() called for URL:', window.location.href);
   
@@ -111,6 +135,55 @@ function analyzeContent() {
   console.log('Content analysis complete, no matches found');
 }
 
+// Helper function to check if a node contains meaningful text content
+function hasTextContent(node) {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent.trim().length > 0;
+  }
+  if (node.nodeType === Node.ELEMENT_NODE) {
+    // Skip script, style, and other non-visible elements
+    const tagName = node.tagName ? node.tagName.toLowerCase() : '';
+    if (['script', 'style', 'noscript', 'meta', 'link', 'title'].includes(tagName)) {
+      return false;
+    }
+    return node.textContent.trim().length > 0;
+  }
+  return false;
+}
+
+// Helper function to check if mutations contain text changes
+function hasTextChanges(mutations) {
+  for (let mutation of mutations) {
+    // Check for text content changes
+    if (mutation.type === 'characterData') {
+      if (mutation.target.textContent.trim().length > 0) {
+        console.log('Text content changed:', mutation.target.textContent.substring(0, 50) + '...');
+        return true;
+      }
+    }
+    
+    // Check for new nodes with text content
+    if (mutation.type === 'childList') {
+      // Check added nodes
+      for (let node of mutation.addedNodes) {
+        if (hasTextContent(node)) {
+          console.log('Text content added via new node:', node.textContent.substring(0, 50) + '...');
+          return true;
+        }
+      }
+      
+      // Check if removed nodes had significant text (for dynamic content replacement)
+      for (let node of mutation.removedNodes) {
+        if (hasTextContent(node)) {
+          console.log('Text content removed, may indicate dynamic replacement');
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 // Set up MutationObserver to watch for dynamically loaded content
 function setupContentMonitoring() {
   console.log('Setting up content monitoring...');
@@ -118,32 +191,21 @@ function setupContentMonitoring() {
   // Initial content analysis
   analyzeContent();
   
-  // Watch for new content being added to the page
+  // Watch for text content changes
   const observer = new MutationObserver((mutations) => {
     console.log('MutationObserver triggered, mutations count:', mutations.length);
-    let shouldAnalyze = false;
     
-    mutations.forEach((mutation) => {
-      // Check if new nodes were added that might contain text
-      if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-        console.log('Child nodes added:', mutation.addedNodes.length);
-        for (let node of mutation.addedNodes) {
-          // Only analyze if text content was actually added
-          if (node.nodeType === Node.TEXT_NODE || 
-              (node.nodeType === Node.ELEMENT_NODE && node.textContent.trim())) {
-            console.log('Text content detected in new node, will analyze');
-            shouldAnalyze = true;
-            break;
-          }
-        }
-      }
-    });
-    
-    if (shouldAnalyze) {
-      console.log('Scheduling content analysis due to DOM changes');
+    // Only analyze if there are actual text changes
+    if (hasTextChanges(mutations)) {
+      console.log('Text changes detected, scheduling content analysis');
       // Debounce rapid changes - wait a bit before analyzing
-      clearTimeout(window.glocketContentAnalysisTimeout);
-      window.glocketContentAnalysisTimeout = setTimeout(analyzeContent, 500);
+      clearTimeout(window.glockerContentAnalysisTimeout);
+      window.glockerContentAnalysisTimeout = setTimeout(() => {
+        console.log('Executing delayed content analysis');
+        analyzeContent();
+      }, 300); // Reduced timeout for better responsiveness
+    } else {
+      console.log('No relevant text changes detected, skipping analysis');
     }
   });
   
@@ -155,6 +217,9 @@ function setupContentMonitoring() {
     subtree: true,
     characterData: true
   });
+  
+  // Store observer reference for cleanup
+  window.glockerObserver = observer;
   console.log('Content monitoring setup complete');
 }
 

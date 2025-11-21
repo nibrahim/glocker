@@ -217,9 +217,23 @@ browser.webRequest.onBeforeRequest.addListener(
       return;
     }
     
+    // Extract just the domain and path, excluding query parameters for URL keyword matching
+    // This prevents blocking search engines when users search for blocked terms
+    let urlToCheck = url;
+    try {
+      const urlObj = new URL(url);
+      // Only check domain and path, not query parameters
+      urlToCheck = (urlObj.hostname + urlObj.pathname).toLowerCase();
+    } catch (e) {
+      // If URL parsing fails, use the original URL
+      urlToCheck = url;
+    }
+    
+    console.log("Checking URL:", urlToCheck, "against", urlKeywordRegexes.length, "patterns");
+    
     for (let keywordData of urlKeywordRegexes) {
-      if (keywordData.regex.test(url)) {
-        console.log("Found ", keywordData.keyword, " in ", url);
+      if (keywordData.regex.test(urlToCheck)) {
+        console.log("Found ", keywordData.keyword, " in ", urlToCheck);
         // Report to glocker
         fetch('http://127.0.0.1/report', {
           method: 'POST',

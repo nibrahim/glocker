@@ -1,8 +1,23 @@
 // Page content analysis - will be populated from background script
 let contentKeywords = ['trigger1', 'trigger2']; // fallback defaults
 
+// Cached compiled regex patterns for performance
+let contentKeywordRegexes = [];
+
 // Global cleanup state
 let isCleanedUp = false;
+
+// Compile content keywords into regex patterns for performance
+function compileContentKeywordRegexes() {
+  contentKeywordRegexes = contentKeywords.map(keyword => {
+    const escapedKeyword = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return {
+      keyword: keyword,
+      regex: new RegExp('\\b' + escapedKeyword + '\\b', 'i')
+    };
+  });
+  console.log('Compiled regex patterns for', contentKeywordRegexes.length, 'content keywords');
+}
 
 // Request keywords from background script
 async function fetchKeywords() {
@@ -14,6 +29,7 @@ async function fetchKeywords() {
     
     if (response && response.contentKeywords && Array.isArray(response.contentKeywords)) {
       contentKeywords = response.contentKeywords;
+      compileContentKeywordRegexes();
       console.log('Updated content keywords from background:', contentKeywords);
       return response;
     } else {
@@ -33,6 +49,7 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     console.log('Received keyword update from background:', message.contentKeywords);
     contentKeywords = message.contentKeywords;
+    compileContentKeywordRegexes();
     
     // Re-analyze current page with new keywords
     if (document.readyState === 'complete' && !isCleanedUp) {
@@ -105,16 +122,14 @@ function analyzeContent() {
   console.log('Analyzing content, text length:', text.length);
   console.log('Current keywords to check:', contentKeywords);
   
-  for (let keyword of contentKeywords) {
-    console.log('Checking for keyword:', keyword);
-    // Use word boundaries to match whole words only
-    const regex = new RegExp('\\b' + keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-    if (regex.test(text)) {
-      console.log('KEYWORD MATCH FOUND:', keyword);
+  for (let keywordData of contentKeywordRegexes) {
+    console.log('Checking for keyword:', keywordData.keyword);
+    if (keywordData.regex.test(text)) {
+      console.log('KEYWORD MATCH FOUND:', keywordData.keyword);
       const reportData = {
         url: window.location.href,
         domain: window.location.hostname,
-        trigger: `content-keyword:${keyword}`,
+        trigger: `content-keyword:${keywordData.keyword}`,
         timestamp: Date.now()
       };
       
@@ -128,7 +143,7 @@ function analyzeContent() {
       });
       
       // Redirect to blocked page with reason
-      const reason = encodeURIComponent(`Page content contains blocked keyword: "${keyword}"`);
+      const reason = encodeURIComponent(`Page content contains blocked keyword: "${keywordData.keyword}"`);
       console.log('Redirecting to blocked page with reason:', reason);
       window.location.replace(`http://127.0.0.1/blocked?reason=${reason}`);
       
@@ -245,6 +260,9 @@ function setupContentMonitoring() {
 
 console.log("Content script starting on:", window.location.href);
 console.log("Document ready state:", document.readyState);
+
+// Compile initial regex patterns
+compileContentKeywordRegexes();
 
 // Initialize keywords on startup
 fetchKeywords().then((data) => {

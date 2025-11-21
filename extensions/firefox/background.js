@@ -2,11 +2,38 @@
 let urlKeywords = ['gambling', 'casino', 'porn', 'xxx']; // fallback defaults
 let contentKeywords = ['trigger1', 'trigger2']; // fallback defaults
 
+// Cached compiled regex patterns for performance
+let urlKeywordRegexes = [];
+let contentKeywordRegexes = [];
+
 // Global cleanup state for background script
 let backgroundCleanedUp = false;
 
 // Status tracking
 let glockerConnected = false;
+
+// Compile keywords into regex patterns for performance
+function compileKeywordRegexes() {
+  // Compile URL keyword regexes
+  urlKeywordRegexes = urlKeywords.map(keyword => {
+    const escapedKeyword = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return {
+      keyword: keyword,
+      regex: new RegExp('\\b' + escapedKeyword + '\\b', 'i')
+    };
+  });
+  
+  // Compile content keyword regexes
+  contentKeywordRegexes = contentKeywords.map(keyword => {
+    const escapedKeyword = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return {
+      keyword: keyword,
+      regex: new RegExp('\\b' + escapedKeyword + '\\b', 'i')
+    };
+  });
+  
+  console.log('Compiled regex patterns for', urlKeywordRegexes.length, 'URL keywords and', contentKeywordRegexes.length, 'content keywords');
+}
 
 // Update browser action icon based on connection status
 function updateStatusIcon() {
@@ -33,6 +60,9 @@ async function fetchKeywords() {
         contentKeywords = data.content_keywords;
         console.log('Updated content keywords from server:', contentKeywords);
       }
+      
+      // Recompile regex patterns with new keywords
+      compileKeywordRegexes();
       
       // Update connection status
       glockerConnected = true;
@@ -107,8 +137,9 @@ function setupSSEConnection() {
         updated = true;
       }
       
-      // Broadcast updates to content scripts
+      // Recompile regex patterns and broadcast updates
       if (updated) {
+        compileKeywordRegexes();
         broadcastKeywordsToContentScripts();
       }
     } catch (error) {
@@ -166,6 +197,9 @@ browser.runtime.onSuspend.addListener(cleanupBackground);
 // Initialize status icon and keywords on startup
 updateStatusIcon(); // Set initial disconnected state
 
+// Compile initial regex patterns
+compileKeywordRegexes();
+
 fetchKeywords().then(() => {
   // Set up centralized SSE connection for real-time updates
   setupSSEConnection();
@@ -183,24 +217,22 @@ browser.webRequest.onBeforeRequest.addListener(
       return;
     }
     
-    for (let keyword of urlKeywords) {
-      // Use word boundaries to match whole words only
-      const regex = new RegExp('\\b' + keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-      if (regex.test(url)) {
-          console.log("Found ", keyword, " in ", url);
+    for (let keywordData of urlKeywordRegexes) {
+      if (keywordData.regex.test(url)) {
+        console.log("Found ", keywordData.keyword, " in ", url);
         // Report to glocker
         fetch('http://127.0.0.1/report', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             url: details.url,
-            trigger: `url-keyword:${keyword}`,
+            trigger: `url-keyword:${keywordData.keyword}`,
             timestamp: Date.now()
           })
         }).catch(() => {}); // Ignore failures
         
         // Redirect to blocked page with reason
-        const reason = encodeURIComponent(`URL contains blocked keyword: "${keyword}"`);
+        const reason = encodeURIComponent(`URL contains blocked keyword: "${keywordData.keyword}"`);
         return {redirectUrl: `http://127.0.0.1/blocked?reason=${reason}`};
       }
     }

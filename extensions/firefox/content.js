@@ -7,6 +7,9 @@ let contentKeywordRegexes = [];
 // Global cleanup state
 let isCleanedUp = false;
 
+// Content hash tracking to prevent redundant analysis
+let lastContentHash = '';
+
 // Compile content keywords into regex patterns for performance
 function compileContentKeywordRegexes() {
   contentKeywordRegexes = contentKeywords.map(keyword => {
@@ -69,12 +72,6 @@ function cleanup() {
   console.log('Cleaning up glocker extension resources');
   isCleanedUp = true;
   
-  // Clear any pending timeouts
-  if (window.glockerContentAnalysisTimeout) {
-    clearTimeout(window.glockerContentAnalysisTimeout);
-    window.glockerContentAnalysisTimeout = null;
-  }
-  
   // Disconnect and clear observer
   if (window.glockerObserver) {
     window.glockerObserver.disconnect();
@@ -92,16 +89,17 @@ window.addEventListener('beforeunload', cleanup, { once: true });
 window.addEventListener('unload', cleanup, { once: true });
 window.addEventListener('pagehide', cleanup, { once: true });
 
-// Also cleanup on visibility change (when tab becomes hidden)
-document.addEventListener('visibilitychange', function() {
-  if (document.visibilityState === 'hidden') {
-    // Don't fully cleanup on visibility change, just pause expensive operations
-    if (window.glockerContentAnalysisTimeout) {
-      clearTimeout(window.glockerContentAnalysisTimeout);
-      window.glockerContentAnalysisTimeout = null;
-    }
+
+// Generate a simple hash of content for comparison
+function generateContentHash(text) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
   }
-}, { passive: true });
+  return hash.toString();
+}
 
 function analyzeContent() {
   // Skip if already cleaned up
@@ -119,6 +117,15 @@ function analyzeContent() {
   }
   
   const text = document.body ? document.body.textContent.toLowerCase() : '';
+  
+  // Check if content has changed since last analysis
+  const contentHash = generateContentHash(text);
+  if (contentHash === lastContentHash) {
+    console.log('Content unchanged since last analysis, skipping');
+    return;
+  }
+  lastContentHash = contentHash;
+  
   console.log('Analyzing content, text length:', text.length);
   console.log('Current keywords to check:', contentKeywords);
   
@@ -230,15 +237,8 @@ function setupContentMonitoring() {
     
     // Only analyze if there are actual text changes
     if (hasTextChanges(mutations)) {
-      console.log('Text changes detected, scheduling content analysis');
-      // Debounce rapid changes - wait a bit before analyzing
-      clearTimeout(window.glockerContentAnalysisTimeout);
-      window.glockerContentAnalysisTimeout = setTimeout(() => {
-        if (!isCleanedUp) {
-          console.log('Executing delayed content analysis');
-          analyzeContent();
-        }
-      }, 300); // Reduced timeout for better responsiveness
+      console.log('Text changes detected, analyzing immediately');
+      analyzeContent();
     } else {
       console.log('No relevant text changes detected, skipping analysis');
     }

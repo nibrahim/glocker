@@ -5,6 +5,20 @@ let contentKeywords = ['trigger1', 'trigger2']; // fallback defaults
 // Global cleanup state for background script
 let backgroundCleanedUp = false;
 
+// Status tracking
+let glockerConnected = false;
+
+// Update browser action icon based on connection status
+function updateStatusIcon() {
+  const title = glockerConnected ? 'Glocker: Active' : 'Glocker: Disconnected';
+  const badgeText = glockerConnected ? '●' : '○';
+  const badgeColor = glockerConnected ? '#4CAF50' : '#F44336'; // Green for active, red for disconnected
+  
+  browser.browserAction.setTitle({ title: title });
+  browser.browserAction.setBadgeText({ text: badgeText });
+  browser.browserAction.setBadgeBackgroundColor({ color: badgeColor });
+}
+
 // Fetch keywords from glocker server
 async function fetchKeywords() {
   try {
@@ -20,13 +34,22 @@ async function fetchKeywords() {
         console.log('Updated content keywords from server:', contentKeywords);
       }
       
+      // Update connection status
+      glockerConnected = true;
+      updateStatusIcon();
+      
       // Broadcast updated keywords to all content scripts
       broadcastKeywordsToContentScripts();
       
       return data;
+    } else {
+      glockerConnected = false;
+      updateStatusIcon();
     }
   } catch (error) {
     console.log('Failed to fetch keywords from server, using defaults:', error);
+    glockerConnected = false;
+    updateStatusIcon();
   }
   return null;
 }
@@ -59,6 +82,8 @@ function setupSSEConnection() {
   
   eventSource.onopen = function(event) {
     console.log('SSE connection opened');
+    glockerConnected = true;
+    updateStatusIcon();
   };
   
   eventSource.onmessage = function(event) {
@@ -93,6 +118,8 @@ function setupSSEConnection() {
   
   eventSource.onerror = function(event) {
     console.log('SSE connection error:', event);
+    glockerConnected = false;
+    updateStatusIcon();
     // Connection will automatically retry unless cleaned up
     if (backgroundCleanedUp) {
       eventSource.close();
@@ -136,7 +163,9 @@ function cleanupBackground() {
 // Set up cleanup for background script
 browser.runtime.onSuspend.addListener(cleanupBackground);
 
-// Initialize keywords on startup
+// Initialize status icon and keywords on startup
+updateStatusIcon(); // Set initial disconnected state
+
 fetchKeywords().then(() => {
   // Set up centralized SSE connection for real-time updates
   setupSSEConnection();

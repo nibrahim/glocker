@@ -1,10 +1,12 @@
 // Keyword storage - will be populated from server
 let urlKeywords = ['gambling', 'casino', 'porn', 'xxx']; // fallback defaults
 let contentKeywords = ['trigger1', 'trigger2']; // fallback defaults
+let whitelist = ['github.com', 'stackoverflow.com', 'docs.google.com']; // fallback defaults
 
 // Cached compiled regex patterns for performance
 let urlKeywordRegexes = [];
 let contentKeywordRegexes = [];
+let whitelistRegexes = [];
 
 // Global cleanup state for background script
 let backgroundCleanedUp = false;
@@ -33,7 +35,16 @@ function compileKeywordRegexes() {
     };
   });
   
-  console.log('Compiled regex patterns for', urlKeywordRegexes.length, 'URL keywords and', contentKeywordRegexes.length, 'content keywords');
+  // Compile whitelist regexes
+  whitelistRegexes = whitelist.map(pattern => {
+    const escapedPattern = pattern.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return {
+      pattern: pattern,
+      regex: new RegExp(escapedPattern, 'i')
+    };
+  });
+  
+  console.log('Compiled regex patterns for', urlKeywordRegexes.length, 'URL keywords,', contentKeywordRegexes.length, 'content keywords, and', whitelistRegexes.length, 'whitelist patterns');
 }
 
 // Update browser action icon based on connection status and enabled state
@@ -73,6 +84,10 @@ async function fetchKeywords() {
         contentKeywords = data.content_keywords;
         console.log('Updated content keywords from server:', contentKeywords);
       }
+      if (data.whitelist && Array.isArray(data.whitelist)) {
+        whitelist = data.whitelist;
+        console.log('Updated whitelist from server:', whitelist);
+      }
       
       // Recompile regex patterns with new keywords
       compileKeywordRegexes();
@@ -103,7 +118,8 @@ function broadcastKeywordsToContentScripts() {
     tabs.forEach((tab) => {
       browser.tabs.sendMessage(tab.id, {
         type: 'KEYWORDS_UPDATE',
-        contentKeywords: contentKeywords
+        contentKeywords: contentKeywords,
+        whitelist: whitelist
       }).catch(() => {
         // Ignore errors for tabs that don't have content scripts
       });
@@ -147,6 +163,12 @@ function setupSSEConnection() {
       if (data.content_keywords && Array.isArray(data.content_keywords)) {
         contentKeywords = data.content_keywords;
         console.log('Updated content keywords via SSE:', contentKeywords);
+        updated = true;
+      }
+      
+      if (data.whitelist && Array.isArray(data.whitelist)) {
+        whitelist = data.whitelist;
+        console.log('Updated whitelist via SSE:', whitelist);
         updated = true;
       }
       
@@ -201,9 +223,10 @@ browser.browserAction.onClicked.addListener(() => {
 // Handle messages from content scripts
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'GET_KEYWORDS') {
-    // Send current keywords and enabled state to requesting content script
+    // Send current keywords, whitelist, and enabled state to requesting content script
     sendResponse({
       contentKeywords: contentKeywords,
+      whitelist: whitelist,
       enabled: extensionEnabled
     });
   }

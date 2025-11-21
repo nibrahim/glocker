@@ -1,8 +1,10 @@
 // Page content analysis - will be populated from background script
 let contentKeywords = ['trigger1', 'trigger2']; // fallback defaults
+let whitelist = ['github.com', 'stackoverflow.com', 'docs.google.com']; // fallback defaults
 
 // Cached compiled regex patterns for performance
 let contentKeywordRegexes = [];
+let whitelistRegexes = [];
 
 // Global cleanup state
 let isCleanedUp = false;
@@ -23,6 +25,18 @@ function compileContentKeywordRegexes() {
     };
   });
   console.log('Compiled regex patterns for', contentKeywordRegexes.length, 'content keywords');
+}
+
+// Compile whitelist patterns into regex patterns for performance
+function compileWhitelistRegexes() {
+  whitelistRegexes = whitelist.map(pattern => {
+    const escapedPattern = pattern.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return {
+      pattern: pattern,
+      regex: new RegExp(escapedPattern, 'i')
+    };
+  });
+  console.log('Compiled regex patterns for', whitelistRegexes.length, 'whitelist patterns');
 }
 
 // Request keywords from background script
@@ -46,6 +60,15 @@ async function fetchKeywords() {
       } else {
         console.log('No valid content_keywords in response, using defaults');
       }
+      
+      if (response.whitelist && Array.isArray(response.whitelist)) {
+        whitelist = response.whitelist;
+        compileWhitelistRegexes();
+        console.log('Updated whitelist from background:', whitelist);
+      } else {
+        console.log('No valid whitelist in response, using defaults');
+      }
+      
       return response;
     }
   } catch (error) {
@@ -63,6 +86,12 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('Received keyword update from background:', message.contentKeywords);
     contentKeywords = message.contentKeywords;
     compileContentKeywordRegexes();
+    
+    if (message.whitelist && Array.isArray(message.whitelist)) {
+      console.log('Received whitelist update from background:', message.whitelist);
+      whitelist = message.whitelist;
+      compileWhitelistRegexes();
+    }
     
     // Re-analyze current page with new keywords if extension is enabled
     if (document.readyState === 'complete' && !isCleanedUp && extensionEnabled) {
@@ -123,6 +152,20 @@ function generateContentHash(text) {
   return hash.toString();
 }
 
+// Check if current URL is whitelisted
+function isCurrentURLWhitelisted() {
+  const currentURL = window.location.href.toLowerCase();
+  const currentHostname = window.location.hostname.toLowerCase();
+  
+  for (let whitelistData of whitelistRegexes) {
+    if (whitelistData.regex.test(currentURL) || whitelistData.regex.test(currentHostname)) {
+      console.log("Current URL is whitelisted:", currentURL, "matched pattern:", whitelistData.pattern);
+      return true;
+    }
+  }
+  return false;
+}
+
 function analyzeContent() {
   // Skip if already cleaned up, extension disabled, or no keywords
   if (isCleanedUp || !extensionEnabled || !contentKeywords) {
@@ -135,6 +178,12 @@ function analyzeContent() {
   // Skip analyzing localhost/127.0.0.1 pages to prevent redirect loops
   if (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') {
     console.log('Skipping localhost analysis to prevent redirect loops');
+    return;
+  }
+  
+  // Check if current URL is whitelisted - if so, skip all content analysis
+  if (isCurrentURLWhitelisted()) {
+    console.log('Current URL is whitelisted, skipping content analysis');
     return;
   }
   
@@ -285,6 +334,7 @@ console.log("Document ready state:", document.readyState);
 
 // Compile initial regex patterns
 compileContentKeywordRegexes();
+compileWhitelistRegexes();
 
 // Initialize keywords on startup
 fetchKeywords().then((data) => {

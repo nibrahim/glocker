@@ -1,5 +1,6 @@
-// URL keyword blocking - will be populated from server
+// Keyword storage - will be populated from server
 let urlKeywords = ['gambling', 'casino', 'porn', 'xxx']; // fallback defaults
+let contentKeywords = ['trigger1', 'trigger2']; // fallback defaults
 
 // Global cleanup state for background script
 let backgroundCleanedUp = false;
@@ -14,6 +15,14 @@ async function fetchKeywords() {
         urlKeywords = data.url_keywords;
         console.log('Updated URL keywords from server:', urlKeywords);
       }
+      if (data.content_keywords && Array.isArray(data.content_keywords)) {
+        contentKeywords = data.content_keywords;
+        console.log('Updated content keywords from server:', contentKeywords);
+      }
+      
+      // Broadcast updated keywords to all content scripts
+      broadcastKeywordsToContentScripts();
+      
       return data;
     }
   } catch (error) {
@@ -22,9 +31,23 @@ async function fetchKeywords() {
   return null;
 }
 
+// Broadcast keywords to all content scripts
+function broadcastKeywordsToContentScripts() {
+  browser.tabs.query({}, (tabs) => {
+    tabs.forEach((tab) => {
+      browser.tabs.sendMessage(tab.id, {
+        type: 'KEYWORDS_UPDATE',
+        contentKeywords: contentKeywords
+      }).catch(() => {
+        // Ignore errors for tabs that don't have content scripts
+      });
+    });
+  });
+}
+
 // Set up SSE connection for real-time keyword updates
 function setupSSEConnection() {
-  console.log('Setting up SSE connection for keyword updates...');
+  console.log('Setting up centralized SSE connection for keyword updates...');
   
   // Clean up existing connection if any
   if (window.backgroundSSE) {
@@ -45,9 +68,23 @@ function setupSSEConnection() {
     console.log('SSE message received:', event.data);
     try {
       const data = JSON.parse(event.data);
+      let updated = false;
+      
       if (data.url_keywords && Array.isArray(data.url_keywords)) {
         urlKeywords = data.url_keywords;
         console.log('Updated URL keywords via SSE:', urlKeywords);
+        updated = true;
+      }
+      
+      if (data.content_keywords && Array.isArray(data.content_keywords)) {
+        contentKeywords = data.content_keywords;
+        console.log('Updated content keywords via SSE:', contentKeywords);
+        updated = true;
+      }
+      
+      // Broadcast updates to content scripts
+      if (updated) {
+        broadcastKeywordsToContentScripts();
       }
     } catch (error) {
       console.log('Failed to parse SSE message:', error);
@@ -66,6 +103,16 @@ function setupSSEConnection() {
   window.backgroundSSE = eventSource;
 }
 
+// Handle messages from content scripts
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'GET_KEYWORDS') {
+    // Send current keywords to requesting content script
+    sendResponse({
+      contentKeywords: contentKeywords
+    });
+  }
+});
+
 // Background script cleanup function
 function cleanupBackground() {
   if (backgroundCleanedUp) return;
@@ -81,6 +128,7 @@ function cleanupBackground() {
   
   // Clear keyword arrays
   urlKeywords = null;
+  contentKeywords = null;
   
   console.log('Background cleanup completed');
 }
@@ -90,7 +138,7 @@ browser.runtime.onSuspend.addListener(cleanupBackground);
 
 // Initialize keywords on startup
 fetchKeywords().then(() => {
-  // Set up SSE connection for real-time updates
+  // Set up centralized SSE connection for real-time updates
   setupSSEConnection();
 }).catch(() => {
   // Still set up SSE connection even if initial fetch failed

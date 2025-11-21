@@ -1,84 +1,46 @@
-// Page content analysis - will be populated from server
+// Page content analysis - will be populated from background script
 let contentKeywords = ['trigger1', 'trigger2']; // fallback defaults
 
 // Global cleanup state
 let isCleanedUp = false;
 
-// Fetch keywords from glocker server
+// Request keywords from background script
 async function fetchKeywords() {
-  console.log('Fetching keywords from server...');
+  console.log('Requesting keywords from background script...');
   try {
-    const response = await fetch('http://127.0.0.1/keywords');
-    console.log('Keywords fetch response status:', response.status);
+    const response = await browser.runtime.sendMessage({
+      type: 'GET_KEYWORDS'
+    });
     
-    if (response.ok) {
-      const data = await response.json();
-      console.log('Keywords response data:', data);
-      if (data.content_keywords && Array.isArray(data.content_keywords)) {
-        contentKeywords = data.content_keywords;
-        console.log('Updated Content keywords from server:', contentKeywords);
-      } else {
-        console.log('No valid content_keywords in response, using defaults');
-      }
-      return data;
+    if (response && response.contentKeywords && Array.isArray(response.contentKeywords)) {
+      contentKeywords = response.contentKeywords;
+      console.log('Updated content keywords from background:', contentKeywords);
+      return response;
     } else {
-      console.log('Keywords fetch failed with status:', response.status);
+      console.log('No valid content_keywords in response, using defaults');
     }
   } catch (error) {
-    console.log('Keywords fetch error:', error);
+    console.log('Keywords request error:', error);
   }
   return null;
 }
 
-// Set up SSE connection for real-time keyword updates
-function setupSSEConnection() {
-  console.log('Setting up SSE connection for keyword updates...');
-  
-  // Clean up existing connection if any
-  if (window.glockerSSE) {
-    window.glockerSSE.close();
-    window.glockerSSE = null;
-  }
-  
-  const eventSource = new EventSource('http://127.0.0.1/keywords-stream');
-  
-  eventSource.onopen = function(event) {
-    console.log('SSE connection opened');
-  };
-  
-  eventSource.onmessage = function(event) {
+// Listen for keyword updates from background script
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'KEYWORDS_UPDATE') {
     // Skip processing if already cleaned up
     if (isCleanedUp) return;
     
-    console.log('SSE message received:', event.data);
-    try {
-      const data = JSON.parse(event.data);
-      if (data.content_keywords && Array.isArray(data.content_keywords)) {
-        contentKeywords = data.content_keywords;
-        console.log('Updated content keywords via SSE:', contentKeywords);
-        
-        // Re-analyze current page with new keywords
-        if (document.readyState === 'complete' && !isCleanedUp) {
-          console.log('Re-analyzing page content with updated keywords');
-          analyzeContent();
-        }
-      }
-    } catch (error) {
-      console.log('Failed to parse SSE message:', error);
+    console.log('Received keyword update from background:', message.contentKeywords);
+    contentKeywords = message.contentKeywords;
+    
+    // Re-analyze current page with new keywords
+    if (document.readyState === 'complete' && !isCleanedUp) {
+      console.log('Re-analyzing page content with updated keywords');
+      analyzeContent();
     }
-  };
-  
-  eventSource.onerror = function(event) {
-    console.log('SSE connection error:', event);
-    // Connection will automatically retry unless we're cleaned up
-    if (isCleanedUp) {
-      eventSource.close();
-    }
-  };
-  
-  // Store reference for cleanup
-  window.glockerSSE = eventSource;
-}
+  }
+});
 
 // Comprehensive cleanup function
 function cleanup() {
@@ -100,12 +62,6 @@ function cleanup() {
   if (window.glockerObserver) {
     window.glockerObserver.disconnect();
     window.glockerObserver = null;
-  }
-  
-  // Close and clear SSE connection
-  if (window.glockerSSE) {
-    window.glockerSSE.close();
-    window.glockerSSE = null;
   }
   
   // Clear keyword arrays to free memory
@@ -294,9 +250,6 @@ console.log("Document ready state:", document.readyState);
 fetchKeywords().then((data) => {
   console.log('Keywords fetch completed, data:', data);
   
-  // Set up SSE connection for real-time updates
-  setupSSEConnection();
-  
   // Run content analysis after keywords are loaded
   if (document.readyState === 'loading') {
     console.log('Document still loading, waiting for DOMContentLoaded');
@@ -307,9 +260,6 @@ fetchKeywords().then((data) => {
   }
 }).catch((error) => {
   console.log('Keywords fetch failed, using defaults:', error);
-  
-  // Still set up SSE connection even if initial fetch failed
-  setupSSEConnection();
   
   // Still try to analyze with default keywords
   setupContentMonitoring();

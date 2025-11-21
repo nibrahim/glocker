@@ -796,7 +796,7 @@ func installGlocker(config *Config) {
 func runningAsRoot(real bool) bool {
 	var uid int
 	if real {
-		uid = os.Getuid()  // Real user ID - who actually ran the command
+		uid = os.Getuid() // Real user ID - who actually ran the command
 	} else {
 		uid = os.Geteuid() // Effective user ID - current privileges (affected by setuid)
 	}
@@ -3030,7 +3030,6 @@ func restoreSystemChanges(config *Config) {
 	log.Println("✓ System changes restored successfully")
 }
 
-
 func broadcastKeywordUpdate(config *Config) {
 	// Combine content keywords with URL keywords
 	combinedContentKeywords := make([]string, 0, len(config.ExtensionKeywords.ContentKeywords)+len(config.ExtensionKeywords.URLKeywords))
@@ -3350,7 +3349,7 @@ func sendEmail(config *Config, subject, body string) error {
 		body, // Keep plain text as fallback
 		to,
 	)
-	
+
 	// Set HTML content
 	mail.SetHtml(htmlBody)
 
@@ -3372,33 +3371,27 @@ func generateHTMLEmail(subject, plainBody string) string {
 	htmlBody = strings.ReplaceAll(htmlBody, ">", "&gt;")
 	htmlBody = strings.ReplaceAll(htmlBody, "\"", "&quot;")
 	htmlBody = strings.ReplaceAll(htmlBody, "'", "&#39;")
-	
+
 	// Convert line breaks to HTML
 	htmlBody = strings.ReplaceAll(htmlBody, "\n", "<br>")
-	
+
 	// Determine alert type and styling based on subject
-	alertType := "info"
 	alertIcon := "ℹ️"
 	alertColor := "#1976d2"
-	
+
 	if strings.Contains(strings.ToLower(subject), "tamper") {
-		alertType = "danger"
 		alertIcon = "⚠️"
 		alertColor = "#d32f2f"
 	} else if strings.Contains(strings.ToLower(subject), "blocked") || strings.Contains(strings.ToLower(subject), "violation") {
-		alertType = "warning"
 		alertIcon = "🚫"
 		alertColor = "#f57c00"
 	} else if strings.Contains(strings.ToLower(subject), "unblock") {
-		alertType = "info"
 		alertIcon = "🔓"
 		alertColor = "#1976d2"
 	} else if strings.Contains(strings.ToLower(subject), "install") {
-		alertType = "success"
 		alertIcon = "✅"
 		alertColor = "#388e3c"
 	} else if strings.Contains(strings.ToLower(subject), "termination") {
-		alertType = "danger"
 		alertIcon = "🛡️"
 		alertColor = "#d32f2f"
 	}
@@ -3516,17 +3509,17 @@ func generateHTMLEmail(subject, plainBody string) string {
         </div>
     </div>
 </body>
-</html>`, 
-		subject,                                    // title
-		alertColor,                                 // gradient start
-		adjustColorBrightness(alertColor, -20),    // gradient end (darker)
-		adjustColorOpacity(alertColor, 0.1),       // alert box background
-		alertColor,                                 // alert box border
-		alertColor,                                 // pre border
-		alertIcon,                                  // header icon
-		subject,                                    // alert box title
+</html>`,
+		subject,                                  // title
+		alertColor,                               // gradient start
+		adjustColorBrightness(alertColor, -20),   // gradient end (darker)
+		adjustColorOpacity(alertColor, 0.1),      // alert box background
+		alertColor,                               // alert box border
+		alertColor,                               // pre border
+		alertIcon,                                // header icon
+		subject,                                  // alert box title
 		time.Now().Format("2006-01-02 15:04:05"), // timestamp
-		htmlBody,                                   // message content
+		htmlBody,                                 // message content
 	)
 }
 

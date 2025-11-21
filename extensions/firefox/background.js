@@ -277,6 +277,17 @@ browser.storage.local.get(['extensionEnabled']).then((result) => {
   });
 });
 
+// Check if URL is whitelisted
+function isWhitelisted(url) {
+  for (let whitelistData of whitelistRegexes) {
+    if (whitelistData.regex.test(url)) {
+      console.log("URL is whitelisted:", url, "matched pattern:", whitelistData.pattern);
+      return true;
+    }
+  }
+  return false;
+}
+
 browser.webRequest.onBeforeRequest.addListener(
   function(details) {
     // Skip all processing if extension is disabled
@@ -301,6 +312,12 @@ browser.webRequest.onBeforeRequest.addListener(
     } catch (e) {
       // If URL parsing fails, use the original URL
       urlToCheck = url;
+    }
+    
+    // Check if URL is whitelisted - if so, skip all blocking logic
+    if (isWhitelisted(urlToCheck)) {
+      console.log("URL is whitelisted, skipping blocking logic:", urlToCheck);
+      return;
     }
     
     console.log("Checking URL:", urlToCheck, "against", urlKeywordRegexes.length, "patterns");

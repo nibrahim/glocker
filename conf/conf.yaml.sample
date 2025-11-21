@@ -131,6 +131,7 @@ content_monitoring:
 extension_keywords:
   url_keywords: ["gambling", "casino", "porn", "xxx", "bet", "poker"]
   content_keywords: ["trigger1", "trigger2", "inappropriate", "distraction"]
+  whitelist: ["github.com", "stackoverflow.com", "docs.google.com"]
 
 # Violation tracking - execute command when violations exceed threshold
 violation_tracking:

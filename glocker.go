@@ -90,6 +90,7 @@ type ContentMonitoringConfig struct {
 type ExtensionKeywordsConfig struct {
 	URLKeywords     []string `yaml:"url_keywords"`
 	ContentKeywords []string `yaml:"content_keywords"`
+	Whitelist       []string `yaml:"whitelist"`
 }
 
 type ViolationTrackingConfig struct {
@@ -2559,6 +2560,7 @@ func handleKeywordsRequest(config *Config, w http.ResponseWriter, r *http.Reques
 	response := map[string]interface{}{
 		"url_keywords":     config.ExtensionKeywords.URLKeywords,
 		"content_keywords": combinedContentKeywords,
+		"whitelist":        config.ExtensionKeywords.Whitelist,
 	}
 
 	// Encode and send response
@@ -2829,6 +2831,7 @@ func handleSSERequest(config *Config, w http.ResponseWriter, r *http.Request) {
 	initialKeywords := map[string]interface{}{
 		"url_keywords":     config.ExtensionKeywords.URLKeywords,
 		"content_keywords": combinedContentKeywords,
+		"whitelist":        config.ExtensionKeywords.Whitelist,
 	}
 	if keywordsJSON, err := json.Marshal(initialKeywords); err == nil {
 		fmt.Fprintf(w, "data: %s\n\n", keywordsJSON)
@@ -3039,6 +3042,7 @@ func broadcastKeywordUpdate(config *Config) {
 	keywords := map[string]interface{}{
 		"url_keywords":     config.ExtensionKeywords.URLKeywords,
 		"content_keywords": combinedContentKeywords,
+		"whitelist":        config.ExtensionKeywords.Whitelist,
 	}
 
 	keywordsJSON, err := json.Marshal(keywords)

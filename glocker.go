@@ -801,7 +801,6 @@ func runningAsRoot(real bool) bool {
 	} else {
 		uid = os.Geteuid() // Effective user ID - current privileges (affected by setuid)
 	}
-	fmt.Println(uid)
 	return uid == 0
 }
 

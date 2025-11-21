@@ -10,6 +10,9 @@ let isCleanedUp = false;
 // Content hash tracking to prevent redundant analysis
 let lastContentHash = '';
 
+// Extension enabled state
+let extensionEnabled = true;
+
 // Compile content keywords into regex patterns for performance
 function compileContentKeywordRegexes() {
   contentKeywordRegexes = contentKeywords.map(keyword => {
@@ -30,13 +33,20 @@ async function fetchKeywords() {
       type: 'GET_KEYWORDS'
     });
     
-    if (response && response.contentKeywords && Array.isArray(response.contentKeywords)) {
-      contentKeywords = response.contentKeywords;
-      compileContentKeywordRegexes();
-      console.log('Updated content keywords from background:', contentKeywords);
+    if (response) {
+      if (response.enabled !== undefined) {
+        extensionEnabled = response.enabled;
+        console.log('Extension enabled state:', extensionEnabled);
+      }
+      
+      if (response.contentKeywords && Array.isArray(response.contentKeywords)) {
+        contentKeywords = response.contentKeywords;
+        compileContentKeywordRegexes();
+        console.log('Updated content keywords from background:', contentKeywords);
+      } else {
+        console.log('No valid content_keywords in response, using defaults');
+      }
       return response;
-    } else {
-      console.log('No valid content_keywords in response, using defaults');
     }
   } catch (error) {
     console.log('Keywords request error:', error);
@@ -44,7 +54,7 @@ async function fetchKeywords() {
   return null;
 }
 
-// Listen for keyword updates from background script
+// Listen for keyword updates and state changes from background script
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'KEYWORDS_UPDATE') {
     // Skip processing if already cleaned up
@@ -54,9 +64,21 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     contentKeywords = message.contentKeywords;
     compileContentKeywordRegexes();
     
-    // Re-analyze current page with new keywords
-    if (document.readyState === 'complete' && !isCleanedUp) {
+    // Re-analyze current page with new keywords if extension is enabled
+    if (document.readyState === 'complete' && !isCleanedUp && extensionEnabled) {
       console.log('Re-analyzing page content with updated keywords');
+      analyzeContent();
+    }
+  } else if (message.type === 'EXTENSION_STATE_CHANGE') {
+    // Skip processing if already cleaned up
+    if (isCleanedUp) return;
+    
+    console.log('Extension state changed:', message.enabled ? 'enabled' : 'disabled');
+    extensionEnabled = message.enabled;
+    
+    // If extension was just enabled and page is loaded, analyze content
+    if (extensionEnabled && document.readyState === 'complete' && !isCleanedUp) {
+      console.log('Extension re-enabled, analyzing current page');
       analyzeContent();
     }
   }
@@ -102,9 +124,9 @@ function generateContentHash(text) {
 }
 
 function analyzeContent() {
-  // Skip if already cleaned up
-  if (isCleanedUp || !contentKeywords) {
-    console.log('Skipping analysis - cleaned up or no keywords');
+  // Skip if already cleaned up, extension disabled, or no keywords
+  if (isCleanedUp || !extensionEnabled || !contentKeywords) {
+    console.log('Skipping analysis - cleaned up, disabled, or no keywords');
     return;
   }
   
@@ -211,9 +233,9 @@ function hasTextChanges(mutations) {
 
 // Set up MutationObserver to watch for dynamically loaded content
 function setupContentMonitoring() {
-  // Skip if already cleaned up
-  if (isCleanedUp) {
-    console.log('Skipping content monitoring setup - already cleaned up');
+  // Skip if already cleaned up or extension disabled
+  if (isCleanedUp || !extensionEnabled) {
+    console.log('Skipping content monitoring setup - cleaned up or disabled');
     return;
   }
   
@@ -230,8 +252,8 @@ function setupContentMonitoring() {
   
   // Watch for text content changes
   const observer = new MutationObserver((mutations) => {
-    // Skip if cleaned up
-    if (isCleanedUp) return;
+    // Skip if cleaned up or extension disabled
+    if (isCleanedUp || !extensionEnabled) return;
     
     console.log('MutationObserver triggered, mutations count:', mutations.length);
     

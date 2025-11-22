@@ -45,16 +45,16 @@ let extensionEnabled = true; // Extension enabled/disabled state
 
 // Compile keywords into regex patterns for performance
 function compileKeywordRegexes() {
-  // Compile URL keyword regexes
+  // Compile URL keyword regexes - less restrictive, no word boundaries
   urlKeywordRegexes = urlKeywords.map(keyword => {
     const escapedKeyword = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return {
       keyword: keyword,
-      regex: new RegExp('\\b' + escapedKeyword + '\\b', 'i')
+      regex: new RegExp(escapedKeyword, 'i')
     };
   });
   
-  // Compile content keyword regexes
+  // Compile content keyword regexes - keep word boundaries for content
   contentKeywordRegexes = contentKeywords.map(keyword => {
     const escapedKeyword = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return {
@@ -376,17 +376,8 @@ browser.webRequest.onBeforeRequest.addListener(
       return;
     }
     
-    // Extract just the domain and path, excluding query parameters for URL keyword matching
-    // This prevents blocking search engines when users search for blocked terms
+    // Use the full URL including query parameters for keyword matching
     let urlToCheck = url;
-    try {
-      const urlObj = new URL(url);
-      // Only check domain and path, not query parameters
-      urlToCheck = (urlObj.hostname + urlObj.pathname).toLowerCase();
-    } catch (e) {
-      // If URL parsing fails, use the original URL
-      urlToCheck = url;
-    }
     
     // Check cache first to avoid redundant processing
     const cachedResult = getCachedResult(urlToCheck);

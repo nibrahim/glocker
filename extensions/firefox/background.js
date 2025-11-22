@@ -1,3 +1,31 @@
+// Performance optimization configuration
+const PERFORMANCE_CONFIG = {
+  // File extensions to skip (resources that don't need keyword checking)
+  SKIP_FILE_EXTENSIONS: [
+    'jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff',
+    'css', 'js', 'woff', 'woff2', 'ttf', 'eot', 'otf',
+    'mp4', 'mp3', 'wav', 'avi', 'mov', 'wmv', 'flv',
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar'
+  ],
+  
+  // URL patterns to skip (API endpoints, tracking, etc.)
+  SKIP_URL_PATTERNS: [
+    '/api/', '/log', '/beacon', '/collect', '/track', '/analytics',
+    '/metrics', '/telemetry', '/ping', '/health', '/status',
+    '/voyager/api/', '/sensorcollect/', '/webchannel/', '/rgstr',
+    '/traces', '/sentry', '/bootstrap/', '/usage'
+  ],
+  
+  // Request types to check (only main pages and frames)
+  ALLOWED_REQUEST_TYPES: ['main_frame', 'sub_frame'],
+  
+  // Cache size for URL check results
+  URL_CACHE_SIZE: 1000
+};
+
+// URL check result cache to prevent redundant processing
+const urlCheckCache = new Map();
+
 // Keyword storage - will be populated from server
 let urlKeywords = ['gambling', 'casino', 'porn', 'xxx']; // fallback defaults
 let contentKeywords = ['trigger1', 'trigger2']; // fallback defaults
@@ -249,6 +277,9 @@ function cleanupBackground() {
   urlKeywords = null;
   contentKeywords = null;
   
+  // Clear URL cache
+  urlCheckCache.clear();
+  
   console.log('Background cleanup completed');
 }
 
@@ -277,6 +308,29 @@ browser.storage.local.get(['extensionEnabled']).then((result) => {
   });
 });
 
+// Check if URL should be skipped for performance reasons
+function shouldSkipURL(url, requestType) {
+  // Only check main frames and sub-frames (actual web pages)
+  if (!PERFORMANCE_CONFIG.ALLOWED_REQUEST_TYPES.includes(requestType)) {
+    return true;
+  }
+  
+  // Skip file extensions that don't need keyword checking
+  const fileExtensionRegex = new RegExp(`\\.(${PERFORMANCE_CONFIG.SKIP_FILE_EXTENSIONS.join('|')})(\\?|$)`, 'i');
+  if (fileExtensionRegex.test(url)) {
+    return true;
+  }
+  
+  // Skip URL patterns (API endpoints, tracking, etc.)
+  for (const pattern of PERFORMANCE_CONFIG.SKIP_URL_PATTERNS) {
+    if (url.includes(pattern)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 // Check if URL is whitelisted
 function isWhitelisted(url) {
   for (let whitelistData of whitelistRegexes) {
@@ -286,6 +340,21 @@ function isWhitelisted(url) {
     }
   }
   return false;
+}
+
+// Manage URL check cache
+function getCachedResult(url) {
+  return urlCheckCache.get(url);
+}
+
+function setCachedResult(url, result) {
+  // Limit cache size to prevent memory issues
+  if (urlCheckCache.size >= PERFORMANCE_CONFIG.URL_CACHE_SIZE) {
+    // Remove oldest entry
+    const firstKey = urlCheckCache.keys().next().value;
+    urlCheckCache.delete(firstKey);
+  }
+  urlCheckCache.set(url, result);
 }
 
 browser.webRequest.onBeforeRequest.addListener(
@@ -302,6 +371,11 @@ browser.webRequest.onBeforeRequest.addListener(
       return;
     }
     
+    // Performance optimization: Skip non-webpage resources and API calls
+    if (shouldSkipURL(url, details.type)) {
+      return;
+    }
+    
     // Extract just the domain and path, excluding query parameters for URL keyword matching
     // This prevents blocking search engines when users search for blocked terms
     let urlToCheck = url;
@@ -314,9 +388,21 @@ browser.webRequest.onBeforeRequest.addListener(
       urlToCheck = url;
     }
     
+    // Check cache first to avoid redundant processing
+    const cachedResult = getCachedResult(urlToCheck);
+    if (cachedResult !== undefined) {
+      if (cachedResult.blocked) {
+        console.log("URL blocked (cached):", urlToCheck, "keyword:", cachedResult.keyword);
+        const reason = encodeURIComponent(`URL contains blocked keyword: "${cachedResult.keyword}"`);
+        return {redirectUrl: `http://127.0.0.1/blocked?reason=${reason}`};
+      }
+      return; // URL was checked before and not blocked
+    }
+    
     // Check if URL is whitelisted - if so, skip all blocking logic
     if (isWhitelisted(urlToCheck)) {
       console.log("URL is whitelisted, skipping blocking logic:", urlToCheck);
+      setCachedResult(urlToCheck, { blocked: false });
       return;
     }
     
@@ -325,6 +411,10 @@ browser.webRequest.onBeforeRequest.addListener(
     for (let keywordData of urlKeywordRegexes) {
       if (keywordData.regex.test(urlToCheck)) {
         console.log("Found ", keywordData.keyword, " in ", urlToCheck);
+        
+        // Cache the blocked result
+        setCachedResult(urlToCheck, { blocked: true, keyword: keywordData.keyword });
+        
         // Report to glocker
         fetch('http://127.0.0.1/report', {
           method: 'POST',
@@ -341,6 +431,9 @@ browser.webRequest.onBeforeRequest.addListener(
         return {redirectUrl: `http://127.0.0.1/blocked?reason=${reason}`};
       }
     }
+    
+    // Cache the non-blocked result
+    setCachedResult(urlToCheck, { blocked: false });
   },
   {urls: ["<all_urls>"]},
   ["blocking"]

@@ -2638,8 +2638,8 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
 			}
 		}
 
-		// Redirect to blocked page with domain information
-		blockedURL := fmt.Sprintf("/blocked?domain=%s&matched=%s", host, matchedDomain)
+		// Redirect to localhost blocked page to avoid double violation
+		blockedURL := fmt.Sprintf("http://127.0.0.1/blocked?domain=%s&matched=%s&url=%s", host, matchedDomain, r.URL.String())
 		http.Redirect(w, r, blockedURL, http.StatusFound)
 	} else {
 		// Not a blocked domain, return a simple response
@@ -3492,6 +3492,7 @@ func handleBlockedPageRequest(w http.ResponseWriter, r *http.Request) {
 	// Get parameters from the query string
 	domain := r.URL.Query().Get("domain")
 	matchedDomain := r.URL.Query().Get("matched")
+	originalURL := r.URL.Query().Get("url")
 	reason := r.URL.Query().Get("reason")
 
 	// Set defaults if parameters are missing
@@ -3508,6 +3509,12 @@ func handleBlockedPageRequest(w http.ResponseWriter, r *http.Request) {
 	// Set content type
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
+
+	// Add original URL info if provided
+	originalURLInfo := ""
+	if originalURL != "" {
+		originalURLInfo = fmt.Sprintf(`<p class="matched">Original URL: %s</p>`, originalURL)
+	}
 
 	// Generate the blocked page HTML
 	blockedPage := fmt.Sprintf(`
@@ -3577,11 +3584,12 @@ func handleBlockedPageRequest(w http.ResponseWriter, r *http.Request) {
         <h1>🚫 Site Blocked</h1>
         <p>Access to <span class="domain">%s</span> has been blocked by Glocker.</p>
         <p class="matched">Matched blocking rule: %s</p>
+        %s
         <p>This site is currently in your blocked domains list.</p>
         <p class="time">Blocked at: %s</p>
     </div>
 </body>
-</html>`, domain, matchedDomain, time.Now().Format("2006-01-02 15:04:05"))
+</html>`, domain, matchedDomain, originalURLInfo, time.Now().Format("2006-01-02 15:04:05"))
 
 	w.Write([]byte(blockedPage))
 }

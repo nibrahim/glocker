@@ -2516,7 +2516,7 @@ func startWebTrackingServer(config *Config) {
 }
 
 func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Request) {
-	// Skip blocking logic if this is a request to the blocked page itself
+	// Check for blocked page first, before any other processing
 	if r.URL.Path == "/blocked" {
 		handleBlockedPageRequest(w, r)
 		return

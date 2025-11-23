@@ -1352,27 +1352,48 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 	hostsPath := config.HostsPath
 	slog.Debug("Starting hosts file update", "hosts_path", hostsPath, "domains_count", len(domains), "dry_run", dryRun)
 
+	// Log the domains being processed
+	if len(domains) > 0 {
+		slog.Debug("Domains to block", "domains", domains)
+	} else {
+		slog.Debug("No domains to block - will clear existing blocks")
+	}
+
+	// Check if hosts file exists and get current permissions
+	fileInfo, err := os.Stat(hostsPath)
+	if err != nil && !os.IsNotExist(err) {
+		slog.Debug("Failed to stat hosts file", "error", err)
+		return fmt.Errorf("checking hosts file: %w", err)
+	}
+	if fileInfo != nil {
+		slog.Debug("Hosts file info", "size", fileInfo.Size(), "mode", fileInfo.Mode(), "mod_time", fileInfo.ModTime())
+	}
+
 	// Read current hosts file
 	content, err := os.ReadFile(hostsPath)
 	if err != nil && !os.IsNotExist(err) {
+		slog.Debug("Failed to read hosts file", "error", err)
 		return fmt.Errorf("reading hosts file: %w", err)
 	}
-	slog.Debug("Read hosts file", "size_bytes", len(content))
+	slog.Debug("Read hosts file", "size_bytes", len(content), "exists", err == nil)
 
 	lines := strings.Split(string(content), "\n")
 	var newLines []string
 	inBlockSection := false
 	removedLines := 0
+	originalLineCount := len(lines)
+
+	slog.Debug("Processing hosts file content", "original_lines", originalLineCount)
 
 	// Remove old block section
-	for _, line := range lines {
+	for i, line := range lines {
 		if strings.Contains(line, HOSTS_MARKER_START) {
-			slog.Debug("Found glocker block start marker")
+			slog.Debug("Found glocker block start marker", "line_number", i+1, "line_content", line)
 			inBlockSection = true
 			continue
 		}
 		if strings.Contains(line, HOSTS_MARKER_END) {
-			slog.Debug("Found glocker block end marker")
+			slog.Debug("Found glocker block end marker", "line_number", i+1, "line_content", line)
 			inBlockSection = false
 			continue
 		}
@@ -1380,13 +1401,16 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 			newLines = append(newLines, line)
 		} else {
 			removedLines++
+			slog.Debug("Removing line from old glocker block", "line_number", i+1, "line_content", line)
 		}
 	}
-	slog.Debug("Removed old glocker block", "removed_lines", removedLines)
+	slog.Debug("Removed old glocker block", "removed_lines", removedLines, "remaining_lines", len(newLines))
 
 	// Add new block section
 	blockSection := []string{HOSTS_MARKER_START}
-	for _, domain := range domains {
+	slog.Debug("Creating new glocker block section", "marker_start", HOSTS_MARKER_START)
+	
+	for i, domain := range domains {
 		entries := []string{
 			fmt.Sprintf("127.0.0.1 %s", domain),
 			fmt.Sprintf("127.0.0.1 www.%s", domain),
@@ -1394,17 +1418,18 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 			fmt.Sprintf("::1 www.%s", domain),
 		}
 		blockSection = append(blockSection, entries...)
+		slog.Debug("Added domain entries to block section", "domain_index", i, "domain", domain, "entries", entries)
 
 		// Only log if this domain has logging enabled
 		for _, configDomain := range config.Domains {
 			if configDomain.Name == domain && configDomain.LogBlocking {
-				slog.Debug("Added domain to block section", "domain", domain, "entries", len(entries))
+				slog.Debug("Domain has detailed logging enabled", "domain", domain)
 				break
 			}
 		}
 	}
 	blockSection = append(blockSection, HOSTS_MARKER_END)
-	slog.Debug("Created new glocker block", "total_lines", len(blockSection))
+	slog.Debug("Created new glocker block", "total_lines", len(blockSection), "marker_end", HOSTS_MARKER_END)
 
 	// Reconstruct file content preserving original structure
 	var newContent string
@@ -1430,25 +1455,44 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 	}
 
 	if dryRun {
-		slog.Debug("Dry run mode - would write hosts file", "new_size_bytes", len(newContent))
+		slog.Debug("Dry run mode - would write hosts file", "new_size_bytes", len(newContent), "would_write_to", hostsPath)
+		slog.Debug("Dry run - new content preview", "first_100_chars", newContent[:min(100, len(newContent))])
 		return nil
 	}
 
 	// Remove immutable flag temporarily
-	slog.Debug("Removing immutable flag from hosts file")
-	exec.Command("chattr", "-i", hostsPath).Run()
+	slog.Debug("Removing immutable flag from hosts file", "command", "chattr -i "+hostsPath)
+	if err := exec.Command("chattr", "-i", hostsPath).Run(); err != nil {
+		slog.Debug("Failed to remove immutable flag (may not be set)", "error", err)
+	} else {
+		slog.Debug("Successfully removed immutable flag")
+	}
 
 	// Write file
-	slog.Debug("Writing updated hosts file", "size_bytes", len(newContent))
+	slog.Debug("Writing updated hosts file", "size_bytes", len(newContent), "path", hostsPath)
 	if err := os.WriteFile(hostsPath, []byte(newContent), 0644); err != nil {
+		slog.Debug("Failed to write hosts file", "error", err, "path", hostsPath)
 		return fmt.Errorf("writing hosts file: %w", err)
+	}
+	slog.Debug("Successfully wrote hosts file")
+
+	// Verify the write was successful
+	if verifyContent, err := os.ReadFile(hostsPath); err != nil {
+		slog.Debug("Failed to verify hosts file write", "error", err)
+	} else {
+		slog.Debug("Verified hosts file write", "written_size", len(verifyContent), "expected_size", len(newContent), "matches", len(verifyContent) == len(newContent))
 	}
 
 	// Set immutable flag
-	slog.Debug("Setting immutable flag on hosts file")
-	exec.Command("chattr", "+i", hostsPath).Run()
+	slog.Debug("Setting immutable flag on hosts file", "command", "chattr +i "+hostsPath)
+	if err := exec.Command("chattr", "+i", hostsPath).Run(); err != nil {
+		slog.Debug("Failed to set immutable flag", "error", err)
+	} else {
+		slog.Debug("Successfully set immutable flag")
+	}
 
 	// Update checksum after legitimate change
+	slog.Debug("Updating checksum for hosts file")
 	updateChecksum(hostsPath)
 	slog.Debug("Hosts file update completed successfully")
 
@@ -1671,6 +1715,13 @@ func isInTimeWindow(current, start, end string) bool {
 }
 
 // Additional security: make this process harder to kill
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func init() {
 	// Set process priority to make it less likely to be killed by OOM
 	syscall.Setpriority(syscall.PRIO_PROCESS, 0, -10)

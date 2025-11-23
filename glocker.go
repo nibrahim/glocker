@@ -29,7 +29,6 @@ const (
 	INSTALL_PATH        = "/usr/local/bin/glocker"
 	GLOCKER_CONFIG_FILE = "/etc/glocker/config.yaml"
 	HOSTS_MARKER_START  = "### GLOCKER START ###"
-	HOSTS_MARKER_END    = "### GLOCKER END ###"
 	SUDOERS_PATH        = "/etc/sudoers"
 	SUDOERS_BACKUP      = "/etc/sudoers.glocker.backup"
 	SUDOERS_MARKER      = "# GLOCKER-MANAGED"
@@ -1003,21 +1002,14 @@ func cleanupHostsFile(config *Config) error {
 
 	lines := strings.Split(string(content), "\n")
 	var newLines []string
-	inBlockSection := false
 
-	// Remove glocker block section
+	// Remove everything after glocker start marker
 	for _, line := range lines {
 		if strings.Contains(line, HOSTS_MARKER_START) {
-			inBlockSection = true
-			continue
+			// Stop processing once we hit the start marker
+			break
 		}
-		if strings.Contains(line, HOSTS_MARKER_END) {
-			inBlockSection = false
-			continue
-		}
-		if !inBlockSection {
-			newLines = append(newLines, line)
-		}
+		newLines = append(newLines, line)
 	}
 
 	// Write cleaned content
@@ -1381,88 +1373,31 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 	slog.Debug("Read hosts file", "size_bytes", len(content), "exists", err == nil)
 
 	lines := strings.Split(string(content), "\n")
-	var newLines []string
+	var originalLines []string
 	inBlockSection := false
 	removedLines := 0
 	originalLineCount := len(lines)
 
 	slog.Debug("Processing hosts file content", "original_lines", originalLineCount)
 
-	// Remove old block section
+	// Remove old glocker block section (everything after start marker)
 	for i, line := range lines {
 		if strings.Contains(line, HOSTS_MARKER_START) {
 			slog.Debug("Found glocker block start marker", "line_number", i+1)
 			inBlockSection = true
-			continue
+			// Don't include the start marker line or anything after it
+			break
 		}
-		if strings.Contains(line, HOSTS_MARKER_END) {
-			slog.Debug("Found glocker block end marker", "line_number", i+1)
-			inBlockSection = false
-			continue
-		}
-		if !inBlockSection {
-			newLines = append(newLines, line)
-		} else {
-			removedLines++
-		}
-	}
-	slog.Debug("Removed old glocker block", "removed_lines", removedLines, "remaining_lines", len(newLines))
-
-	// Add new block section
-	blockSection := []string{HOSTS_MARKER_START}
-	slog.Debug("Creating new glocker block section", "marker_start", HOSTS_MARKER_START)
-
-	for i, domain := range domains {
-		entries := []string{
-			fmt.Sprintf("127.0.0.1 %s", domain),
-			fmt.Sprintf("127.0.0.1 www.%s", domain),
-			fmt.Sprintf("::1 %s", domain),
-			fmt.Sprintf("::1 www.%s", domain),
-		}
-		blockSection = append(blockSection, entries...)
-
-		// Log progress every 100 domains to show activity without spam
-		if (i+1)%100 == 0 || i == len(domains)-1 {
-			slog.Debug("Added domain entries to block section", "processed", i+1, "total", len(domains), "latest_domain", domain)
-		}
-
-		// Only log if this domain has logging enabled
-		for _, configDomain := range config.Domains {
-			if configDomain.Name == domain && configDomain.LogBlocking {
-				slog.Debug("Domain has detailed logging enabled", "domain", domain)
-				break
-			}
-		}
-	}
-	blockSection = append(blockSection, HOSTS_MARKER_END)
-	slog.Debug("Created new glocker block", "total_lines", len(blockSection), "marker_end", HOSTS_MARKER_END)
-
-	// Reconstruct file content preserving original structure
-	var newContent string
-
-	// Join original content (excluding our block section)
-	if len(newLines) > 0 {
-		// Remove any trailing empty lines from original content
-		for len(newLines) > 0 && strings.TrimSpace(newLines[len(newLines)-1]) == "" {
-			newLines = newLines[:len(newLines)-1]
-		}
-		newContent = strings.Join(newLines, "\n")
-		if newContent != "" {
-			newContent += "\n"
-		}
+		originalLines = append(originalLines, line)
 	}
 
-	// Add our block section
-	if len(blockSection) > 0 {
-		if newContent != "" {
-			newContent += "\n" // Empty line before our block
-		}
-		newContent += strings.Join(blockSection, "\n") + "\n"
+	if inBlockSection {
+		removedLines = originalLineCount - len(originalLines)
+		slog.Debug("Removed old glocker block", "removed_lines", removedLines, "remaining_lines", len(originalLines))
 	}
 
 	if dryRun {
-		slog.Debug("Dry run mode - would write hosts file", "new_size_bytes", len(newContent), "would_write_to", hostsPath)
-		slog.Debug("Dry run - new content preview", "first_100_chars", newContent[:min(100, len(newContent))])
+		slog.Debug("Dry run mode - would write hosts file with chunked approach", "original_lines", len(originalLines), "domains_to_add", len(domains))
 		return nil
 	}
 
@@ -1474,60 +1409,97 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 		slog.Debug("Successfully removed immutable flag")
 	}
 
-	// Write file with progress tracking
-	slog.Debug("Writing updated hosts file", "size_bytes", len(newContent), "path", hostsPath)
+	// Open file for writing
+	file, err := os.OpenFile(hostsPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		slog.Debug("Failed to open hosts file for writing", "error", err, "path", hostsPath)
+		return fmt.Errorf("opening hosts file for writing: %w", err)
+	}
+	defer file.Close()
 
-	// For large files, write in chunks and show progress
-	contentBytes := []byte(newContent)
-	if len(contentBytes) > 50000 { // If file is larger than ~50KB
-		slog.Debug("Large hosts file detected, writing with progress tracking")
+	slog.Debug("Writing hosts file in chunks", "path", hostsPath)
 
-		file, err := os.OpenFile(hostsPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-		if err != nil {
-			slog.Debug("Failed to open hosts file for writing", "error", err, "path", hostsPath)
-			return fmt.Errorf("opening hosts file for writing: %w", err)
+	// Write original content first
+	if len(originalLines) > 0 {
+		// Remove any trailing empty lines from original content
+		for len(originalLines) > 0 && strings.TrimSpace(originalLines[len(originalLines)-1]) == "" {
+			originalLines = originalLines[:len(originalLines)-1]
 		}
-		defer file.Close()
-
-		chunkSize := 8192 // 8KB chunks
-		totalChunks := (len(contentBytes) + chunkSize - 1) / chunkSize
-
-		for i := 0; i < len(contentBytes); i += chunkSize {
-			end := i + chunkSize
-			if end > len(contentBytes) {
-				end = len(contentBytes)
-			}
-
-			if _, err := file.Write(contentBytes[i:end]); err != nil {
-				slog.Debug("Failed to write chunk to hosts file", "error", err, "chunk", i/chunkSize+1)
-				return fmt.Errorf("writing chunk to hosts file: %w", err)
-			}
-
-			// Flush and log progress every 500KB or so
-			currentChunk := i/chunkSize + 1
-			if currentChunk%64 == 0 || currentChunk == totalChunks {
-				file.Sync() // Force write to disk
-				slog.Debug("Hosts file write progress", "chunks_written", currentChunk, "total_chunks", totalChunks, "bytes_written", end, "total_bytes", len(contentBytes))
-			}
+		
+		originalContent := strings.Join(originalLines, "\n")
+		if originalContent != "" {
+			originalContent += "\n"
 		}
-
-		file.Sync() // Final flush
-		slog.Debug("Successfully wrote large hosts file in chunks")
-	} else {
-		// Small file, write normally
-		if err := os.WriteFile(hostsPath, contentBytes, 0644); err != nil {
-			slog.Debug("Failed to write hosts file", "error", err, "path", hostsPath)
-			return fmt.Errorf("writing hosts file: %w", err)
+		
+		if _, err := file.WriteString(originalContent); err != nil {
+			slog.Debug("Failed to write original content", "error", err)
+			return fmt.Errorf("writing original content: %w", err)
 		}
-		slog.Debug("Successfully wrote hosts file")
+		slog.Debug("Wrote original hosts content", "lines", len(originalLines))
 	}
 
-	// Verify the write was successful
-	if verifyContent, err := os.ReadFile(hostsPath); err != nil {
-		slog.Debug("Failed to verify hosts file write", "error", err)
-	} else {
-		slog.Debug("Verified hosts file write", "written_size", len(verifyContent), "expected_size", len(newContent), "matches", len(verifyContent) == len(newContent))
+	// Add empty line and start marker
+	if _, err := file.WriteString("\n" + HOSTS_MARKER_START + "\n"); err != nil {
+		slog.Debug("Failed to write start marker", "error", err)
+		return fmt.Errorf("writing start marker: %w", err)
 	}
+	slog.Debug("Wrote glocker start marker")
+
+	// Write domains in chunks
+	const chunkSize = 1000
+	totalDomains := len(domains)
+	chunksWritten := 0
+
+	for i := 0; i < totalDomains; i += chunkSize {
+		end := i + chunkSize
+		if end > totalDomains {
+			end = totalDomains
+		}
+
+		// Build chunk content
+		var chunkBuilder strings.Builder
+		for j := i; j < end; j++ {
+			domain := domains[j]
+			chunkBuilder.WriteString(fmt.Sprintf("127.0.0.1 %s\n", domain))
+			chunkBuilder.WriteString(fmt.Sprintf("127.0.0.1 www.%s\n", domain))
+			chunkBuilder.WriteString(fmt.Sprintf("::1 %s\n", domain))
+			chunkBuilder.WriteString(fmt.Sprintf("::1 www.%s\n", domain))
+		}
+
+		// Write chunk to file
+		if _, err := file.WriteString(chunkBuilder.String()); err != nil {
+			slog.Debug("Failed to write domain chunk", "error", err, "chunk", chunksWritten+1)
+			return fmt.Errorf("writing domain chunk %d: %w", chunksWritten+1, err)
+		}
+
+		chunksWritten++
+
+		// Flush and log progress every 1000 chunks or at the end
+		if chunksWritten%1000 == 0 || end == totalDomains {
+			if err := file.Sync(); err != nil {
+				slog.Debug("Failed to sync file", "error", err)
+			}
+			
+			domainsProcessed := end
+			log.Printf("Hosts file progress: %d/%d domains written (%d chunks, %.1f%%)", 
+				domainsProcessed, totalDomains, chunksWritten, 
+				float64(domainsProcessed)/float64(totalDomains)*100)
+			
+			slog.Debug("Hosts file chunk progress", 
+				"chunks_written", chunksWritten, 
+				"domains_processed", domainsProcessed, 
+				"total_domains", totalDomains,
+				"latest_domain", domains[end-1])
+		}
+	}
+
+	// Final sync
+	if err := file.Sync(); err != nil {
+		slog.Debug("Failed to final sync file", "error", err)
+	}
+
+	slog.Debug("Successfully wrote hosts file in chunks", "total_chunks", chunksWritten, "total_domains", totalDomains)
+	log.Printf("Hosts file update completed: %d domains written in %d chunks", totalDomains, chunksWritten)
 
 	// Set immutable flag
 	slog.Debug("Setting immutable flag on hosts file", "command", "chattr +i "+hostsPath)
@@ -2070,11 +2042,6 @@ func extractGlockerSection(content string) string {
 		if strings.Contains(line, HOSTS_MARKER_START) {
 			inGlockerSection = true
 			glockerLines = append(glockerLines, line)
-			continue
-		}
-		if strings.Contains(line, HOSTS_MARKER_END) {
-			glockerLines = append(glockerLines, line)
-			inGlockerSection = false
 			continue
 		}
 		if inGlockerSection {

@@ -1388,12 +1388,12 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 	// Remove old block section
 	for i, line := range lines {
 		if strings.Contains(line, HOSTS_MARKER_START) {
-			slog.Debug("Found glocker block start marker", "line_number", i+1, "line_content", line)
+			slog.Debug("Found glocker block start marker", "line_number", i+1)
 			inBlockSection = true
 			continue
 		}
 		if strings.Contains(line, HOSTS_MARKER_END) {
-			slog.Debug("Found glocker block end marker", "line_number", i+1, "line_content", line)
+			slog.Debug("Found glocker block end marker", "line_number", i+1)
 			inBlockSection = false
 			continue
 		}
@@ -1401,7 +1401,6 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 			newLines = append(newLines, line)
 		} else {
 			removedLines++
-			slog.Debug("Removing line from old glocker block", "line_number", i+1, "line_content", line)
 		}
 	}
 	slog.Debug("Removed old glocker block", "removed_lines", removedLines, "remaining_lines", len(newLines))
@@ -1418,7 +1417,11 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 			fmt.Sprintf("::1 www.%s", domain),
 		}
 		blockSection = append(blockSection, entries...)
-		slog.Debug("Added domain entries to block section", "domain_index", i, "domain", domain, "entries", entries)
+
+		// Log progress every 100 domains to show activity without spam
+		if (i+1)%100 == 0 || i == len(domains)-1 {
+			slog.Debug("Added domain entries to block section", "processed", i+1, "total", len(domains), "latest_domain", domain)
+		}
 
 		// Only log if this domain has logging enabled
 		for _, configDomain := range config.Domains {
@@ -1468,13 +1471,53 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 		slog.Debug("Successfully removed immutable flag")
 	}
 
-	// Write file
+	// Write file with progress tracking
 	slog.Debug("Writing updated hosts file", "size_bytes", len(newContent), "path", hostsPath)
-	if err := os.WriteFile(hostsPath, []byte(newContent), 0644); err != nil {
-		slog.Debug("Failed to write hosts file", "error", err, "path", hostsPath)
-		return fmt.Errorf("writing hosts file: %w", err)
+	
+	// For large files, write in chunks and show progress
+	contentBytes := []byte(newContent)
+	if len(contentBytes) > 50000 { // If file is larger than ~50KB
+		slog.Debug("Large hosts file detected, writing with progress tracking")
+		
+		file, err := os.OpenFile(hostsPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			slog.Debug("Failed to open hosts file for writing", "error", err, "path", hostsPath)
+			return fmt.Errorf("opening hosts file for writing: %w", err)
+		}
+		defer file.Close()
+
+		chunkSize := 8192 // 8KB chunks
+		totalChunks := (len(contentBytes) + chunkSize - 1) / chunkSize
+		
+		for i := 0; i < len(contentBytes); i += chunkSize {
+			end := i + chunkSize
+			if end > len(contentBytes) {
+				end = len(contentBytes)
+			}
+			
+			if _, err := file.Write(contentBytes[i:end]); err != nil {
+				slog.Debug("Failed to write chunk to hosts file", "error", err, "chunk", i/chunkSize+1)
+				return fmt.Errorf("writing chunk to hosts file: %w", err)
+			}
+			
+			// Flush and log progress every 500KB or so
+			currentChunk := i/chunkSize + 1
+			if currentChunk%64 == 0 || currentChunk == totalChunks {
+				file.Sync() // Force write to disk
+				slog.Debug("Hosts file write progress", "chunks_written", currentChunk, "total_chunks", totalChunks, "bytes_written", end, "total_bytes", len(contentBytes))
+			}
+		}
+		
+		file.Sync() // Final flush
+		slog.Debug("Successfully wrote large hosts file in chunks")
+	} else {
+		// Small file, write normally
+		if err := os.WriteFile(hostsPath, contentBytes, 0644); err != nil {
+			slog.Debug("Failed to write hosts file", "error", err, "path", hostsPath)
+			return fmt.Errorf("writing hosts file: %w", err)
+		}
+		slog.Debug("Successfully wrote hosts file")
 	}
-	slog.Debug("Successfully wrote hosts file")
 
 	// Verify the write was successful
 	if verifyContent, err := os.ReadFile(hostsPath); err != nil {

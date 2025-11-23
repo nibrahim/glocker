@@ -2593,35 +2593,9 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
 			}
 		}
 
-		// Return a blocked page response
-		w.WriteHeader(http.StatusForbidden)
-		w.Header().Set("Content-Type", "text/html")
-		blockedPage := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Site Blocked - Glocker</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; margin-top: 100px; background-color: #f0f0f0; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: white; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        h1 { color: #d32f2f; }
-        p { color: #666; line-height: 1.6; }
-        .domain { font-weight: bold; color: #1976d2; }
-        .time { color: #888; font-size: 0.9em; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🚫 Site Blocked</h1>
-        <p>Access to <span class="domain">%s</span> has been blocked by Glocker.</p>
-        <p>This site is currently in your blocked domains list.</p>
-        <p class="time">Blocked at: %s</p>
-        <p>If you need to access this site, you can temporarily unblock it using the glocker command.</p>
-    </div>
-</body>
-</html>`, host, time.Now().Format("2006-01-02 15:04:05"))
-
-		w.Write([]byte(blockedPage))
+		// Redirect to blocked page with domain information
+		blockedURL := fmt.Sprintf("/blocked?domain=%s&matched=%s", host, matchedDomain)
+		http.Redirect(w, r, blockedURL, http.StatusFound)
 	} else {
 		// Not a blocked domain, return a simple response
 		w.WriteHeader(http.StatusOK)
@@ -3470,8 +3444,18 @@ func handleBlockedPageRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the reason parameter from the query string
+	// Get parameters from the query string
+	domain := r.URL.Query().Get("domain")
+	matchedDomain := r.URL.Query().Get("matched")
 	reason := r.URL.Query().Get("reason")
+
+	// Set defaults if parameters are missing
+	if domain == "" {
+		domain = "this site"
+	}
+	if matchedDomain == "" {
+		matchedDomain = domain
+	}
 	if reason == "" {
 		reason = "This content has been blocked by Glocker."
 	}
@@ -3485,7 +3469,7 @@ func handleBlockedPageRequest(w http.ResponseWriter, r *http.Request) {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Content Blocked - Glocker</title>
+    <title>Site Blocked - Glocker</title>
     <style>
         body { 
             font-family: Arial, sans-serif; 
@@ -3508,29 +3492,55 @@ func handleBlockedPageRequest(w http.ResponseWriter, r *http.Request) {
             color: #666; 
             line-height: 1.6; 
         }
-        .reason { 
+        .domain { 
             font-weight: bold; 
             color: #1976d2; 
             background-color: #e3f2fd; 
-            padding: 10px; 
+            padding: 8px 12px; 
             border-radius: 5px; 
-            margin: 20px 0; 
+            margin: 10px 0; 
+            display: inline-block;
+        }
+        .matched { 
+            font-size: 0.9em; 
+            color: #888; 
+            margin: 10px 0; 
         }
         .time { 
             color: #888; 
             font-size: 0.9em; 
         }
+        .command-hint {
+            background-color: #f8f9fa;
+            border-left: 4px solid #1976d2;
+            padding: 15px;
+            margin: 20px 0;
+            text-align: left;
+            border-radius: 4px;
+        }
+        .command {
+            font-family: 'Courier New', monospace;
+            background-color: #e9ecef;
+            padding: 5px 8px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🚫 Content Blocked</h1>
-        <div class="reason">%s</div>
-        <p>If you need to access this content, you can temporarily unblock it using the glocker command.</p>
+        <h1>🚫 Site Blocked</h1>
+        <p>Access to <span class="domain">%s</span> has been blocked by Glocker.</p>
+        <p class="matched">Matched blocking rule: %s</p>
+        <p>This site is currently in your blocked domains list.</p>
+        <div class="command-hint">
+            <strong>To temporarily unblock this site:</strong><br>
+            <code class="command">sudo glocker -unblock "%s:reason for unblocking"</code>
+        </div>
         <p class="time">Blocked at: %s</p>
     </div>
 </body>
-</html>`, reason, time.Now().Format("2006-01-02 15:04:05"))
+</html>`, domain, matchedDomain, matchedDomain, time.Now().Format("2006-01-02 15:04:05"))
 
 	w.Write([]byte(blockedPage))
 }

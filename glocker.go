@@ -1425,12 +1425,12 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 		for len(originalLines) > 0 && strings.TrimSpace(originalLines[len(originalLines)-1]) == "" {
 			originalLines = originalLines[:len(originalLines)-1]
 		}
-		
+
 		originalContent := strings.Join(originalLines, "\n")
 		if originalContent != "" {
 			originalContent += "\n"
 		}
-		
+
 		if _, err := file.WriteString(originalContent); err != nil {
 			slog.Debug("Failed to write original content", "error", err)
 			return fmt.Errorf("writing original content: %w", err)
@@ -1479,15 +1479,15 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 			if err := file.Sync(); err != nil {
 				slog.Debug("Failed to sync file", "error", err)
 			}
-			
+
 			domainsProcessed := end
-			log.Printf("Hosts file progress: %d/%d domains written (%d chunks, %.1f%%)", 
-				domainsProcessed, totalDomains, chunksWritten, 
+			log.Printf("Hosts file progress: %d/%d domains written (%d chunks, %.1f%%)",
+				domainsProcessed, totalDomains, chunksWritten,
 				float64(domainsProcessed)/float64(totalDomains)*100)
-			
-			slog.Debug("Hosts file chunk progress", 
-				"chunks_written", chunksWritten, 
-				"domains_processed", domainsProcessed, 
+
+			slog.Debug("Hosts file chunk progress",
+				"chunks_written", chunksWritten,
+				"domains_processed", domainsProcessed,
 				"total_domains", totalDomains,
 				"latest_domain", domains[end-1])
 		}
@@ -3539,10 +3539,6 @@ func handleBlockedPageRequest(w http.ResponseWriter, r *http.Request) {
         <p>Access to <span class="domain">%s</span> has been blocked by Glocker.</p>
         <p class="matched">Matched blocking rule: %s</p>
         <p>This site is currently in your blocked domains list.</p>
-        <div class="command-hint">
-            <strong>To temporarily unblock this site:</strong><br>
-            <code class="command">sudo glocker -unblock "%s:reason for unblocking"</code>
-        </div>
         <p class="time">Blocked at: %s</p>
     </div>
 </body>

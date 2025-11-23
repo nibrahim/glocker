@@ -759,10 +759,20 @@ func installGlocker() {
 		log.Fatalf("Failed to resolve executable path: %v", err)
 	}
 
-	// Check if config file already exists
-	if _, err := os.Stat(GLOCKER_CONFIG_FILE); err != nil {
-		log.Fatalf("Config file not found at %s. Please create a config file before installing.", GLOCKER_CONFIG_FILE)
+	// Copy config file from conf/conf.yaml to target location
+	log.Printf("Copying config file from conf/conf.yaml to %s", GLOCKER_CONFIG_FILE)
+	
+	// Create config directory if it doesn't exist
+	configDir := filepath.Dir(GLOCKER_CONFIG_FILE)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		log.Fatalf("Failed to create config directory: %v", err)
 	}
+	
+	// Copy the config file
+	if err := copyFile("conf/conf.yaml", GLOCKER_CONFIG_FILE); err != nil {
+		log.Fatalf("Failed to copy config file: %v", err)
+	}
+	log.Printf("✓ Config file copied to %s", GLOCKER_CONFIG_FILE)
 
 	// Set ownership and make config file immutable
 	if err := os.Chown(GLOCKER_CONFIG_FILE, 0, 0); err != nil {

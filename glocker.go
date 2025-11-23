@@ -194,6 +194,7 @@ func main() {
 	once := flag.Bool("once", false, "Run enforcement once and exit")
 	install := flag.Bool("install", false, "Install Glocker")
 	uninstall := flag.String("uninstall", "", "Uninstall Glocker and revert all changes (provide reason)")
+	reload := flag.Bool("reload", false, "Reload configuration from config file")
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
 	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock (format: 'domain1,domain2:reason')")
 	addKeyword := flag.String("add-keyword", "", "Comma-separated list of keywords to add to both URL and content keyword lists")
@@ -240,6 +241,14 @@ func main() {
 		}
 		// Send uninstall request via socket and wait for completion
 		handleUninstallRequest(*uninstall)
+		return
+	}
+
+	if *reload {
+		if !runningAsRoot(true) {
+			log.Fatal("Program should run as root for reloading configuration.")
+		}
+		handleReloadRequest()
 		return
 	}
 
@@ -422,6 +431,9 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 		case "status":
 			response := getStatusResponse(config)
 			conn.Write([]byte(response))
+		case "reload":
+			conn.Write([]byte("OK: Reload request received\n"))
+			go processReloadRequest(config, conn)
 		case "unblock":
 			if len(parts) != 2 {
 				conn.Write([]byte("ERROR: Invalid format. Use 'unblock:domains:reason'\n"))
@@ -471,7 +483,7 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 			conn.Write([]byte("OK: Uninstall request received\n"))
 			go processUninstallRequestWithCompletion(config, reason, conn)
 		default:
-			conn.Write([]byte("ERROR: Unknown action. Use 'block:domains', 'unblock:domains:reason', 'add-keyword:keywords', 'uninstall:reason', or 'status'\n"))
+			conn.Write([]byte("ERROR: Unknown action. Use 'block:domains', 'unblock:domains:reason', 'add-keyword:keywords', 'uninstall:reason', 'reload', or 'status'\n"))
 		}
 	}
 }
@@ -2086,6 +2098,30 @@ func sendSocketMessage(action, domains string) {
 	log.Printf("Response: %s", strings.TrimSpace(response))
 }
 
+func handleReloadRequest() {
+	conn, err := net.Dial("unix", "/tmp/glocker.sock")
+	if err != nil {
+		log.Fatalf("Failed to connect to glocker service: %v", err)
+	}
+	defer conn.Close()
+
+	message := "reload\n"
+
+	_, err = conn.Write([]byte(message))
+	if err != nil {
+		log.Fatalf("Failed to send reload message: %v", err)
+	}
+
+	// Read response
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		log.Fatalf("Failed to read response: %v", err)
+	}
+
+	log.Printf("Response: %s", strings.TrimSpace(response))
+}
+
 func handleUninstallRequest(reason string) {
 	conn, err := net.Dial("unix", "/tmp/glocker.sock")
 	if err != nil {
@@ -2963,6 +2999,73 @@ func processAddKeywordRequest(config *Config, keywordsStr string) {
 	broadcastKeywordUpdate(config)
 
 	log.Println("Keywords have been added successfully!")
+}
+
+func processReloadRequest(config *Config, conn net.Conn) {
+	log.Println("Processing configuration reload request...")
+
+	// Load new configuration from file
+	newConfig, err := loadConfig()
+	if err != nil {
+		log.Printf("Failed to reload config: %v", err)
+		conn.Write([]byte("ERROR: Failed to reload configuration\n"))
+		return
+	}
+
+	// Validate the new configuration
+	if err := validateConfig(&newConfig); err != nil {
+		log.Printf("Invalid new config: %v", err)
+		conn.Write([]byte("ERROR: Invalid configuration\n"))
+		return
+	}
+
+	// Update global config reference
+	*config = newConfig
+	if globalConfig != nil {
+		*globalConfig = newConfig
+	}
+
+	// Setup logging with new config
+	setupLogging(config)
+
+	log.Println("Configuration reloaded successfully")
+	log.Printf("New config - Domains: %d, Hosts: %v, Firewall: %v, Sudoers: %v", 
+		len(config.Domains), config.EnableHosts, config.EnableFirewall, config.Sudoers.Enabled)
+
+	// Broadcast keyword update to connected browser extensions if keywords changed
+	broadcastKeywordUpdate(config)
+
+	// Apply the new configuration immediately
+	runOnce(config, false)
+
+	// Update checksums for tamper detection after legitimate config change
+	if config.TamperDetection.Enabled && globalConfig != nil {
+		updateChecksum(GLOCKER_CONFIG_FILE)
+		log.Println("Updated checksum for config file after reload")
+	}
+
+	// Send accountability email about config reload
+	if config.Accountability.Enabled {
+		subject := "GLOCKER ALERT: Configuration Reloaded"
+		body := fmt.Sprintf("Glocker configuration was reloaded at %s.\n\n", time.Now().Format("2006-01-02 15:04:05"))
+		body += fmt.Sprintf("New configuration summary:\n")
+		body += fmt.Sprintf("  - Domains: %d\n", len(config.Domains))
+		body += fmt.Sprintf("  - Hosts Management: %v\n", config.EnableHosts)
+		body += fmt.Sprintf("  - Firewall Management: %v\n", config.EnableFirewall)
+		body += fmt.Sprintf("  - Sudoers Management: %v\n", config.Sudoers.Enabled)
+		body += fmt.Sprintf("  - Tamper Detection: %v\n", config.TamperDetection.Enabled)
+		body += fmt.Sprintf("  - Accountability: %v\n", config.Accountability.Enabled)
+		body += "\nAll protections have been updated with the new configuration.\n"
+		body += "\nThis is an automated alert from Glocker."
+
+		if err := sendEmail(config, subject, body); err != nil {
+			log.Printf("Failed to send config reload accountability email: %v", err)
+		} else {
+			log.Println("Config reload accountability email sent")
+		}
+	}
+
+	conn.Write([]byte("COMPLETED: Configuration reloaded successfully\n"))
 }
 
 func processUninstallRequestWithCompletion(config *Config, reason string, conn net.Conn) {

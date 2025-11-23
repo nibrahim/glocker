@@ -30,14 +30,15 @@ import (
 var configData []byte
 
 const (
-	INSTALL_PATH       = "/usr/local/bin/glocker"
-	HOSTS_MARKER_START = "### GLOCKER START ###"
-	HOSTS_MARKER_END   = "### GLOCKER END ###"
-	SUDOERS_PATH       = "/etc/sudoers"
-	SUDOERS_BACKUP     = "/etc/sudoers.glocker.backup"
-	SUDOERS_MARKER     = "# GLOCKER-MANAGED"
-	SYSTEMD_FILE       = "./extras/glocker.service"
-	GLOCKER_SOCK       = "/tmp/glocker.sock"
+	INSTALL_PATH         = "/usr/local/bin/glocker"
+	GLOCKER_CONFIG_FILE  = "/etc/glocker/config.yaml"
+	HOSTS_MARKER_START   = "### GLOCKER START ###"
+	HOSTS_MARKER_END     = "### GLOCKER END ###"
+	SUDOERS_PATH         = "/etc/sudoers"
+	SUDOERS_BACKUP       = "/etc/sudoers.glocker.backup"
+	SUDOERS_MARKER       = "# GLOCKER-MANAGED"
+	SYSTEMD_FILE         = "./extras/glocker.service"
+	GLOCKER_SOCK         = "/tmp/glocker.sock"
 )
 
 type TimeWindow struct {
@@ -135,6 +136,31 @@ type Config struct {
 	LogLevel                string                  `yaml:"log_level"`
 }
 
+func loadConfig() (Config, error) {
+	var config Config
+	
+	// Try to read from external config file first
+	if _, err := os.Stat(GLOCKER_CONFIG_FILE); err == nil {
+		slog.Debug("Loading config from external file", "path", GLOCKER_CONFIG_FILE)
+		configData, err := os.ReadFile(GLOCKER_CONFIG_FILE)
+		if err != nil {
+			return config, fmt.Errorf("reading external config file: %w", err)
+		}
+		if err := yaml.Unmarshal(configData, &config); err != nil {
+			return config, fmt.Errorf("parsing external config file: %w", err)
+		}
+		return config, nil
+	}
+	
+	// Fall back to embedded config (for initial install)
+	slog.Debug("Loading config from embedded data")
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		return config, fmt.Errorf("parsing embedded config: %w", err)
+	}
+	
+	return config, nil
+}
+
 func setupLogging(config *Config) {
 	var level slog.Level
 
@@ -173,10 +199,10 @@ func main() {
 	addKeyword := flag.String("add-keyword", "", "Comma-separated list of keywords to add to both URL and content keyword lists")
 	flag.Parse()
 
-	// Parse embedded config
-	var config Config
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		log.Fatalf("Failed to parse config: %v", err)
+	// Load config from external file
+	config, err := loadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
 	// Setup logging
@@ -254,6 +280,7 @@ func main() {
 			// Capture initial checksums before starting monitoring
 			filesToMonitor := []string{
 				INSTALL_PATH,
+				GLOCKER_CONFIG_FILE,
 				config.HostsPath,
 				SUDOERS_PATH,
 				"/etc/systemd/system/glocker.service",
@@ -727,6 +754,25 @@ func installGlocker(config *Config) {
 	exePath, err := filepath.EvalSymlinks(exe)
 	if err != nil {
 		log.Fatalf("Failed to resolve executable path: %v", err)
+	}
+
+	// Create config directory
+	configDir := filepath.Dir(GLOCKER_CONFIG_FILE)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		log.Fatalf("Failed to create config directory: %v", err)
+	}
+
+	// Copy embedded config to external location
+	if err := os.WriteFile(GLOCKER_CONFIG_FILE, configData, 0644); err != nil {
+		log.Fatalf("Failed to create config file: %v", err)
+	}
+
+	// Set ownership and make config file immutable
+	if err := os.Chown(GLOCKER_CONFIG_FILE, 0, 0); err != nil {
+		log.Fatalf("Failed to set config file ownership: %v", err)
+	}
+	if err := exec.Command("chattr", "+i", GLOCKER_CONFIG_FILE).Run(); err != nil {
+		log.Printf("Warning: couldn't set immutable flag on config file: %v", err)
 	}
 
 	// Copy binary to install location
@@ -2103,6 +2149,8 @@ func handleUninstallRequest(reason string) {
 	log.Println("To complete the uninstall, manually run these commands:")
 	log.Printf("   rm -f %s", "/etc/systemd/system/glocker.service")
 	log.Printf("   rm -f %s", INSTALL_PATH)
+	log.Printf("   rm -f %s", GLOCKER_CONFIG_FILE)
+	log.Printf("   rmdir %s", filepath.Dir(GLOCKER_CONFIG_FILE))
 }
 
 func handleStatusCommand(config *Config) {
@@ -3020,6 +3068,25 @@ func restoreSystemChanges(config *Config) {
 		log.Printf("   Warning: couldn't remove sudoers backup: %v", err)
 	} else {
 		log.Println("✓ Sudoers backup removed")
+	}
+
+	// Make config file mutable and remove it
+	log.Println("Removing config file...")
+	if err := exec.Command("chattr", "-i", GLOCKER_CONFIG_FILE).Run(); err != nil {
+		log.Printf("   Warning: couldn't make config file mutable: %v", err)
+	}
+	if err := os.Remove(GLOCKER_CONFIG_FILE); err != nil {
+		log.Printf("   Warning: couldn't remove config file: %v", err)
+	} else {
+		log.Println("✓ Config file removed")
+	}
+
+	// Remove config directory if empty
+	configDir := filepath.Dir(GLOCKER_CONFIG_FILE)
+	if err := os.Remove(configDir); err != nil {
+		log.Printf("   Warning: couldn't remove config directory (may not be empty): %v", err)
+	} else {
+		log.Println("✓ Config directory removed")
 	}
 
 	// Remove socket file

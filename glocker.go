@@ -1229,6 +1229,32 @@ func createSudoersBackup() error {
 	return os.WriteFile(SUDOERS_BACKUP, content, 0440)
 }
 
+func getBlockingReason(config *Config, domain string, now time.Time) string {
+	currentDay := now.Weekday().String()[:3]
+	currentTime := now.Format("15:04")
+
+	// Find the domain in the config
+	for _, configDomain := range config.Domains {
+		if configDomain.Name == domain {
+			if configDomain.AlwaysBlock {
+				if configDomain.Absolute {
+					return "always blocked (absolute - cannot be temporarily unblocked)"
+				}
+				return "always blocked"
+			}
+
+			// Check which time window is active
+			for _, window := range configDomain.TimeWindows {
+				if slices.Contains(window.Days, currentDay) && isInTimeWindow(currentTime, window.Start, window.End) {
+					return fmt.Sprintf("time-based block (active %s-%s on %s)", window.Start, window.End, strings.Join(window.Days, ","))
+				}
+			}
+		}
+	}
+
+	return "unknown blocking rule"
+}
+
 func getDomainsToBlock(config *Config, now time.Time) []string {
 	var blocked []string
 	var loggedBlocked []string
@@ -1243,7 +1269,7 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 
 	for _, domain := range config.Domains {
 		if domain.LogBlocking {
-			slog.Debug("Evaluating domain", "domain", domain.Name, "always_block", domain.AlwaysBlock)
+			slog.Debug("Evaluating domain", "domain", domain.Name, "always_block", domain.AlwaysBlock, "absolute", domain.Absolute)
 		}
 
 		// Check if domain is temporarily unblocked
@@ -1251,6 +1277,7 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 			tempUnblockedCount++
 			if domain.LogBlocking {
 				slog.Debug("Domain is temporarily unblocked", "domain", domain.Name)
+				log.Printf("DOMAIN STATUS: %s -> temporarily unblocked (expires soon)", domain.Name)
 			}
 			continue
 		}
@@ -1259,7 +1286,12 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 			alwaysBlockCount++
 			blocked = append(blocked, domain.Name)
 			if domain.LogBlocking {
-				slog.Debug("Domain marked for always block", "domain", domain.Name)
+				blockType := "always blocked"
+				if domain.Absolute {
+					blockType = "always blocked (absolute)"
+				}
+				slog.Debug("Domain marked for always block", "domain", domain.Name, "absolute", domain.Absolute)
+				log.Printf("DOMAIN STATUS: %s -> %s", domain.Name, blockType)
 				loggedBlocked = append(loggedBlocked, domain.Name)
 			}
 			continue
@@ -1267,6 +1299,7 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 
 		// Check time windows
 		domainBlocked := false
+		activeWindow := ""
 		for _, window := range domain.TimeWindows {
 			if domain.LogBlocking {
 				slog.Debug("Checking time window", "domain", domain.Name, "window_days", window.Days, "window_start", window.Start, "window_end", window.End)
@@ -1283,8 +1316,10 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 				timeBasedBlockCount++
 				blocked = append(blocked, domain.Name)
 				domainBlocked = true
+				activeWindow = fmt.Sprintf("%s-%s on %s", window.Start, window.End, strings.Join(window.Days, ","))
 				if domain.LogBlocking {
 					slog.Debug("Domain blocked by time window", "domain", domain.Name, "window", fmt.Sprintf("%s-%s", window.Start, window.End))
+					log.Printf("DOMAIN STATUS: %s -> blocked by time window (%s)", domain.Name, activeWindow)
 					loggedBlocked = append(loggedBlocked, domain.Name)
 				}
 				break
@@ -1293,6 +1328,7 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 
 		if !domainBlocked && len(domain.TimeWindows) > 0 && domain.LogBlocking {
 			slog.Debug("Domain not blocked by any time window", "domain", domain.Name)
+			log.Printf("DOMAIN STATUS: %s -> not blocked (outside time windows)", domain.Name)
 		}
 	}
 
@@ -2570,7 +2606,9 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
 	slog.Debug("Host blocking check", "host", host, "is_blocked", isBlocked, "matched_domain", matchedDomain, "blocked_domains_count", len(blockedDomains))
 
 	if isBlocked {
-		log.Printf("BLOCKED SITE ACCESS ATTEMPT: %s (matched: %s)", host, matchedDomain)
+		// Determine the blocking reason
+		blockingReason := getBlockingReason(config, matchedDomain, time.Now())
+		log.Printf("BLOCKED SITE ACCESS: %s -> matched domain: %s -> reason: %s", host, matchedDomain, blockingReason)
 
 		// Record violation
 		if config.ViolationTracking.Enabled {
@@ -2588,6 +2626,7 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
 			body := fmt.Sprintf("An attempt to access a blocked site was detected at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
 			body += fmt.Sprintf("Host: %s\n", host)
 			body += fmt.Sprintf("Matched Domain: %s\n", matchedDomain)
+			body += fmt.Sprintf("Blocking Reason: %s\n", blockingReason)
 			body += fmt.Sprintf("URL: %s\n", r.URL.String())
 			body += fmt.Sprintf("Method: %s\n", r.Method)
 			body += fmt.Sprintf("User-Agent: %s\n", r.Header.Get("User-Agent"))

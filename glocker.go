@@ -137,7 +137,10 @@ func loadConfig() (Config, error) {
 
 	// Read from external config file
 	if _, err := os.Stat(GLOCKER_CONFIG_FILE); err != nil {
-		return config, fmt.Errorf("config file not found at %s: %w", GLOCKER_CONFIG_FILE, err)
+		if os.IsNotExist(err) {
+			return config, fmt.Errorf("config file not found at %s\n\nThis usually means glocker is not properly installed.\nPlease check:\n  1. Is glocker installed? Run: ls -la %s\n  2. Is the glocker service running? Run: systemctl status glocker.service\n  3. If not installed, run: sudo glocker -install\n\nOriginal error: %w", GLOCKER_CONFIG_FILE, INSTALL_PATH, err)
+		}
+		return config, fmt.Errorf("config file access error at %s: %w", GLOCKER_CONFIG_FILE, err)
 	}
 
 	slog.Debug("Loading config from external file", "path", GLOCKER_CONFIG_FILE)

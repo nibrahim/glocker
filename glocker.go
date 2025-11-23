@@ -764,13 +764,13 @@ func installGlocker() {
 
 	// Copy config file from conf/conf.yaml to target location
 	log.Printf("Copying config file from conf/conf.yaml to %s", GLOCKER_CONFIG_FILE)
-	
+
 	// Create config directory if it doesn't exist
 	configDir := filepath.Dir(GLOCKER_CONFIG_FILE)
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		log.Fatalf("Failed to create config directory: %v", err)
 	}
-	
+
 	// Copy the config file
 	if err := copyFile("conf/conf.yaml", GLOCKER_CONFIG_FILE); err != nil {
 		log.Fatalf("Failed to copy config file: %v", err)
@@ -1357,7 +1357,7 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 
 	// Log the domains being processed
 	if len(domains) > 0 {
-		slog.Debug("Domains to block", "domains", domains)
+		slog.Debug("Number of domains to block", "domains", len(domains))
 	} else {
 		slog.Debug("No domains to block - will clear existing blocks")
 	}
@@ -1411,7 +1411,7 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 	// Add new block section
 	blockSection := []string{HOSTS_MARKER_START}
 	slog.Debug("Creating new glocker block section", "marker_start", HOSTS_MARKER_START)
-	
+
 	for i, domain := range domains {
 		entries := []string{
 			fmt.Sprintf("127.0.0.1 %s", domain),
@@ -1476,12 +1476,12 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 
 	// Write file with progress tracking
 	slog.Debug("Writing updated hosts file", "size_bytes", len(newContent), "path", hostsPath)
-	
+
 	// For large files, write in chunks and show progress
 	contentBytes := []byte(newContent)
 	if len(contentBytes) > 50000 { // If file is larger than ~50KB
 		slog.Debug("Large hosts file detected, writing with progress tracking")
-		
+
 		file, err := os.OpenFile(hostsPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
 			slog.Debug("Failed to open hosts file for writing", "error", err, "path", hostsPath)
@@ -1491,18 +1491,18 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 
 		chunkSize := 8192 // 8KB chunks
 		totalChunks := (len(contentBytes) + chunkSize - 1) / chunkSize
-		
+
 		for i := 0; i < len(contentBytes); i += chunkSize {
 			end := i + chunkSize
 			if end > len(contentBytes) {
 				end = len(contentBytes)
 			}
-			
+
 			if _, err := file.Write(contentBytes[i:end]); err != nil {
 				slog.Debug("Failed to write chunk to hosts file", "error", err, "chunk", i/chunkSize+1)
 				return fmt.Errorf("writing chunk to hosts file: %w", err)
 			}
-			
+
 			// Flush and log progress every 500KB or so
 			currentChunk := i/chunkSize + 1
 			if currentChunk%64 == 0 || currentChunk == totalChunks {
@@ -1510,7 +1510,7 @@ func updateHosts(config *Config, domains []string, dryRun bool) error {
 				slog.Debug("Hosts file write progress", "chunks_written", currentChunk, "total_chunks", totalChunks, "bytes_written", end, "total_bytes", len(contentBytes))
 			}
 		}
-		
+
 		file.Sync() // Final flush
 		slog.Debug("Successfully wrote large hosts file in chunks")
 	} else {

@@ -26,15 +26,15 @@ import (
 )
 
 const (
-	INSTALL_PATH         = "/usr/local/bin/glocker"
-	GLOCKER_CONFIG_FILE  = "/etc/glocker/config.yaml"
-	HOSTS_MARKER_START   = "### GLOCKER START ###"
-	HOSTS_MARKER_END     = "### GLOCKER END ###"
-	SUDOERS_PATH         = "/etc/sudoers"
-	SUDOERS_BACKUP       = "/etc/sudoers.glocker.backup"
-	SUDOERS_MARKER       = "# GLOCKER-MANAGED"
-	SYSTEMD_FILE         = "./extras/glocker.service"
-	GLOCKER_SOCK         = "/tmp/glocker.sock"
+	INSTALL_PATH        = "/usr/local/bin/glocker"
+	GLOCKER_CONFIG_FILE = "/etc/glocker/config.yaml"
+	HOSTS_MARKER_START  = "### GLOCKER START ###"
+	HOSTS_MARKER_END    = "### GLOCKER END ###"
+	SUDOERS_PATH        = "/etc/sudoers"
+	SUDOERS_BACKUP      = "/etc/sudoers.glocker.backup"
+	SUDOERS_MARKER      = "# GLOCKER-MANAGED"
+	SYSTEMD_FILE        = "./extras/glocker.service"
+	GLOCKER_SOCK        = "/tmp/glocker.sock"
 )
 
 type TimeWindow struct {
@@ -134,12 +134,12 @@ type Config struct {
 
 func loadConfig() (Config, error) {
 	var config Config
-	
+
 	// Read from external config file
 	if _, err := os.Stat(GLOCKER_CONFIG_FILE); err != nil {
 		return config, fmt.Errorf("config file not found at %s: %w", GLOCKER_CONFIG_FILE, err)
 	}
-	
+
 	slog.Debug("Loading config from external file", "path", GLOCKER_CONFIG_FILE)
 	configData, err := os.ReadFile(GLOCKER_CONFIG_FILE)
 	if err != nil {
@@ -148,7 +148,7 @@ func loadConfig() (Config, error) {
 	if err := yaml.Unmarshal(configData, &config); err != nil {
 		return config, fmt.Errorf("parsing config file: %w", err)
 	}
-	
+
 	return config, nil
 }
 
@@ -191,6 +191,14 @@ func main() {
 	addKeyword := flag.String("add-keyword", "", "Comma-separated list of keywords to add to both URL and content keyword lists")
 	flag.Parse()
 
+	if *install {
+		if !runningAsRoot(false) {
+			log.Fatal("Program should run as root for installation.")
+		}
+		installGlocker()
+		return
+	}
+
 	// Load config from external file
 	config, err := loadConfig()
 	if err != nil {
@@ -212,14 +220,6 @@ func main() {
 	// Validate config
 	if err := validateConfig(&config); err != nil {
 		log.Fatalf("Invalid config: %v", err)
-	}
-
-	if *install {
-		if !runningAsRoot(false) {
-			log.Fatal("Program should run as root for installation.")
-		}
-		installGlocker(&config)
-		return
 	}
 
 	if *uninstall != "" {
@@ -742,7 +742,7 @@ func selfHeal() {
 	}
 }
 
-func installGlocker(config *Config) {
+func installGlocker() {
 	log.Println("╔════════════════════════════════════════════════╗")
 	log.Println("║              GLOCKER FULL INSTALL              ║")
 	log.Println("╚════════════════════════════════════════════════╝")
@@ -814,25 +814,6 @@ func installGlocker(config *Config) {
 
 	// Protect service file
 	exec.Command("chattr", "+i", servicePath).Run()
-
-	// Create sudoers backup if sudoers management is enabled
-	if config.Sudoers.Enabled {
-		createSudoersBackup()
-	}
-
-	// Send installation accountability email
-	if config.Accountability.Enabled {
-		subject := "GLOCKER ALERT: Installation Completed"
-		body := fmt.Sprintf("Glocker has been successfully installed at %s.\n\n", time.Now().Format("2006-01-02 15:04:05"))
-		body += "All protections are now active.\n\n"
-		body += "This is an automated alert from Glocker."
-
-		if err := sendEmail(config, subject, body); err != nil {
-			log.Printf("Failed to send installation accountability email: %v", err)
-		} else {
-			log.Println("Installation accountability email sent")
-		}
-	}
 
 	log.Println("Installation complete!")
 }
@@ -3014,7 +2995,7 @@ func processReloadRequest(config *Config, conn net.Conn) {
 	setupLogging(config)
 
 	log.Println("Configuration reloaded successfully")
-	log.Printf("New config - Domains: %d, Hosts: %v, Firewall: %v, Sudoers: %v", 
+	log.Printf("New config - Domains: %d, Hosts: %v, Firewall: %v, Sudoers: %v",
 		len(config.Domains), config.EnableHosts, config.EnableFirewall, config.Sudoers.Enabled)
 
 	// Broadcast keyword update to connected browser extensions if keywords changed

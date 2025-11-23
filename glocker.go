@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
-	_ "embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -25,9 +24,6 @@ import (
 	"github.com/mailgun/mailgun-go/v4"
 	"gopkg.in/yaml.v3"
 )
-
-//go:embed conf/conf.yaml
-var configData []byte
 
 const (
 	INSTALL_PATH         = "/usr/local/bin/glocker"
@@ -139,23 +135,18 @@ type Config struct {
 func loadConfig() (Config, error) {
 	var config Config
 	
-	// Try to read from external config file first
-	if _, err := os.Stat(GLOCKER_CONFIG_FILE); err == nil {
-		slog.Debug("Loading config from external file", "path", GLOCKER_CONFIG_FILE)
-		configData, err := os.ReadFile(GLOCKER_CONFIG_FILE)
-		if err != nil {
-			return config, fmt.Errorf("reading external config file: %w", err)
-		}
-		if err := yaml.Unmarshal(configData, &config); err != nil {
-			return config, fmt.Errorf("parsing external config file: %w", err)
-		}
-		return config, nil
+	// Read from external config file
+	if _, err := os.Stat(GLOCKER_CONFIG_FILE); err != nil {
+		return config, fmt.Errorf("config file not found at %s: %w", GLOCKER_CONFIG_FILE, err)
 	}
 	
-	// Fall back to embedded config (for initial install)
-	slog.Debug("Loading config from embedded data")
+	slog.Debug("Loading config from external file", "path", GLOCKER_CONFIG_FILE)
+	configData, err := os.ReadFile(GLOCKER_CONFIG_FILE)
+	if err != nil {
+		return config, fmt.Errorf("reading config file: %w", err)
+	}
 	if err := yaml.Unmarshal(configData, &config); err != nil {
-		return config, fmt.Errorf("parsing embedded config: %w", err)
+		return config, fmt.Errorf("parsing config file: %w", err)
 	}
 	
 	return config, nil
@@ -768,15 +759,9 @@ func installGlocker(config *Config) {
 		log.Fatalf("Failed to resolve executable path: %v", err)
 	}
 
-	// Create config directory
-	configDir := filepath.Dir(GLOCKER_CONFIG_FILE)
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		log.Fatalf("Failed to create config directory: %v", err)
-	}
-
-	// Copy embedded config to external location
-	if err := os.WriteFile(GLOCKER_CONFIG_FILE, configData, 0644); err != nil {
-		log.Fatalf("Failed to create config file: %v", err)
+	// Check if config file already exists
+	if _, err := os.Stat(GLOCKER_CONFIG_FILE); err != nil {
+		log.Fatalf("Config file not found at %s. Please create a config file before installing.", GLOCKER_CONFIG_FILE)
 	}
 
 	// Set ownership and make config file immutable
@@ -1728,10 +1713,10 @@ func setupSignalTrapping() {
 
 func handleSignals(sigChan chan os.Signal) {
 	for sig := range sigChan {
-		// Parse embedded config to send accountability email
-		var config Config
-		if err := yaml.Unmarshal(configData, &config); err != nil {
-			log.Printf("Failed to parse config for signal handling: %v", err)
+		// Load config to send accountability email
+		config, err := loadConfig()
+		if err != nil {
+			log.Printf("Failed to load config for signal handling: %v", err)
 			continue
 		}
 

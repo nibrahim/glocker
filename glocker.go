@@ -1884,6 +1884,13 @@ type ContentReport struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
+type ProcessInfo struct {
+	PID         string
+	Name        string
+	CommandLine string
+	ParentPID   string
+}
+
 type Violation struct {
 	Timestamp time.Time
 	Host      string
@@ -2856,7 +2863,9 @@ func killMatchingProcesses(config *Config, programName string) {
 
 	lines := strings.Split(string(output), "\n")
 	killedProcesses := []string{}
+	processGroups := make(map[string][]ProcessInfo) // Group by parent PID
 
+	// First pass: collect all matching processes and group by parent
 	for _, line := range lines {
 		// Skip header line and empty lines
 		if strings.Contains(line, "USER") || strings.TrimSpace(line) == "" {
@@ -2882,23 +2891,78 @@ func killMatchingProcesses(config *Config, programName string) {
 				continue
 			}
 
-			slog.Debug("Found matching forbidden process", "program_filter", programName, "process_name", processName, "pid", pid)
-
-			// Record violation
-			if config.ViolationTracking.Enabled {
-				recordViolation(config, "forbidden_program", processName, fmt.Sprintf("PID: %s", pid))
+			// Get parent PID to group processes
+			parentPID := getParentPID(pid)
+			
+			processInfo := ProcessInfo{
+				PID:         pid,
+				Name:        processName,
+				CommandLine: line,
+				ParentPID:   parentPID,
 			}
 
-			// Try to kill the process gracefully first (SIGTERM)
-			if err := exec.Command("kill", pid).Run(); err == nil {
-				killedProcesses = append(killedProcesses, fmt.Sprintf("%s (PID: %s)", processName, pid))
-				log.Printf("KILLED FORBIDDEN PROGRAM: %s (PID: %s) - matched filter: %s", processName, pid, programName)
+			// Group by parent PID (or by own PID if it's a parent process)
+			groupKey := parentPID
+			if parentPID == "1" || parentPID == "" {
+				groupKey = pid // This is likely a parent process itself
+			}
 
-				// Wait a moment then force kill if still running
-				time.Sleep(2 * time.Second)
-				exec.Command("kill", "-9", pid).Run()
-			} else {
-				slog.Debug("Failed to kill process", "pid", pid, "error", err)
+			processGroups[groupKey] = append(processGroups[groupKey], processInfo)
+		}
+	}
+
+	// Second pass: kill parent processes (which should kill their children too)
+	for groupKey, processes := range processGroups {
+		if len(processes) == 0 {
+			continue
+		}
+
+		// Find the parent process in this group (the one whose PID matches the group key)
+		var parentProcess *ProcessInfo
+		for i := range processes {
+			if processes[i].PID == groupKey {
+				parentProcess = &processes[i]
+				break
+			}
+		}
+
+		// If we didn't find the parent in our matching processes, use the first one
+		if parentProcess == nil {
+			parentProcess = &processes[0]
+		}
+
+		slog.Debug("Found forbidden process group", "program_filter", programName, "parent_pid", parentProcess.PID, "parent_name", parentProcess.Name, "child_count", len(processes)-1)
+
+		// Record only one violation per process group
+		if config.ViolationTracking.Enabled {
+			recordViolation(config, "forbidden_program", parentProcess.Name, fmt.Sprintf("PID: %s (with %d children)", parentProcess.PID, len(processes)-1))
+		}
+
+		// Kill the parent process (this should terminate children too)
+		if err := exec.Command("kill", parentProcess.PID).Run(); err == nil {
+			killedProcesses = append(killedProcesses, fmt.Sprintf("%s (PID: %s, %d children)", parentProcess.Name, parentProcess.PID, len(processes)-1))
+			log.Printf("KILLED FORBIDDEN PROGRAM GROUP: %s (PID: %s) with %d children - matched filter: %s", parentProcess.Name, parentProcess.PID, len(processes)-1, programName)
+
+			// Wait a moment then force kill if still running
+			time.Sleep(2 * time.Second)
+			exec.Command("kill", "-9", parentProcess.PID).Run()
+
+			// Also force kill any remaining children
+			for _, process := range processes {
+				if process.PID != parentProcess.PID {
+					exec.Command("kill", "-9", process.PID).Run()
+				}
+			}
+		} else {
+			slog.Debug("Failed to kill parent process", "pid", parentProcess.PID, "error", err)
+			
+			// If parent kill failed, try to kill all processes in the group individually
+			for _, process := range processes {
+				if err := exec.Command("kill", process.PID).Run(); err == nil {
+					killedProcesses = append(killedProcesses, fmt.Sprintf("%s (PID: %s)", process.Name, process.PID))
+					time.Sleep(1 * time.Second)
+					exec.Command("kill", "-9", process.PID).Run()
+				}
 			}
 		}
 	}
@@ -2908,7 +2972,7 @@ func killMatchingProcesses(config *Config, programName string) {
 		subject := "GLOCKER ALERT: Forbidden Programs Terminated"
 		body := fmt.Sprintf("Forbidden programs were detected and terminated at %s:\n\n", time.Now().Format("2006-01-02 15:04:05"))
 		body += fmt.Sprintf("Filter: %s\n", programName)
-		body += "Terminated processes:\n"
+		body += "Terminated process groups:\n"
 		for _, process := range killedProcesses {
 			body += fmt.Sprintf("  - %s\n", process)
 		}
@@ -2919,6 +2983,16 @@ func killMatchingProcesses(config *Config, programName string) {
 			log.Printf("Failed to send forbidden programs accountability email: %v", err)
 		}
 	}
+}
+
+func getParentPID(pid string) string {
+	cmd := exec.Command("ps", "-o", "ppid=", "-p", pid)
+	output, err := cmd.Output()
+	if err != nil {
+		slog.Debug("Failed to get parent PID", "pid", pid, "error", err)
+		return "1" // Default to init if we can't determine
+	}
+	return strings.TrimSpace(string(output))
 }
 
 func extractProcessName(psLine string) string {

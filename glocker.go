@@ -3623,7 +3623,7 @@ func sendEmail(config *Config, subject, body string) error {
 	)
 
 	// Set HTML content
-	mail.SetHtml(htmlBody)
+	mail.SetHTML(htmlBody)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()

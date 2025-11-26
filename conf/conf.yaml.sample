@@ -133,6 +133,9 @@ extension_keywords:
   content_keywords: ["trigger1", "trigger2", "inappropriate", "distraction"]
   whitelist: ["github.com", "stackoverflow.com", "docs.google.com"]
 
+# Desktop notifications - shows popup notifications for various events
+notification_command: "notify-send -u {urgency} -i {icon} '{title}' '{message}'"
+
 # Violation tracking - execute command when violations exceed threshold
 violation_tracking:
   enabled: true

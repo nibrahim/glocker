@@ -127,6 +127,7 @@ type Config struct {
 	ViolationTracking       ViolationTrackingConfig `yaml:"violation_tracking"`
 	MindfulDelay            int                     `yaml:"mindful_delay"`
 	TempUnblockTime         int                     `yaml:"temp_unblock_time"`
+	NotificationCommand     string                  `yaml:"notification_command"`
 	Dev                     bool                    `yaml:"dev"`
 	LogLevel                string                  `yaml:"log_level"`
 }
@@ -556,6 +557,11 @@ func processUnblockRequestWithReason(config *Config, hostsStr string, reason str
 		log.Println("Updated checksum for hosts file after unblocking domains")
 	}
 
+	// Send desktop notification
+	sendNotification(config, "Glocker Alert", 
+		fmt.Sprintf("Temporarily unblocked %d domains for %d minutes", len(validHosts), unblockDuration),
+		"normal", "dialog-information")
+
 	// Send accountability email
 	if config.Accountability.Enabled {
 		subject := "GLOCKER ALERT: Domains Temporarily Unblocked"
@@ -654,6 +660,11 @@ func processBlockRequest(config *Config, hostsStr string) {
 			log.Printf("Added new domain %s to always block", host)
 		}
 	}
+
+	// Send desktop notification
+	sendNotification(config, "Glocker Alert", 
+		fmt.Sprintf("Added %d domains to block list", len(validHosts)),
+		"normal", "dialog-information")
 
 	// Apply the blocking immediately
 	log.Println("Applying blocks...")
@@ -1972,6 +1983,12 @@ func monitorTampering(config *Config, checksums []FileChecksum, filesToMonitor [
 		if tampered {
 			log.Println("Tamper check failed")
 			log.Println(tamperReasons)
+		
+			// Send desktop notification
+			sendNotification(config, "Glocker Security Alert", 
+				"System tampering detected!",
+				"critical", "dialog-error")
+		
 			raiseAlarm(config, tamperReasons)
 			// Update baseline checksums after alarm
 			checksums = nil
@@ -2627,6 +2644,11 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
 			go executeWebTrackingCommand(config, host, r)
 		}
 
+		// Send desktop notification
+		sendNotification(config, "Glocker Alert", 
+			fmt.Sprintf("Blocked access to %s", host),
+			"normal", "dialog-information")
+
 		// Send accountability email
 		if config.Accountability.Enabled {
 			subject := "GLOCKER ALERT: Blocked Site Access Attempt"
@@ -2942,6 +2964,11 @@ func killMatchingProcesses(config *Config, programName string) {
 		if err := exec.Command("kill", parentProcess.PID).Run(); err == nil {
 			killedProcesses = append(killedProcesses, fmt.Sprintf("%s (PID: %s, %d children)", parentProcess.Name, parentProcess.PID, len(processes)-1))
 			log.Printf("KILLED FORBIDDEN PROGRAM GROUP: %s (PID: %s) with %d children - matched filter: %s", parentProcess.Name, parentProcess.PID, len(processes)-1, programName)
+
+			// Send desktop notification
+			sendNotification(config, "Glocker Alert", 
+				fmt.Sprintf("Terminated forbidden program: %s", parentProcess.Name),
+				"normal", "dialog-warning")
 
 			// Wait a moment then force kill if still running
 			time.Sleep(2 * time.Second)
@@ -3412,6 +3439,11 @@ func checkViolationThreshold(config *Config) {
 	if recentCount >= config.ViolationTracking.MaxViolations {
 		log.Printf("VIOLATION THRESHOLD EXCEEDED: %d/%d violations in last %d minutes",
 			recentCount, config.ViolationTracking.MaxViolations, config.ViolationTracking.TimeWindowMinutes)
+
+		// Send desktop notification
+		sendNotification(config, "Glocker Alert", 
+			fmt.Sprintf("Violation threshold exceeded: %d/%d", recentCount, config.ViolationTracking.MaxViolations),
+			"critical", "dialog-warning")
 
 		// Execute the configured command
 		if config.ViolationTracking.Command != "" {
@@ -3902,5 +3934,33 @@ func adjustColorOpacity(hexColor string, opacity float64) string {
 		return fmt.Sprintf("rgba(56, 142, 60, %.1f)", opacity)
 	default:
 		return fmt.Sprintf("rgba(51, 51, 51, %.1f)", opacity)
+	}
+}
+
+func sendNotification(config *Config, title, message, urgency, icon string) {
+	if config.NotificationCommand == "" {
+		return
+	}
+
+	// Replace placeholders in the command
+	cmd := config.NotificationCommand
+	cmd = strings.ReplaceAll(cmd, "{title}", title)
+	cmd = strings.ReplaceAll(cmd, "{message}", message)
+	cmd = strings.ReplaceAll(cmd, "{urgency}", urgency)
+	cmd = strings.ReplaceAll(cmd, "{icon}", icon)
+
+	// Split command into parts for proper execution
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return
+	}
+
+	execCmd := exec.Command(parts[0], parts[1:]...)
+	execCmd.Env = append(os.Environ(), "DISPLAY=:0")
+	
+	if err := execCmd.Run(); err != nil {
+		slog.Debug("Failed to send notification", "error", err, "command", cmd)
+	} else {
+		slog.Debug("Notification sent", "title", title, "message", message)
 	}
 }

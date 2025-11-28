@@ -2419,6 +2419,39 @@ func getStatusResponse(config *Config) string {
 		}
 	}
 
+	// Show unblock statistics
+	response.WriteString("\n")
+	response.WriteString("Unblock Statistics:\n")
+	if stats, err := parseUnblockLog(config); err != nil {
+		response.WriteString(fmt.Sprintf("  Error reading unblock log: %v\n", err))
+	} else {
+		response.WriteString(fmt.Sprintf("  Today: %d unblocks\n", stats.TodayCount))
+		response.WriteString(fmt.Sprintf("  Total: %d unblocks\n", stats.TotalCount))
+		
+		if stats.TodayCount > 0 {
+			response.WriteString("  Today's unblocks:\n")
+			for _, entry := range stats.TodayEntries {
+				duration := entry.RestoreTime.Sub(entry.UnblockTime)
+				response.WriteString(fmt.Sprintf("    - %s at %s (reason: %s, duration: %v)\n",
+					entry.Domain, entry.UnblockTime.Format("15:04"), entry.Reason, duration.Round(time.Minute)))
+			}
+		}
+		
+		if len(stats.ReasonCounts) > 0 {
+			response.WriteString("  Most common reasons:\n")
+			for reason, count := range stats.ReasonCounts {
+				response.WriteString(fmt.Sprintf("    - %s: %d times\n", reason, count))
+			}
+		}
+		
+		if len(stats.DomainCounts) > 0 {
+			response.WriteString("  Most unblocked domains:\n")
+			for domain, count := range stats.DomainCounts {
+				response.WriteString(fmt.Sprintf("    - %s: %d times\n", domain, count))
+			}
+		}
+	}
+
 	response.WriteString("END\n")
 	return response.String()
 }
@@ -2518,6 +2551,46 @@ func printConfig(config *Config) {
 		fmt.Printf("  Reset Daily: %v\n", config.ViolationTracking.ResetDaily)
 		if config.ViolationTracking.ResetDaily {
 			fmt.Printf("  Reset Time: %s\n", config.ViolationTracking.ResetTime)
+		}
+	}
+
+	fmt.Println()
+	fmt.Printf("Unblocking: %v\n", len(config.Unblocking.Reasons) > 0)
+	if len(config.Unblocking.Reasons) > 0 {
+		fmt.Printf("  Valid Reasons: %v\n", config.Unblocking.Reasons)
+		fmt.Printf("  Log File: %s\n", config.Unblocking.LogFile)
+	}
+
+	// Show unblock statistics
+	fmt.Println()
+	fmt.Println("Unblock Statistics:")
+	if stats, err := parseUnblockLog(config); err != nil {
+		fmt.Printf("  Error reading unblock log: %v\n", err)
+	} else {
+		fmt.Printf("  Today: %d unblocks\n", stats.TodayCount)
+		fmt.Printf("  Total: %d unblocks\n", stats.TotalCount)
+		
+		if stats.TodayCount > 0 {
+			fmt.Println("  Today's unblocks:")
+			for _, entry := range stats.TodayEntries {
+				duration := entry.RestoreTime.Sub(entry.UnblockTime)
+				fmt.Printf("    - %s at %s (reason: %s, duration: %v)\n",
+					entry.Domain, entry.UnblockTime.Format("15:04"), entry.Reason, duration.Round(time.Minute))
+			}
+		}
+		
+		if len(stats.ReasonCounts) > 0 {
+			fmt.Println("  Most common reasons:")
+			for reason, count := range stats.ReasonCounts {
+				fmt.Printf("    - %s: %d times\n", reason, count)
+			}
+		}
+		
+		if len(stats.DomainCounts) > 0 {
+			fmt.Println("  Most unblocked domains:")
+			for domain, count := range stats.DomainCounts {
+				fmt.Printf("    - %s: %d times\n", domain, count)
+			}
 		}
 	}
 
@@ -2825,6 +2898,65 @@ func logContentReport(config *Config, report *ContentReport) error {
 	}
 
 	return nil
+}
+
+func parseUnblockLog(config *Config) (*UnblockStats, error) {
+	if config.Unblocking.LogFile == "" {
+		return &UnblockStats{
+			ReasonCounts: make(map[string]int),
+			DomainCounts: make(map[string]int),
+		}, nil
+	}
+
+	file, err := os.Open(config.Unblocking.LogFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Log file doesn't exist yet, return empty stats
+			return &UnblockStats{
+				ReasonCounts: make(map[string]int),
+				DomainCounts: make(map[string]int),
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to open unblock log file: %w", err)
+	}
+	defer file.Close()
+
+	stats := &UnblockStats{
+		ReasonCounts: make(map[string]int),
+		DomainCounts: make(map[string]int),
+	}
+
+	today := time.Now().Format("2006-01-02")
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		var entry UnblockLogEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			slog.Debug("Failed to parse unblock log entry", "line", line, "error", err)
+			continue
+		}
+
+		stats.TotalCount++
+		stats.ReasonCounts[entry.Reason]++
+		stats.DomainCounts[entry.Domain]++
+
+		// Check if this entry is from today
+		if entry.UnblockTime.Format("2006-01-02") == today {
+			stats.TodayCount++
+			stats.TodayEntries = append(stats.TodayEntries, entry)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading unblock log file: %w", err)
+	}
+
+	return stats, nil
 }
 
 func isValidUnblockReason(config *Config, reason string) bool {

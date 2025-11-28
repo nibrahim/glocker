@@ -2921,6 +2921,41 @@ func logContentReport(config *Config, report *ContentReport) error {
 	return nil
 }
 
+func logUnblockEntry(config *Config, domain, reason string, unblockTime, restoreTime time.Time) error {
+	if config.Unblocking.LogFile == "" {
+		return nil // No log file configured
+	}
+
+	entry := UnblockLogEntry{
+		UnblockTime: unblockTime,
+		RestoreTime: restoreTime,
+		Reason:      reason,
+		Domain:      domain,
+	}
+
+	// Convert to JSON
+	jsonData, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("failed to marshal unblock entry: %w", err)
+	}
+
+	// Append to log file
+	file, err := os.OpenFile(config.Unblocking.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open unblock log file: %w", err)
+	}
+	defer file.Close()
+
+	// Write JSON entry with newline
+	_, err = file.WriteString(string(jsonData) + "\n")
+	if err != nil {
+		return fmt.Errorf("failed to write to unblock log file: %w", err)
+	}
+
+	slog.Debug("Logged unblock entry", "domain", domain, "reason", reason, "log_file", config.Unblocking.LogFile)
+	return nil
+}
+
 func parseUnblockLog(config *Config) (*UnblockStats, error) {
 	if config.Unblocking.LogFile == "" {
 		return &UnblockStats{

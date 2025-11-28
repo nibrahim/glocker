@@ -489,7 +489,13 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 }
 
 func processUnblockRequestWithReason(config *Config, hostsStr string, reason string) {
-	slog.Debug("Processing unblock request", "hosts_string", hostsStr)
+	slog.Debug("Processing unblock request", "hosts_string", hostsStr, "reason", reason)
+
+	// First, validate the reason
+	if !isValidUnblockReason(config, reason) {
+		log.Printf("UNBLOCK REJECTED: Invalid reason '%s'. Valid reasons: %v", reason, config.Unblocking.Reasons)
+		return
+	}
 
 	hosts := strings.Split(hostsStr, ",")
 	var validHosts []string
@@ -2819,6 +2825,22 @@ func logContentReport(config *Config, report *ContentReport) error {
 	}
 
 	return nil
+}
+
+func isValidUnblockReason(config *Config, reason string) bool {
+	// If no reasons are configured, allow any reason
+	if len(config.Unblocking.Reasons) == 0 {
+		return true
+	}
+
+	// Check if the provided reason matches any of the configured valid reasons
+	for _, validReason := range config.Unblocking.Reasons {
+		if strings.EqualFold(reason, validReason) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func generateSelfSignedCert() (string, string, error) {

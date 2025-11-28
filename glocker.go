@@ -98,6 +98,11 @@ type ViolationTrackingConfig struct {
 	ResetTime         string `yaml:"reset_time"`
 }
 
+type UnblockingConfig struct {
+	Reasons []string `yaml:"reasons"`
+	LogFile string   `yaml:"log_file"`
+}
+
 type ForbiddenProgram struct {
 	Name        string       `yaml:"name"`
 	TimeWindows []TimeWindow `yaml:"time_windows"`
@@ -125,6 +130,7 @@ type Config struct {
 	ForbiddenPrograms       ForbiddenProgramsConfig `yaml:"forbidden_programs"`
 	ExtensionKeywords       ExtensionKeywordsConfig `yaml:"extension_keywords"`
 	ViolationTracking       ViolationTrackingConfig `yaml:"violation_tracking"`
+	Unblocking              UnblockingConfig        `yaml:"unblocking"`
 	MindfulDelay            int                     `yaml:"mindful_delay"`
 	TempUnblockTime         int                     `yaml:"temp_unblock_time"`
 	NotificationCommand     string                  `yaml:"notification_command"`

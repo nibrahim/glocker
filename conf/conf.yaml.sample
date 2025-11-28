@@ -145,6 +145,11 @@ violation_tracking:
   reset_daily: true                    # Reset violation count daily
   reset_time: "00:00"                  # Time to reset violations (HH:MM format)
 
+# Unblocking configuration - controls temporary unblocking behavior
+unblocking:
+  reasons: ["work", "research", "emergency", "medical", "education"]  # Valid reasons for unblocking
+  log_file: "/var/log/glocker-unblocks.log"                          # File to log unblock requests
+
 # Forbidden programs - kills specified programs during time windows
 forbidden_programs:
   enabled: true

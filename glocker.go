@@ -541,7 +541,8 @@ func processUnblockRequestWithReason(config *Config, hostsStr string, reason str
 		unblockDuration = 30
 	}
 
-	expiresAt := time.Now().Add(time.Duration(unblockDuration) * time.Minute)
+	unblockTime := time.Now()
+	expiresAt := unblockTime.Add(time.Duration(unblockDuration) * time.Minute)
 	slog.Debug("Temporary unblock configuration", "duration_minutes", unblockDuration, "expires_at", expiresAt.Format("2006-01-02 15:04:05"))
 
 	// Log all unblocked hosts since these are manual actions
@@ -550,7 +551,7 @@ func processUnblockRequestWithReason(config *Config, hostsStr string, reason str
 		log.Printf("Rejected %d absolute domains that cannot be unblocked: %v", len(rejectedHosts), rejectedHosts)
 	}
 
-	// Add to temporary unblock list
+	// Add to temporary unblock list and log each entry
 	for _, host := range validHosts {
 		tempUnblocks = append(tempUnblocks, TempUnblock{
 			Domain:    host,
@@ -558,6 +559,11 @@ func processUnblockRequestWithReason(config *Config, hostsStr string, reason str
 		})
 		// Log each host being unblocked since it's a manual action
 		slog.Debug("Added host to temporary unblock list", "host", host, "expires_at", expiresAt.Format("2006-01-02 15:04:05"))
+		
+		// Log to unblock log file
+		if err := logUnblockEntry(config, host, reason, unblockTime, expiresAt); err != nil {
+			log.Printf("Failed to log unblock entry for %s: %v", host, err)
+		}
 	}
 
 	// Apply the unblocking immediately
@@ -1905,6 +1911,21 @@ type ContentReport struct {
 	Domain    string `json:"domain,omitempty"`
 	Trigger   string `json:"trigger"`
 	Timestamp int64  `json:"timestamp"`
+}
+
+type UnblockLogEntry struct {
+	UnblockTime time.Time `json:"unblock_time"`
+	RestoreTime time.Time `json:"restore_time"`
+	Reason      string    `json:"reason"`
+	Domain      string    `json:"domain"`
+}
+
+type UnblockStats struct {
+	TodayCount    int                    `json:"today_count"`
+	TotalCount    int                    `json:"total_count"`
+	TodayEntries  []UnblockLogEntry      `json:"today_entries"`
+	ReasonCounts  map[string]int         `json:"reason_counts"`
+	DomainCounts  map[string]int         `json:"domain_counts"`
 }
 
 type ProcessInfo struct {

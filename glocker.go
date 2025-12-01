@@ -774,7 +774,35 @@ func selfHeal() {
 }
 
 func createFirefoxExtension() error {
-	log.Println("Creating Firefox extension XPI...")
+	xpiPath := "/usr/local/share/glocker/glocker.xpi"
+	
+	// First, check if there's a signed extension in web-ext-artifacts
+	artifactsDir := "extensions/firefox/web-ext-artifacts"
+	if entries, err := os.ReadDir(artifactsDir); err == nil {
+		// Look for XPI files in the artifacts directory
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".xpi") {
+				signedXpiPath := filepath.Join(artifactsDir, entry.Name())
+				log.Printf("Found signed extension: %s", signedXpiPath)
+				
+				// Create destination directory
+				if err := os.MkdirAll(filepath.Dir(xpiPath), 0755); err != nil {
+					return fmt.Errorf("failed to create XPI directory: %w", err)
+				}
+				
+				// Copy the signed XPI to the installation location
+				if err := copyFile(signedXpiPath, xpiPath); err != nil {
+					return fmt.Errorf("failed to copy signed XPI: %w", err)
+				}
+				
+				log.Printf("✓ Signed Firefox extension installed from %s to %s", signedXpiPath, xpiPath)
+				return nil
+			}
+		}
+	}
+	
+	// No signed extension found, create unsigned one from source
+	log.Println("No signed extension found in web-ext-artifacts, creating unsigned XPI from source...")
 
 	// Create temporary directory for building the XPI
 	tempDir, err := os.MkdirTemp("", "glocker-firefox-build")
@@ -790,7 +818,6 @@ func createFirefoxExtension() error {
 	}
 
 	// Create XPI file using zip
-	xpiPath := "/usr/local/share/glocker/glocker.xpi"
 	if err := os.MkdirAll(filepath.Dir(xpiPath), 0755); err != nil {
 		return fmt.Errorf("failed to create XPI directory: %w", err)
 	}
@@ -802,7 +829,8 @@ func createFirefoxExtension() error {
 		return fmt.Errorf("failed to create XPI file: %w", err)
 	}
 
-	log.Printf("✓ Firefox extension XPI created at %s", xpiPath)
+	log.Printf("✓ Unsigned Firefox extension XPI created at %s", xpiPath)
+	log.Println("  Note: For production use, sign the extension with 'web-ext sign' and place in extensions/firefox/web-ext-artifacts/")
 	return nil
 }
 

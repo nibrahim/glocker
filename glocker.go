@@ -849,7 +849,8 @@ func installFirefoxExtension() error {
     "ExtensionSettings": {
       "glocker@glocker.local": {
         "installation_mode": "force_installed",
-        "install_url": "file:///usr/local/share/glocker/glocker.xpi"
+        "install_url": "file:///usr/local/share/glocker/glocker.xpi",
+        "allowed_in_private_browsing": true
       }
     }
   }

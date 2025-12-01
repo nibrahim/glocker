@@ -773,6 +773,120 @@ func selfHeal() {
 	}
 }
 
+func createFirefoxExtension() error {
+	log.Println("Creating Firefox extension XPI...")
+
+	// Create temporary directory for building the XPI
+	tempDir, err := os.MkdirTemp("", "glocker-firefox-build")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Copy extension files to temp directory
+	extensionDir := "extensions/firefox"
+	if err := copyDir(extensionDir, tempDir); err != nil {
+		return fmt.Errorf("failed to copy extension files: %w", err)
+	}
+
+	// Create XPI file using zip
+	xpiPath := "/usr/local/share/glocker/glocker.xpi"
+	if err := os.MkdirAll(filepath.Dir(xpiPath), 0755); err != nil {
+		return fmt.Errorf("failed to create XPI directory: %w", err)
+	}
+
+	// Change to temp directory and create zip
+	cmd := exec.Command("zip", "-r", xpiPath, ".")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create XPI file: %w", err)
+	}
+
+	log.Printf("✓ Firefox extension XPI created at %s", xpiPath)
+	return nil
+}
+
+func installFirefoxExtension() error {
+	log.Println("Installing Firefox extension via policies...")
+
+	// Create Firefox policies directory
+	policiesDir := "/etc/firefox/policies"
+	if err := os.MkdirAll(policiesDir, 0755); err != nil {
+		return fmt.Errorf("failed to create policies directory: %w", err)
+	}
+
+	// Create policies.json content
+	policiesContent := `{
+  "policies": {
+    "ExtensionSettings": {
+      "glocker@glocker.local": {
+        "installation_mode": "force_installed",
+        "install_url": "file:///usr/local/share/glocker/glocker.xpi"
+      }
+    }
+  }
+}`
+
+	// Write policies.json file
+	policiesPath := filepath.Join(policiesDir, "policies.json")
+	if err := os.WriteFile(policiesPath, []byte(policiesContent), 0644); err != nil {
+		return fmt.Errorf("failed to write policies.json: %w", err)
+	}
+
+	log.Printf("✓ Firefox policies installed at %s", policiesPath)
+	log.Println("✓ Firefox extension will be automatically installed on next Firefox launch")
+	return nil
+}
+
+func uninstallFirefoxExtension() error {
+	// Remove Firefox policies file
+	policiesPath := "/etc/firefox/policies/policies.json"
+	if err := os.Remove(policiesPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove policies.json: %w", err)
+	}
+
+	// Remove policies directory if empty
+	policiesDir := "/etc/firefox/policies"
+	if err := os.Remove(policiesDir); err != nil && !os.IsNotExist(err) {
+		// Directory might not be empty, that's okay
+	}
+
+	// Remove XPI file
+	xpiPath := "/usr/local/share/glocker/glocker.xpi"
+	if err := os.Remove(xpiPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove XPI file: %w", err)
+	}
+
+	// Remove glocker directory if empty
+	glockerDir := "/usr/local/share/glocker"
+	if err := os.Remove(glockerDir); err != nil && !os.IsNotExist(err) {
+		// Directory might not be empty, that's okay
+	}
+
+	return nil
+}
+
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Calculate destination path
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		dstPath := filepath.Join(dst, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		return copyFile(path, dstPath)
+	})
+}
+
 func installGlocker() {
 	log.Println("╔════════════════════════════════════════════════╗")
 	log.Println("║              GLOCKER FULL INSTALL              ║")
@@ -829,6 +943,13 @@ func installGlocker() {
 	// Set immutable on the installed binary
 	if err := exec.Command("chattr", "+i", INSTALL_PATH).Run(); err != nil {
 		log.Printf("Warning: couldn't set immutable flag: %v", err)
+	}
+
+	// Create and install Firefox extension
+	if err := createFirefoxExtension(); err != nil {
+		log.Printf("Warning: Failed to create Firefox extension: %v", err)
+	} else if err := installFirefoxExtension(); err != nil {
+		log.Printf("Warning: Failed to install Firefox extension: %v", err)
 	}
 
 	// Install systemd service
@@ -3547,6 +3668,14 @@ func restoreSystemChanges(config *Config) {
 		log.Printf("   Warning: couldn't remove sudoers backup: %v", err)
 	} else {
 		log.Println("✓ Sudoers backup removed")
+	}
+
+	// Clean up Firefox extension
+	log.Println("Removing Firefox extension...")
+	if err := uninstallFirefoxExtension(); err != nil {
+		log.Printf("   Warning: couldn't remove Firefox extension: %v", err)
+	} else {
+		log.Println("✓ Firefox extension removed")
 	}
 
 	// Make config file mutable and remove it

@@ -559,7 +559,7 @@ func processUnblockRequestWithReason(config *Config, hostsStr string, reason str
 		})
 		// Log each host being unblocked since it's a manual action
 		slog.Debug("Added host to temporary unblock list", "host", host, "expires_at", expiresAt.Format("2006-01-02 15:04:05"))
-		
+
 		// Log to unblock log file
 		if err := logUnblockEntry(config, host, reason, unblockTime, expiresAt); err != nil {
 			log.Printf("Failed to log unblock entry for %s: %v", host, err)
@@ -576,7 +576,7 @@ func processUnblockRequestWithReason(config *Config, hostsStr string, reason str
 	}
 
 	// Send desktop notification
-	sendNotification(config, "Glocker Alert", 
+	sendNotification(config, "Glocker Alert",
 		fmt.Sprintf("Temporarily unblocked %d domains for %d minutes", len(validHosts), unblockDuration),
 		"normal", "dialog-information")
 
@@ -680,7 +680,7 @@ func processBlockRequest(config *Config, hostsStr string) {
 	}
 
 	// Send desktop notification
-	sendNotification(config, "Glocker Alert", 
+	sendNotification(config, "Glocker Alert",
 		fmt.Sprintf("Added %d domains to block list", len(validHosts)),
 		"normal", "dialog-information")
 
@@ -775,7 +775,7 @@ func selfHeal() {
 
 func createFirefoxExtension() error {
 	xpiPath := "/usr/local/share/glocker/glocker.xpi"
-	
+
 	// First, check if there's a signed extension in web-ext-artifacts
 	artifactsDir := "extensions/firefox/web-ext-artifacts"
 	if entries, err := os.ReadDir(artifactsDir); err == nil {
@@ -784,23 +784,23 @@ func createFirefoxExtension() error {
 			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".xpi") {
 				signedXpiPath := filepath.Join(artifactsDir, entry.Name())
 				log.Printf("Found signed extension: %s", signedXpiPath)
-				
+
 				// Create destination directory
 				if err := os.MkdirAll(filepath.Dir(xpiPath), 0755); err != nil {
 					return fmt.Errorf("failed to create XPI directory: %w", err)
 				}
-				
+
 				// Copy the signed XPI to the installation location
 				if err := copyFile(signedXpiPath, xpiPath); err != nil {
 					return fmt.Errorf("failed to copy signed XPI: %w", err)
 				}
-				
+
 				log.Printf("✓ Signed Firefox extension installed from %s to %s", signedXpiPath, xpiPath)
 				return nil
 			}
 		}
 	}
-	
+
 	// No signed extension found, create unsigned one from source
 	log.Println("No signed extension found in web-ext-artifacts, creating unsigned XPI from source...")
 
@@ -854,7 +854,7 @@ func installFirefoxExtension() error {
       }
     },
     "ExtensionUpdate": false,
-    "DisablePrivateBrowsing": false
+    "DisablePrivateBrowsing": true
   }
 }`
 
@@ -2073,11 +2073,11 @@ type UnblockLogEntry struct {
 }
 
 type UnblockStats struct {
-	TodayCount    int                    `json:"today_count"`
-	TotalCount    int                    `json:"total_count"`
-	TodayEntries  []UnblockLogEntry      `json:"today_entries"`
-	ReasonCounts  map[string]int         `json:"reason_counts"`
-	DomainCounts  map[string]int         `json:"domain_counts"`
+	TodayCount   int               `json:"today_count"`
+	TotalCount   int               `json:"total_count"`
+	TodayEntries []UnblockLogEntry `json:"today_entries"`
+	ReasonCounts map[string]int    `json:"reason_counts"`
+	DomainCounts map[string]int    `json:"domain_counts"`
 }
 
 type ProcessInfo struct {
@@ -2168,12 +2168,12 @@ func monitorTampering(config *Config, checksums []FileChecksum, filesToMonitor [
 		if tampered {
 			log.Println("Tamper check failed")
 			log.Println(tamperReasons)
-		
+
 			// Send desktop notification
-			sendNotification(config, "Glocker Security Alert", 
+			sendNotification(config, "Glocker Security Alert",
 				"System tampering detected!",
 				"critical", "dialog-error")
-		
+
 			raiseAlarm(config, tamperReasons)
 			// Update baseline checksums after alarm
 			checksums = nil
@@ -2600,7 +2600,7 @@ func getStatusResponse(config *Config) string {
 	} else {
 		response.WriteString(fmt.Sprintf("  Today: %d unblocks\n", stats.TodayCount))
 		response.WriteString(fmt.Sprintf("  Total: %d unblocks\n", stats.TotalCount))
-		
+
 		if stats.TodayCount > 0 {
 			response.WriteString("  Today's unblocks:\n")
 			for _, entry := range stats.TodayEntries {
@@ -2609,14 +2609,14 @@ func getStatusResponse(config *Config) string {
 					entry.Domain, entry.UnblockTime.Format("15:04"), entry.Reason, duration.Round(time.Minute)))
 			}
 		}
-		
+
 		if len(stats.ReasonCounts) > 0 {
 			response.WriteString("  Most common reasons:\n")
 			for reason, count := range stats.ReasonCounts {
 				response.WriteString(fmt.Sprintf("    - %s: %d times\n", reason, count))
 			}
 		}
-		
+
 		if len(stats.DomainCounts) > 0 {
 			response.WriteString("  Most unblocked domains:\n")
 			for domain, count := range stats.DomainCounts {
@@ -2742,7 +2742,7 @@ func printConfig(config *Config) {
 	} else {
 		fmt.Printf("  Today: %d unblocks\n", stats.TodayCount)
 		fmt.Printf("  Total: %d unblocks\n", stats.TotalCount)
-		
+
 		if stats.TodayCount > 0 {
 			fmt.Println("  Today's unblocks:")
 			for _, entry := range stats.TodayEntries {
@@ -2751,14 +2751,14 @@ func printConfig(config *Config) {
 					entry.Domain, entry.UnblockTime.Format("15:04"), entry.Reason, duration.Round(time.Minute))
 			}
 		}
-		
+
 		if len(stats.ReasonCounts) > 0 {
 			fmt.Println("  Most common reasons:")
 			for reason, count := range stats.ReasonCounts {
 				fmt.Printf("    - %s: %d times\n", reason, count)
 			}
 		}
-		
+
 		if len(stats.DomainCounts) > 0 {
 			fmt.Println("  Most unblocked domains:")
 			for domain, count := range stats.DomainCounts {
@@ -2903,7 +2903,7 @@ func handleWebTrackingRequest(config *Config, w http.ResponseWriter, r *http.Req
 		}
 
 		// Send desktop notification
-		sendNotification(config, "Glocker Alert", 
+		sendNotification(config, "Glocker Alert",
 			fmt.Sprintf("Blocked access to %s", host),
 			"normal", "dialog-information")
 
@@ -3283,7 +3283,7 @@ func killMatchingProcesses(config *Config, programName string) {
 
 			// Get parent PID to group processes
 			parentPID := getParentPID(pid)
-			
+
 			processInfo := ProcessInfo{
 				PID:         pid,
 				Name:        processName,
@@ -3334,7 +3334,7 @@ func killMatchingProcesses(config *Config, programName string) {
 			log.Printf("KILLED FORBIDDEN PROGRAM GROUP: %s (PID: %s) with %d children - matched filter: %s", parentProcess.Name, parentProcess.PID, len(processes)-1, programName)
 
 			// Send desktop notification
-			sendNotification(config, "Glocker Alert", 
+			sendNotification(config, "Glocker Alert",
 				fmt.Sprintf("Terminated forbidden program: %s", parentProcess.Name),
 				"normal", "dialog-warning")
 
@@ -3350,7 +3350,7 @@ func killMatchingProcesses(config *Config, programName string) {
 			}
 		} else {
 			slog.Debug("Failed to kill parent process", "pid", parentProcess.PID, "error", err)
-			
+
 			// If parent kill failed, try to kill all processes in the group individually
 			for _, process := range processes {
 				if err := exec.Command("kill", process.PID).Run(); err == nil {
@@ -3817,7 +3817,7 @@ func checkViolationThreshold(config *Config) {
 			recentCount, config.ViolationTracking.MaxViolations, config.ViolationTracking.TimeWindowMinutes)
 
 		// Send desktop notification
-		sendNotification(config, "Glocker Alert", 
+		sendNotification(config, "Glocker Alert",
 			fmt.Sprintf("Violation threshold exceeded: %d/%d", recentCount, config.ViolationTracking.MaxViolations),
 			"critical", "dialog-warning")
 
@@ -4333,7 +4333,7 @@ func sendNotification(config *Config, title, message, urgency, icon string) {
 
 	execCmd := exec.Command(parts[0], parts[1:]...)
 	execCmd.Env = append(os.Environ(), "DISPLAY=:0")
-	
+
 	if err := execCmd.Run(); err != nil {
 		slog.Debug("Failed to send notification", "error", err, "command", cmd)
 	} else {

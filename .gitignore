@@ -1,3 +1,5 @@
 glocker
 conf/conf.yaml
 .aider*
+extensions/firefox/web-ext-artifacts/
+extensions/firefox/.amo-upload-uuid

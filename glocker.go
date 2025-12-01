@@ -852,7 +852,9 @@ func installFirefoxExtension() error {
         "install_url": "file:///usr/local/share/glocker/glocker.xpi",
         "allowed_in_private_browsing": true
       }
-    }
+    },
+    "ExtensionUpdate": false,
+    "DisablePrivateBrowsing": false
   }
 }`
 

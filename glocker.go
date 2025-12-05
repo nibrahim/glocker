@@ -2421,7 +2421,6 @@ func sendSocketMessageWithDetailedResponse(action, payload string) {
 		if action == "unblock" {
 			parts := strings.SplitN(payload, ":", 2)
 			if len(parts) == 2 {
-				domains := parts[0]
 				reason := parts[1]
 				log.Printf("Domains will be temporarily unblocked (Reason: %s) and automatically re-blocked after the configured time.", reason)
 				log.Printf("Note: Some domains may be rejected if they are marked as absolute. Check server logs for details.")

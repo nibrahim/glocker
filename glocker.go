@@ -4091,6 +4091,15 @@ func handleBlockedPageRequest(w http.ResponseWriter, r *http.Request) {
             color: #888; 
             margin: 10px 0; 
         }
+        .reason { 
+            font-size: 0.95em; 
+            color: #d32f2f; 
+            background-color: #ffebee; 
+            padding: 10px 15px; 
+            border-radius: 5px; 
+            margin: 15px 0; 
+            border-left: 4px solid #d32f2f;
+        }
         .time { 
             color: #888; 
             font-size: 0.9em; 
@@ -4118,11 +4127,11 @@ func handleBlockedPageRequest(w http.ResponseWriter, r *http.Request) {
         <p>Access to <span class="domain">%s</span> has been blocked by Glocker.</p>
         <p class="matched">Matched blocking rule: %s</p>
         %s
-        <p>This site is currently in your blocked domains list.</p>
+        <div class="reason">%s</div>
         <p class="time">Blocked at: %s</p>
     </div>
 </body>
-</html>`, domain, matchedDomain, originalURLInfo, time.Now().Format("2006-01-02 15:04:05"))
+</html>`, domain, matchedDomain, originalURLInfo, reason, time.Now().Format("2006-01-02 15:04:05"))
 
 	w.Write([]byte(blockedPage))
 }

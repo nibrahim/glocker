@@ -27,9 +27,6 @@ hosts_path: "/etc/hosts"
 # Mindful delay for uninstall (seconds)
 mindful_delay: 60
 
-# Temporary unblock time (minutes) - how long domains stay unblocked after -delete
-temp_unblock_time: 30
-
 # Disable sudoers
 sudoers:
   enabled: true
@@ -149,6 +146,7 @@ violation_tracking:
 unblocking:
   reasons: ["work", "research", "emergency", "medical", "education"]  # Valid reasons for unblocking
   log_file: "/var/log/glocker-unblocks.log"                          # File to log unblock requests
+  temp_unblock_time: 30                                               # How long domains stay unblocked (minutes)
 
 # Forbidden programs - kills specified programs during time windows
 forbidden_programs:

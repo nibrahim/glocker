@@ -99,8 +99,9 @@ type ViolationTrackingConfig struct {
 }
 
 type UnblockingConfig struct {
-	Reasons []string `yaml:"reasons"`
-	LogFile string   `yaml:"log_file"`
+	Reasons         []string `yaml:"reasons"`
+	LogFile         string   `yaml:"log_file"`
+	TempUnblockTime int      `yaml:"temp_unblock_time"`
 }
 
 type ForbiddenProgram struct {
@@ -132,7 +133,6 @@ type Config struct {
 	ViolationTracking       ViolationTrackingConfig `yaml:"violation_tracking"`
 	Unblocking              UnblockingConfig        `yaml:"unblocking"`
 	MindfulDelay            int                     `yaml:"mindful_delay"`
-	TempUnblockTime         int                     `yaml:"temp_unblock_time"`
 	NotificationCommand     string                  `yaml:"notification_command"`
 	Dev                     bool                    `yaml:"dev"`
 	LogLevel                string                  `yaml:"log_level"`
@@ -536,7 +536,7 @@ func processUnblockRequestWithReason(config *Config, hostsStr string, reason str
 	}
 
 	// Set temporary unblock time (default 30 minutes)
-	unblockDuration := config.TempUnblockTime
+	unblockDuration := config.Unblocking.TempUnblockTime
 	if unblockDuration == 0 {
 		unblockDuration = 30
 	}
@@ -2650,7 +2650,7 @@ func printConfig(config *Config) {
 	fmt.Printf("Self Healing: %v\n", config.SelfHeal)
 	fmt.Printf("Enforcement Interval: %d seconds\n", config.EnforceInterval)
 	fmt.Printf("Mindful Delay: %d seconds\n", config.MindfulDelay)
-	fmt.Printf("Temp Unblock Time: %d minutes\n", config.TempUnblockTime)
+	fmt.Printf("Temp Unblock Time: %d minutes\n", config.Unblocking.TempUnblockTime)
 
 	fmt.Println()
 

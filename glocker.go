@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -34,6 +35,13 @@ const (
 	SUDOERS_MARKER      = "# GLOCKER-MANAGED"
 	SYSTEMD_FILE        = "./extras/glocker.service"
 	GLOCKER_SOCK        = "/tmp/glocker.sock"
+)
+
+// Global panic state (in-memory only, not persisted to disk)
+var (
+	panicUntil       time.Time
+	lastSuspendTime  time.Time
+	panicMutex       sync.RWMutex
 )
 
 type TimeWindow struct {
@@ -134,6 +142,7 @@ type Config struct {
 	Unblocking              UnblockingConfig        `yaml:"unblocking"`
 	MindfulDelay            int                     `yaml:"mindful_delay"`
 	NotificationCommand     string                  `yaml:"notification_command"`
+	PanicCommand            string                  `yaml:"panic_command"`
 	Dev                     bool                    `yaml:"dev"`
 	LogLevel                string                  `yaml:"log_level"`
 }
@@ -198,6 +207,7 @@ func main() {
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
 	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock (format: 'domain1,domain2:reason')")
 	addKeyword := flag.String("add-keyword", "", "Comma-separated list of keywords to add to both URL and content keyword lists")
+	panicMinutes := flag.Int("panic", 0, "Enter panic mode for N minutes (suspends system and re-suspends on early wake)")
 	flag.Parse()
 
 	if *install {
@@ -267,6 +277,11 @@ func main() {
 		return
 	}
 
+	if *panicMinutes > 0 {
+		handlePanicRequest(&config, *panicMinutes)
+		return
+	}
+
 	if *status {
 		handleStatusCommand(&config)
 		return
@@ -330,6 +345,9 @@ func main() {
 
 		// Initial enforcement
 		runOnce(&config, false)
+
+		// Start panic mode monitor (checks every second for re-suspend)
+		go monitorPanicMode(&config)
 
 		// Continuous loop
 		ticker := time.NewTicker(time.Duration(config.EnforceInterval) * time.Second)
@@ -477,6 +495,19 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 			keywords := strings.TrimSpace(parts[1])
 			conn.Write([]byte("OK: Add keyword request received\n"))
 			go processAddKeywordRequest(config, keywords)
+		case "panic":
+			if len(parts) != 2 {
+				conn.Write([]byte("ERROR: Invalid format. Use 'panic:minutes'\n"))
+				continue
+			}
+			minutesStr := strings.TrimSpace(parts[1])
+			minutes, err := strconv.Atoi(minutesStr)
+			if err != nil || minutes <= 0 {
+				conn.Write([]byte("ERROR: Invalid minutes value. Must be a positive integer\n"))
+				continue
+			}
+			conn.Write([]byte(fmt.Sprintf("OK: Entering panic mode for %d minutes\n", minutes)))
+			go processPanicRequest(config, minutes)
 		case "uninstall":
 			if len(parts) != 2 {
 				conn.Write([]byte("ERROR: Invalid format. Use 'uninstall:reason'\n"))
@@ -1388,7 +1419,13 @@ func isSudoAllowed(config *Config, now time.Time) bool {
 
 	// Check if current time falls within any allowed window
 	for _, window := range config.Sudoers.TimeAllowed {
-		if !slices.Contains(window.Days, currentDay) {
+		// For midnight-crossing windows, check previous day for early morning times
+		dayToCheck := currentDay
+		if window.Start > window.End && currentTime <= window.End {
+			dayToCheck = now.AddDate(0, 0, -1).Weekday().String()[:3]
+		}
+
+		if !slices.Contains(window.Days, dayToCheck) {
 			continue
 		}
 
@@ -1493,9 +1530,18 @@ func getDomainsToBlock(config *Config, now time.Time) []string {
 				slog.Debug("Checking time window", "domain", domain.Name, "window_days", window.Days, "window_start", window.Start, "window_end", window.End)
 			}
 
-			if !slices.Contains(window.Days, currentDay) {
+			// For midnight-crossing windows, check previous day for early morning times
+			dayToCheck := currentDay
+			if window.Start > window.End && currentTime <= window.End {
+				dayToCheck = now.AddDate(0, 0, -1).Weekday().String()[:3]
 				if domain.LogBlocking {
-					slog.Debug("Current day not in window", "domain", domain.Name, "current_day", currentDay)
+					slog.Debug("Checking previous day for wraparound window", "domain", domain.Name, "current_day", currentDay, "checking_day", dayToCheck)
+				}
+			}
+
+			if !slices.Contains(window.Days, dayToCheck) {
+				if domain.LogBlocking {
+					slog.Debug("Day not in window", "domain", domain.Name, "day_checked", dayToCheck)
 				}
 				continue
 			}
@@ -2458,6 +2504,30 @@ func handleReloadRequest() {
 	log.Printf("Response: %s", strings.TrimSpace(response))
 }
 
+func handlePanicRequest(config *Config, minutes int) {
+	conn, err := net.Dial("unix", "/tmp/glocker.sock")
+	if err != nil {
+		log.Fatalf("Failed to connect to glocker service: %v", err)
+	}
+	defer conn.Close()
+
+	message := fmt.Sprintf("panic:%d\n", minutes)
+
+	_, err = conn.Write([]byte(message))
+	if err != nil {
+		log.Fatalf("Failed to send panic message: %v", err)
+	}
+
+	// Read response
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		log.Fatalf("Failed to read response: %v", err)
+	}
+
+	log.Printf("%s", strings.TrimSpace(response))
+}
+
 func handleUninstallRequest(reason string) {
 	conn, err := net.Dial("unix", "/tmp/glocker.sock")
 	if err != nil {
@@ -2674,6 +2744,22 @@ func getStatusResponse(config *Config) string {
 				response.WriteString(fmt.Sprintf("    - %s: %d times\n", domain, count))
 			}
 		}
+	}
+
+	// Show panic mode status
+	panicMutex.RLock()
+	currentPanicUntil := panicUntil
+	panicMutex.RUnlock()
+
+	response.WriteString("\n")
+	response.WriteString("Panic Mode Status:\n")
+	if !currentPanicUntil.IsZero() && now.Before(currentPanicUntil) {
+		remaining := currentPanicUntil.Sub(now)
+		response.WriteString(fmt.Sprintf("  🚨 ACTIVE - System locked until %s (%v remaining)\n",
+			currentPanicUntil.Format("15:04:05"), remaining.Round(time.Second)))
+		response.WriteString("  System will automatically suspend/re-suspend until panic mode expires\n")
+	} else {
+		response.WriteString("  Inactive\n")
 	}
 
 	response.WriteString("END\n")
@@ -3275,13 +3361,24 @@ func monitorForbiddenPrograms(config *Config) {
 			// Check if any time window is active for this program
 			programForbidden := false
 			for _, window := range program.TimeWindows {
-				if !slices.Contains(window.Days, currentDay) {
+				// For midnight-crossing windows (e.g., 20:00-05:00), we need to check both:
+				// - Current day for times >= start (e.g., Mon 20:00-23:59)
+				// - Previous day for times <= end (e.g., Tue 00:00-05:00 should check Mon)
+				dayToCheck := currentDay
+				if window.Start > window.End && currentTime <= window.End {
+					// We're in the early morning portion of a window that started yesterday
+					yesterday := now.AddDate(0, 0, -1).Weekday().String()[:3]
+					dayToCheck = yesterday
+					slog.Debug("Checking previous day for wraparound window", "current_day", currentDay, "checking_day", dayToCheck, "current_time", currentTime, "window", fmt.Sprintf("%s-%s", window.Start, window.End))
+				}
+
+				if !slices.Contains(window.Days, dayToCheck) {
 					continue
 				}
 
 				if isInTimeWindow(currentTime, window.Start, window.End) {
 					programForbidden = true
-					slog.Debug("Program is forbidden in current time window", "program", program.Name, "window", fmt.Sprintf("%s-%s", window.Start, window.End))
+					slog.Debug("Program is forbidden in current time window", "program", program.Name, "window", fmt.Sprintf("%s-%s", window.Start, window.End), "day_checked", dayToCheck)
 					break
 				}
 			}
@@ -3306,7 +3403,10 @@ func killMatchingProcesses(config *Config, programName string) {
 	killedProcesses := []string{}
 	processGroups := make(map[string][]ProcessInfo) // Group by parent PID
 
+	slog.Debug("Starting process matching", "program_filter", programName, "total_lines", len(lines))
+
 	// First pass: collect all matching processes and group by parent
+	matchCount := 0
 	for _, line := range lines {
 		// Skip header line and empty lines
 		if strings.Contains(line, "USER") || strings.TrimSpace(line) == "" {
@@ -3315,20 +3415,27 @@ func killMatchingProcesses(config *Config, programName string) {
 
 		// Check if the process name contains our forbidden program name (case-insensitive)
 		if strings.Contains(strings.ToLower(line), strings.ToLower(programName)) {
+			matchCount++
+			slog.Debug("Found matching process line", "program_filter", programName, "line", line)
+
 			// Extract PID (second column in ps aux output)
 			fields := strings.Fields(line)
 			if len(fields) < 2 {
+				slog.Debug("Skipping line - insufficient fields", "field_count", len(fields))
 				continue
 			}
 
 			pid := fields[1]
 			processName := extractProcessName(line)
 
+			slog.Debug("Extracted process info", "pid", pid, "extracted_name", processName, "program_filter", programName)
+
 			// Don't kill our own process or system processes
 			if strings.Contains(strings.ToLower(processName), "glocker") ||
 				strings.Contains(strings.ToLower(processName), "systemd") ||
 				strings.Contains(strings.ToLower(processName), "kernel") ||
 				pid == "1" {
+				slog.Debug("Skipping protected process", "pid", pid, "name", processName)
 				continue
 			}
 
@@ -3349,8 +3456,11 @@ func killMatchingProcesses(config *Config, programName string) {
 			}
 
 			processGroups[groupKey] = append(processGroups[groupKey], processInfo)
+			slog.Debug("Added process to group", "group_key", groupKey, "pid", pid, "name", processName)
 		}
 	}
+
+	slog.Debug("Process matching complete", "program_filter", programName, "total_matches", matchCount, "process_groups", len(processGroups))
 
 	// Second pass: kill parent processes (which should kill their children too)
 	for groupKey, processes := range processGroups {
@@ -3380,6 +3490,7 @@ func killMatchingProcesses(config *Config, programName string) {
 		}
 
 		// Kill the parent process (this should terminate children too)
+		slog.Debug("Attempting to kill parent process", "pid", parentProcess.PID, "name", parentProcess.Name, "command", parentProcess.CommandLine)
 		if err := exec.Command("kill", parentProcess.PID).Run(); err == nil {
 			killedProcesses = append(killedProcesses, fmt.Sprintf("%s (PID: %s, %d children)", parentProcess.Name, parentProcess.PID, len(processes)-1))
 			log.Printf("KILLED FORBIDDEN PROGRAM GROUP: %s (PID: %s) with %d children - matched filter: %s", parentProcess.Name, parentProcess.PID, len(processes)-1, programName)
@@ -3428,6 +3539,12 @@ func killMatchingProcesses(config *Config, programName string) {
 		if err := sendEmail(config, subject, body); err != nil {
 			log.Printf("Failed to send forbidden programs accountability email: %v", err)
 		}
+	}
+
+	if len(killedProcesses) == 0 {
+		slog.Debug("No processes were killed", "program_filter", programName, "total_matches", matchCount, "groups", len(processGroups))
+	} else {
+		slog.Debug("Process killing complete", "program_filter", programName, "killed_count", len(killedProcesses))
 	}
 }
 
@@ -3578,6 +3695,27 @@ func processAddKeywordRequest(config *Config, keywordsStr string) {
 	broadcastKeywordUpdate(config)
 
 	log.Println("Keywords have been added successfully!")
+}
+
+func processPanicRequest(config *Config, minutes int) {
+	now := time.Now()
+	targetTime := now.Add(time.Duration(minutes) * time.Minute)
+
+	panicMutex.Lock()
+	panicUntil = targetTime
+	panicMutex.Unlock()
+
+	log.Printf("========== PANIC MODE ACTIVATION ==========")
+	log.Printf("Current time: %s", now.Format("2006-01-02 15:04:05"))
+	log.Printf("Duration: %d minutes", minutes)
+	log.Printf("Target wake time: %s", targetTime.Format("2006-01-02 15:04:05"))
+	log.Printf("Unix timestamps - Now: %d, Target: %d", now.Unix(), targetTime.Unix())
+	log.Printf("Panic command: %s", config.PanicCommand)
+	log.Printf("===========================================")
+
+	// Note: We don't execute the panic command here - the monitorPanicMode goroutine
+	// will detect the panic state and handle all suspensions. This prevents double
+	// execution and ensures consistent behavior for both initial suspend and re-suspends.
 }
 
 func processReloadRequest(config *Config, conn net.Conn) {
@@ -3974,6 +4112,110 @@ func sendViolationEmail(config *Config, violationCount int) {
 
 	if err := sendEmail(config, subject, body); err != nil {
 		log.Printf("Failed to send violation accountability email: %v", err)
+	}
+}
+
+func monitorPanicMode(config *Config) {
+	log.Printf("========== PANIC MONITOR STARTED ==========")
+	log.Printf("Monitor checking every 1 second for panic state")
+	log.Printf("===========================================")
+
+	ticker := time.NewTicker(1 * time.Second) // Check every second
+	defer ticker.Stop()
+
+	lastLogTime := time.Time{} // Track last time we logged to avoid spam
+
+	for range ticker.C {
+		now := time.Now()
+		panicMutex.RLock()
+		currentPanicUntil := panicUntil
+		currentLastSuspend := lastSuspendTime
+		panicMutex.RUnlock()
+
+		// DEBUG: Log time comparison
+		if !currentPanicUntil.IsZero() {
+			log.Printf("DEBUG: now=%s (unix=%d), panicUntil=%s (unix=%d), now.Before=%v, now.After=%v",
+				now.Format("15:04:05"), now.Unix(),
+				currentPanicUntil.Format("15:04:05"), currentPanicUntil.Unix(),
+				now.Before(currentPanicUntil), now.After(currentPanicUntil))
+		}
+
+		// Check if we're in panic mode and time hasn't expired yet
+		// Use Unix timestamps for comparison to avoid monotonic clock issues during system suspend
+		if !currentPanicUntil.IsZero() && now.Unix() < currentPanicUntil.Unix() {
+			// Calculate remaining time using Unix timestamps to avoid monotonic clock issues
+			remainingSeconds := int(currentPanicUntil.Unix() - now.Unix())
+
+			// Grace period: Don't suspend again if we suspended less than 10 seconds ago
+			// This prevents immediate re-suspend when the system wakes up from suspension
+			// Use Unix timestamps to avoid monotonic clock issues during system suspend
+			timeSinceLastSuspend := time.Duration(now.Unix()-currentLastSuspend.Unix()) * time.Second
+			gracePeriod := 5 * time.Second
+
+			if !currentLastSuspend.IsZero() && timeSinceLastSuspend < gracePeriod {
+				// Within grace period - skip this suspend
+				if time.Duration(now.Unix()-lastLogTime.Unix())*time.Second >= 5*time.Second {
+					log.Printf("---------- PANIC MONITOR (GRACE PERIOD) ----------")
+					log.Printf("Current time: %s", now.Format("2006-01-02 15:04:05"))
+					log.Printf("Last suspend: %s (%v ago)", currentLastSuspend.Format("15:04:05"), timeSinceLastSuspend.Round(time.Second))
+					log.Printf("Grace period: %v remaining", (gracePeriod - timeSinceLastSuspend).Round(time.Second))
+					log.Printf("Panic expires: %s (%d seconds)", currentPanicUntil.Format("15:04:05"), remainingSeconds)
+					log.Printf("Status: GRACE PERIOD - Skipping suspend")
+					log.Printf("--------------------------------------------------")
+					lastLogTime = now
+				}
+				continue
+			}
+
+			// Log detailed info every 5 seconds to avoid spam
+			if time.Duration(now.Unix()-lastLogTime.Unix())*time.Second >= 5*time.Second {
+				log.Printf("---------- PANIC MONITOR CHECK ----------")
+				log.Printf("Current time: %s (Unix: %d)", now.Format("2006-01-02 15:04:05"), now.Unix())
+				log.Printf("Target time: %s (Unix: %d)", currentPanicUntil.Format("2006-01-02 15:04:05"), currentPanicUntil.Unix())
+				log.Printf("Remaining: %d seconds (%d minutes)", remainingSeconds, remainingSeconds/60)
+				log.Printf("Status: PANIC MODE ACTIVE - System should be suspended")
+				lastLogTime = now
+			}
+
+			log.Printf("PANIC SUSPEND: Executing panic command (%d seconds remaining until %s)",
+				remainingSeconds, currentPanicUntil.Format("15:04:05"))
+
+			// Replace placeholder with remaining seconds
+			panicCmd := strings.ReplaceAll(config.PanicCommand, "{duration_seconds}", fmt.Sprintf("%d", remainingSeconds))
+
+			log.Printf("Command to execute: %s", panicCmd)
+			cmdStartTime := time.Now()
+
+			// Execute panic command again
+			cmd := exec.Command("sh", "-c", panicCmd)
+			if err := cmd.Run(); err != nil {
+				log.Printf("ERROR: Failed to execute panic command: %v", err)
+			} else {
+				cmdDuration := time.Since(cmdStartTime)
+				log.Printf("Panic command completed in %v", cmdDuration)
+			}
+
+			// Update last suspend time after successful execution
+		// Use cmdStartTime (when command began) not time.Now() (when it finished)
+		// This ensures grace period includes the actual suspension duration
+			panicMutex.Lock()
+			lastSuspendTime = cmdStartTime
+			panicMutex.Unlock()
+
+			log.Printf("After command execution - Current time: %s", time.Now().Format("2006-01-02 15:04:05"))
+		} else if !currentPanicUntil.IsZero() && now.Unix() > currentPanicUntil.Unix() {
+			// Panic mode has expired, clear it
+			log.Printf("========== PANIC MODE EXPIRATION DETECTED ==========")
+			log.Printf("Current time: %s (Unix: %d)", now.Format("2006-01-02 15:04:05"), now.Unix())
+			log.Printf("Target was: %s (Unix: %d)", currentPanicUntil.Format("2006-01-02 15:04:05"), currentPanicUntil.Unix())
+			log.Printf("Exceeded by: %v", now.Sub(currentPanicUntil))
+			log.Printf("Clearing panic state - Normal operation resumed")
+			log.Printf("===================================================")
+
+			panicMutex.Lock()
+			panicUntil = time.Time{}
+			panicMutex.Unlock()
+		}
 	}
 }
 

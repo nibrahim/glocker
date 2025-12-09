@@ -15,6 +15,9 @@ enable_forbidden_programs: true
 # Self-healing and protection features
 enable_self_healing: false      # Monitors and re-applies protections every 30 seconds
 
+# How often to run the main enforcement loop (in seconds)
+enforce_interval_seconds: 60    # Default: 60 seconds (1 minute)
+
 tamper_detection:
   enabled: true
   check_interval_seconds: 30
@@ -132,6 +135,12 @@ extension_keywords:
 
 # Desktop notifications - shows popup notifications for various events
 notification_command: "notify-send -u {urgency} -i {icon} '{title}' '{message}'"
+
+# Panic mode - emergency offline enforcement
+# Suspends the system and re-suspends if woken early until duration expires
+# Use rtcwake for auto-wake after duration, or pm-suspend for manual wake
+panic_command: "rtcwake -m mem -s {duration_seconds}"
+# Alternative: panic_command: "pm-suspend"
 
 # Violation tracking - execute command when violations exceed threshold
 violation_tracking:

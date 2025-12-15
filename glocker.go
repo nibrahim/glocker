@@ -27,21 +27,24 @@ import (
 )
 
 const (
-	INSTALL_PATH        = "/usr/local/bin/glocker"
-	GLOCKER_CONFIG_FILE = "/etc/glocker/config.yaml"
-	HOSTS_MARKER_START  = "### GLOCKER START ###"
-	SUDOERS_PATH        = "/etc/sudoers"
-	SUDOERS_BACKUP      = "/etc/sudoers.glocker.backup"
-	SUDOERS_MARKER      = "# GLOCKER-MANAGED"
-	SYSTEMD_FILE        = "./extras/glocker.service"
-	GLOCKER_SOCK        = "/tmp/glocker.sock"
+	INSTALL_PATH           = "/usr/local/bin/glocker"
+	GLOCKER_CONFIG_FILE    = "/etc/glocker/config.yaml"
+	HOSTS_MARKER_START     = "### GLOCKER START ###"
+	SUDOERS_PATH           = "/etc/sudoers"
+	SUDOERS_BACKUP         = "/etc/sudoers.glocker.backup"
+	SUDOERS_MARKER         = "# GLOCKER-MANAGED"
+	SYSTEMD_FILE           = "./extras/glocker.service"
+	GLOCKER_SOCK           = "/tmp/glocker.sock"
+	EMAIL_COOLDOWN_MINUTES = 15 // Minimum time between emails for the same event type
 )
 
 // Global panic state (in-memory only, not persisted to disk)
 var (
-	panicUntil       time.Time
-	lastSuspendTime  time.Time
-	panicMutex       sync.RWMutex
+	panicUntil      time.Time
+	lastSuspendTime time.Time
+	panicMutex      sync.RWMutex
+	lastEmailTimes  = make(map[string]time.Time)
+	emailMutex      sync.RWMutex
 )
 
 type TimeWindow struct {
@@ -470,13 +473,13 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 				conn.Write([]byte("ERROR: Reason cannot be empty\n"))
 				continue
 			}
-			
+
 			// Validate reason before processing
 			if !isValidUnblockReason(config, reason) {
 				conn.Write([]byte(fmt.Sprintf("ERROR: Invalid reason '%s'. Valid reasons: %v\n", reason, config.Unblocking.Reasons)))
 				continue
 			}
-			
+
 			conn.Write([]byte("OK: Unblock request received\n"))
 			go processUnblockRequestWithReason(config, domains, reason)
 		case "block":
@@ -2462,7 +2465,7 @@ func sendSocketMessageWithDetailedResponse(action, payload string) {
 	// Check if the response indicates success or failure
 	if strings.HasPrefix(responseText, "OK:") {
 		log.Println("✓ Request accepted by server")
-		
+
 		// For unblock requests, provide additional context
 		if action == "unblock" {
 			parts := strings.SplitN(payload, ":", 2)
@@ -4196,8 +4199,8 @@ func monitorPanicMode(config *Config) {
 			}
 
 			// Update last suspend time after successful execution
-		// Use cmdStartTime (when command began) not time.Now() (when it finished)
-		// This ensures grace period includes the actual suspension duration
+			// Use cmdStartTime (when command began) not time.Now() (when it finished)
+			// This ensures grace period includes the actual suspension duration
 			panicMutex.Lock()
 			lastSuspendTime = cmdStartTime
 			panicMutex.Unlock()
@@ -4388,6 +4391,18 @@ func sendEmail(config *Config, subject, body string) error {
 		log.Printf("DEV MODE: Skipping email send - Subject: %s, Body: %s", subject, body)
 		return nil
 	}
+
+	// Rate limiting: check if we've sent this type of email recently
+	emailMutex.Lock()
+	lastSent, exists := lastEmailTimes[subject]
+	now := time.Now()
+	if exists && now.Sub(lastSent) < EMAIL_COOLDOWN_MINUTES*time.Minute {
+		emailMutex.Unlock()
+		log.Printf("Email rate limited - Subject: %s (last sent %v ago)", subject, now.Sub(lastSent).Round(time.Second))
+		return nil
+	}
+	lastEmailTimes[subject] = now
+	emailMutex.Unlock()
 
 	from := config.Accountability.FromEmail
 	to := config.Accountability.PartnerEmail

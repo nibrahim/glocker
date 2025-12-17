@@ -2000,13 +2000,6 @@ func isInTimeWindow(current, start, end string) bool {
 }
 
 // Additional security: make this process harder to kill
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func init() {
 	// Set process priority to make it less likely to be killed by OOM
 	syscall.Setpriority(syscall.PRIO_PROCESS, 0, -10)

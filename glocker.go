@@ -211,6 +211,7 @@ func main() {
 	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock (format: 'domain1,domain2:reason')")
 	addKeyword := flag.String("add-keyword", "", "Comma-separated list of keywords to add to both URL and content keyword lists")
 	panicMinutes := flag.Int("panic", 0, "Enter panic mode for N minutes (suspends system and re-suspends on early wake)")
+	lock := flag.Bool("lock", false, "Immediately lock sudoers access (ignores time windows)")
 	flag.Parse()
 
 	if *install {
@@ -282,6 +283,11 @@ func main() {
 
 	if *panicMinutes > 0 {
 		handlePanicRequest(&config, *panicMinutes)
+		return
+	}
+
+	if *lock {
+		handleLockRequest()
 		return
 	}
 
@@ -511,6 +517,9 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 			}
 			conn.Write([]byte(fmt.Sprintf("OK: Entering panic mode for %d minutes\n", minutes)))
 			go processPanicRequest(config, minutes)
+		case "lock":
+			conn.Write([]byte("OK: Lock request received\n"))
+			go processLockRequest(config, conn)
 		case "uninstall":
 			if len(parts) != 2 {
 				conn.Write([]byte("ERROR: Invalid format. Use 'uninstall:reason'\n"))
@@ -524,7 +533,7 @@ func handleSocketConnection(config *Config, conn net.Conn) {
 			conn.Write([]byte("OK: Uninstall request received\n"))
 			go processUninstallRequestWithCompletion(config, reason, conn)
 		default:
-			conn.Write([]byte("ERROR: Unknown action. Use 'block:domains', 'unblock:domains:reason', 'add-keyword:keywords', 'uninstall:reason', 'reload', or 'status'\n"))
+			conn.Write([]byte("ERROR: Unknown action. Use 'block:domains', 'unblock:domains:reason', 'add-keyword:keywords', 'lock', 'uninstall:reason', 'reload', or 'status'\n"))
 		}
 	}
 }
@@ -777,7 +786,7 @@ func runOnce(config *Config, dryRun bool) {
 
 	if config.Sudoers.Enabled {
 		slog.Debug("Updating sudoers configuration", "enabled", true)
-		if err := updateSudoers(config, now, dryRun); err != nil {
+		if err := updateSudoers(config, now, dryRun, false); err != nil {
 			log.Printf("ERROR updating sudoers: %v", err)
 		}
 	} else {
@@ -1321,13 +1330,18 @@ func replaceBlockedWithAllowed(config *Config) error {
 	return os.Chmod(SUDOERS_PATH, 0440)
 }
 
-func updateSudoers(config *Config, now time.Time, dryRun bool) error {
-	if !config.Sudoers.Enabled {
+func updateSudoers(config *Config, now time.Time, dryRun bool, forceBlock bool) error {
+	if !config.Sudoers.Enabled && !forceBlock {
 		return nil
 	}
 
 	// Determine if sudo should be allowed at this time
 	sudoAllowed := isSudoAllowed(config, now)
+
+	// Override with force block if requested
+	if forceBlock {
+		sudoAllowed = false
+	}
 
 	targetLine := config.Sudoers.BlockedSudoersLine
 	if sudoAllowed {
@@ -2516,6 +2530,10 @@ func handlePanicRequest(config *Config, minutes int) {
 	}
 
 	log.Printf("%s", strings.TrimSpace(response))
+}
+
+func handleLockRequest() {
+	sendSocketMessage("lock", "")
 }
 
 func handleUninstallRequest(reason string) {
@@ -3773,6 +3791,35 @@ func processReloadRequest(config *Config, conn net.Conn) {
 	}
 
 	conn.Write([]byte("COMPLETED: Configuration reloaded successfully\n"))
+}
+
+func processLockRequest(config *Config, conn net.Conn) {
+	slog.Info("Processing lock request - forcing sudoers block")
+
+	// Validate sudoers configuration
+	if config.Sudoers.User == "" || config.Sudoers.BlockedSudoersLine == "" {
+		response := "ERROR: Sudoers configuration incomplete\n"
+		conn.Write([]byte(response))
+		return
+	}
+
+	// Create backup if it doesn't exist
+	if err := createSudoersBackup(); err != nil {
+		response := fmt.Sprintf("ERROR: Failed to create backup: %v\n", err)
+		conn.Write([]byte(response))
+		return
+	}
+
+	// Force lock sudoers using existing updateSudoers with forceBlock=true
+	if err := updateSudoers(config, time.Now(), false, true); err != nil {
+		response := fmt.Sprintf("ERROR: Failed to lock sudoers: %v\n", err)
+		conn.Write([]byte(response))
+		return
+	}
+
+	response := "SUCCESS: Sudoers locked (ignoring time windows)\n"
+	conn.Write([]byte(response))
+	slog.Info("Sudoers successfully locked", "user", config.Sudoers.User)
 }
 
 func processUninstallRequestWithCompletion(config *Config, reason string, conn net.Conn) {

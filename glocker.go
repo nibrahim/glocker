@@ -1062,12 +1062,6 @@ func runningAsRoot(real bool) bool {
 	return uid == 0
 }
 
-func runningWithSudo() bool {
-	// Check if SUDO_USER environment variable is set
-	// This is set by sudo when a command is run with sudo
-	return os.Getenv("SUDO_USER") != ""
-}
-
 func copyFile(src, dst string) error {
 	sourceFile, err := os.Open(src)
 	if err != nil {

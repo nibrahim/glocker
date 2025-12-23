@@ -245,6 +245,152 @@ def parse_stevenblack(domain: str) -> str:
 
 
 # ==============================================================================
+# Source-Specific Functions: HaGeZi DoH/VPN/TOR/Proxy Bypass
+# ==============================================================================
+
+def fetch_hagezi() -> Tuple[List[str], str, Dict]:
+    """
+    Fetch HaGeZi DoH/VPN/TOR/Proxy Bypass blocklist.
+    Returns: (domains_list, timestamp, metadata_dict)
+    """
+    BLOCKLIST_URL = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/doh-vpn-proxy-bypass-onlydomains.txt"
+
+    # Download blocklist
+    print("  Fetching blocklist...")
+    content = fetch_url(BLOCKLIST_URL)
+
+    # Parse file
+    lines = content.decode('utf-8').splitlines()
+    timestamp = None
+    version = None
+    entry_count = None
+    domains = []
+
+    for line in lines:
+        line = line.strip()
+
+        # Extract metadata from header
+        if line.startswith('# Last modified:'):
+            # Format: # Last modified: 23 Dec 2025 10:32 UTC
+            date_str = line.replace('# Last modified:', '').strip()
+            try:
+                from datetime import datetime
+                # Parse the date string
+                dt = datetime.strptime(date_str, '%d %b %Y %H:%M %Z')
+                timestamp = dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+            except Exception as e:
+                print(f"  Warning: Could not parse date: {e}", file=sys.stderr)
+                timestamp = date_str
+
+        elif line.startswith('# Version:'):
+            version = line.replace('# Version:', '').strip()
+
+        elif line.startswith('# Number of entries:'):
+            match = re.search(r'# Number of entries:\s*(\d+)', line)
+            if match:
+                entry_count = int(match.group(1))
+
+        # Parse domain entries (non-comment, non-empty lines)
+        elif line and not line.startswith('#'):
+            # Filter out Mullvad VPN domains (legitimate VPN service)
+            if 'mullvad' not in line.lower():
+                domains.append(line)
+
+    if not timestamp:
+        print("  Error: Could not extract timestamp from blocklist", file=sys.stderr)
+        sys.exit(1)
+
+    if not domains:
+        print("  Error: No domains found in blocklist", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"  Last updated: {timestamp} ({len(domains)} domains)")
+    if entry_count:
+        filtered_count = entry_count - len(domains)
+        if filtered_count > 0:
+            print(f"  Filtered out {filtered_count} Mullvad VPN domains")
+
+    metadata = {
+        'count': len(domains),
+        'version': version,
+        'original_count': entry_count or len(domains)
+    }
+
+    return domains, timestamp, metadata
+
+
+def parse_hagezi(domain: str) -> str:
+    """Format domain in compact JSON YAML format."""
+    return f'  - {{\"name\": \"{domain}\", \"always_block\": true, \"absolute\": true}}'
+
+
+# ==============================================================================
+# Source-Specific Functions: UnblockStop Proxy Bypass
+# ==============================================================================
+
+def fetch_unblockstop() -> Tuple[List[str], str, Dict]:
+    """
+    Fetch UnblockStop proxy and filter-bypass sites blocklist.
+    Returns: (domains_list, timestamp, metadata_dict)
+    """
+    BLOCKLIST_URL = "https://raw.githubusercontent.com/tachnoraki/unblockstop/main/unblockstop.txt"
+
+    # Download blocklist
+    print("  Fetching blocklist...")
+    content = fetch_url(BLOCKLIST_URL)
+
+    # Parse file (Adblock Plus format)
+    lines = content.decode('utf-8').splitlines()
+    timestamp = None
+    version = None
+    domains = []
+
+    for line in lines:
+        line = line.strip()
+
+        # Extract metadata from header
+        if line.startswith('! Version:'):
+            version = line.replace('! Version:', '').strip()
+            # Version format: 202506091445 (YYYYMMDDHHmm)
+            try:
+                from datetime import datetime
+                dt = datetime.strptime(version, '%Y%m%d%H%M')
+                timestamp = dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+            except Exception:
+                # If parsing fails, use version as-is
+                timestamp = version
+
+        # Parse domain entries (Adblock format: ||domain.com^)
+        elif line.startswith('||') and line.endswith('^'):
+            # Extract domain from ||domain.com^
+            domain = line[2:-1]  # Remove || prefix and ^ suffix
+            if domain:  # Skip empty entries
+                domains.append(domain)
+
+    if not timestamp:
+        print("  Error: Could not extract timestamp/version from blocklist", file=sys.stderr)
+        sys.exit(1)
+
+    if not domains:
+        print("  Error: No domains found in blocklist", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"  Last updated: {timestamp} ({len(domains)} domains)")
+
+    metadata = {
+        'count': len(domains),
+        'version': version
+    }
+
+    return domains, timestamp, metadata
+
+
+def parse_unblockstop(domain: str) -> str:
+    """Format domain in compact JSON YAML format."""
+    return f'  - {{\"name\": \"{domain}\", \"always_block\": true, \"absolute\": true}}'
+
+
+# ==============================================================================
 # Source Registry
 # ==============================================================================
 
@@ -264,6 +410,22 @@ SOURCES = [
         'marker': '# Domains from https://github.com/StevenBlack/hosts',
         'fetch_func': fetch_stevenblack,
         'parse_func': parse_stevenblack,
+    },
+    {
+        'id': 3,
+        'name': 'HaGeZi DoH/VPN/TOR/Proxy Bypass',
+        'description': 'Blocks encrypted DNS, VPN, TOR, and proxy bypass methods (excludes Mullvad)',
+        'marker': '# Domains from https://github.com/hagezi/dns-blocklists (DoH/VPN/TOR/Proxy Bypass)',
+        'fetch_func': fetch_hagezi,
+        'parse_func': parse_hagezi,
+    },
+    {
+        'id': 4,
+        'name': 'UnblockStop Proxy Bypass',
+        'description': 'Blocks proxy and filter-bypass sites like CroxyProxy',
+        'marker': '# Domains from https://github.com/tachnoraki/unblockstop',
+        'fetch_func': fetch_unblockstop,
+        'parse_func': parse_unblockstop,
     },
     # Add more sources here following the same pattern
 ]

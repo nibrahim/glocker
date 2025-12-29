@@ -2636,6 +2636,49 @@ func handleStatusCommand(config *Config) {
 	runOnce(config, true)
 }
 
+// formatTimeWindows formats time windows compactly for display
+func formatTimeWindows(windows []TimeWindow) string {
+	if len(windows) == 0 {
+		return "none"
+	}
+
+	var parts []string
+	for _, window := range windows {
+		// Format days compactly
+		daysStr := ""
+		if len(window.Days) == 7 {
+			daysStr = "daily"
+		} else if len(window.Days) == 5 &&
+			containsAll(window.Days, []string{"Mon", "Tue", "Wed", "Thu", "Fri"}) {
+			daysStr = "Mon-Fri"
+		} else if len(window.Days) == 2 &&
+			containsAll(window.Days, []string{"Sat", "Sun"}) {
+			daysStr = "Sat-Sun"
+		} else {
+			daysStr = strings.Join(window.Days, ",")
+		}
+
+		// Combine days and time range
+		parts = append(parts, fmt.Sprintf("%s %s-%s", daysStr, window.Start, window.End))
+	}
+
+	return strings.Join(parts, "; ")
+}
+
+// containsAll checks if slice contains all elements
+func containsAll(slice []string, elements []string) bool {
+	found := make(map[string]bool)
+	for _, s := range slice {
+		found[s] = true
+	}
+	for _, e := range elements {
+		if !found[e] {
+			return false
+		}
+	}
+	return true
+}
+
 func getStatusResponse(config *Config) string {
 	var response strings.Builder
 	now := time.Now()
@@ -2674,18 +2717,6 @@ func getStatusResponse(config *Config) string {
 	}
 	response.WriteString("\n")
 
-	// Configuration summary
-	response.WriteString("Configuration:\n")
-	response.WriteString(fmt.Sprintf("  Hosts File Management: %v\n", config.EnableHosts))
-	response.WriteString(fmt.Sprintf("  Firewall Management: %v\n", config.EnableFirewall))
-	response.WriteString(fmt.Sprintf("  Forbidden Programs: %v\n", config.EnableForbiddenPrograms && config.ForbiddenPrograms.Enabled))
-	response.WriteString(fmt.Sprintf("  Sudoers Management: %v\n", config.Sudoers.Enabled))
-	response.WriteString(fmt.Sprintf("  Tamper Detection: %v\n", config.TamperDetection.Enabled))
-	response.WriteString(fmt.Sprintf("  Accountability: %v\n", config.Accountability.Enabled))
-	response.WriteString(fmt.Sprintf("  Web Tracking: %v\n", config.WebTracking.Enabled))
-	response.WriteString(fmt.Sprintf("  Content Monitoring: %v\n", config.ContentMonitoring.Enabled))
-	response.WriteString("\n")
-
 	// Count domains by type
 	alwaysBlockCount := 0
 	timeBasedCount := 0
@@ -2721,35 +2752,26 @@ func getStatusResponse(config *Config) string {
 		}
 	}
 
-	// Show unblock statistics
-	response.WriteString("\n")
-	response.WriteString("Unblock Statistics:\n")
-	if stats, err := parseUnblockLog(config); err != nil {
-		response.WriteString(fmt.Sprintf("  Error reading unblock log: %v\n", err))
-	} else {
-		response.WriteString(fmt.Sprintf("  Today: %d unblocks\n", stats.TodayCount))
-		response.WriteString(fmt.Sprintf("  Total: %d unblocks\n", stats.TotalCount))
-
-		if stats.TodayCount > 0 {
-			response.WriteString("  Today's unblocks:\n")
-			for _, entry := range stats.TodayEntries {
-				duration := entry.RestoreTime.Sub(entry.UnblockTime)
-				response.WriteString(fmt.Sprintf("    - %s at %s (reason: %s, duration: %v)\n",
-					entry.Domain, entry.UnblockTime.Format("15:04"), entry.Reason, duration.Round(time.Minute)))
+	// Show time-based blocked domains
+	if timeBasedCount > 0 {
+		response.WriteString("\n")
+		response.WriteString(fmt.Sprintf("Time-Based Domains (%d):\n", timeBasedCount))
+		for _, domain := range config.Domains {
+			if !domain.AlwaysBlock && len(domain.TimeWindows) > 0 {
+				response.WriteString(fmt.Sprintf("  %s: %s\n", domain.Name, formatTimeWindows(domain.TimeWindows)))
 			}
 		}
+	}
 
-		if len(stats.ReasonCounts) > 0 {
-			response.WriteString("  Most common reasons:\n")
-			for reason, count := range stats.ReasonCounts {
-				response.WriteString(fmt.Sprintf("    - %s: %d times\n", reason, count))
-			}
-		}
-
-		if len(stats.DomainCounts) > 0 {
-			response.WriteString("  Most unblocked domains:\n")
-			for domain, count := range stats.DomainCounts {
-				response.WriteString(fmt.Sprintf("    - %s: %d times\n", domain, count))
+	// Show forbidden programs with time windows
+	if config.EnableForbiddenPrograms && config.ForbiddenPrograms.Enabled && len(config.ForbiddenPrograms.Programs) > 0 {
+		response.WriteString("\n")
+		response.WriteString(fmt.Sprintf("Forbidden Programs (%d):\n", len(config.ForbiddenPrograms.Programs)))
+		for _, program := range config.ForbiddenPrograms.Programs {
+			if len(program.TimeWindows) > 0 {
+				response.WriteString(fmt.Sprintf("  %s: %s\n", program.Name, formatTimeWindows(program.TimeWindows)))
+			} else {
+				response.WriteString(fmt.Sprintf("  %s: always\n", program.Name))
 			}
 		}
 	}

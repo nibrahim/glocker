@@ -897,7 +897,7 @@ func installFirefoxExtension() error {
 	policiesContent := `{
   "policies": {
     "ExtensionSettings": {
-      "glocker@glocker.local": {
+      "glocker@nibrahim.net.in": {
         "installation_mode": "force_installed",
         "install_url": "file:///usr/local/share/glocker/glocker.xpi",
         "allowed_in_private_browsing": true

@@ -1,12 +1,12 @@
 {
   "manifest_version": 2,
   "name": "Glocker Content Monitor",
-  "version": "1.0",
+  "version": "2.0",
   "description": "Reports problematic content to Glocker",
   
   "browser_specific_settings": {
     "gecko": {
-      "id": "glocker@glocker.local"
+      "id": "glocker@nibrahim.net.in"
     }
   },
   

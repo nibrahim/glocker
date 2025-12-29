@@ -41,7 +41,6 @@ let backgroundCleanedUp = false;
 
 // Status tracking
 let glockerConnected = false;
-let extensionEnabled = true; // Extension enabled/disabled state
 
 // Compile keywords into regex patterns for performance
 function compileKeywordRegexes() {
@@ -75,24 +74,20 @@ function compileKeywordRegexes() {
   console.log('Compiled regex patterns for', urlKeywordRegexes.length, 'URL keywords,', contentKeywordRegexes.length, 'content keywords, and', whitelistRegexes.length, 'whitelist patterns');
 }
 
-// Update browser action icon based on connection status and enabled state
+// Update browser action icon based on connection status
 function updateStatusIcon() {
   let title, badgeText, badgeColor;
-  
-  if (!extensionEnabled) {
-    title = 'Glocker: Disabled (Click to Enable)';
-    badgeText = '✕';
-    badgeColor = '#9E9E9E'; // Gray for disabled
-  } else if (glockerConnected) {
-    title = 'Glocker: Active (Click to Disable)';
+
+  if (glockerConnected) {
+    title = 'Glocker: Active';
     badgeText = '●';
     badgeColor = '#4CAF50'; // Green for active
   } else {
-    title = 'Glocker: Disconnected (Click to Disable)';
+    title = 'Glocker: Disconnected';
     badgeText = '○';
     badgeColor = '#F44336'; // Red for disconnected
   }
-  
+
   browser.browserAction.setTitle({ title: title });
   browser.browserAction.setBadgeText({ text: badgeText });
   browser.browserAction.setBadgeBackgroundColor({ color: badgeColor });
@@ -224,38 +219,14 @@ function setupSSEConnection() {
   window.backgroundSSE = eventSource;
 }
 
-// Handle browser action clicks to toggle extension
-browser.browserAction.onClicked.addListener(() => {
-  extensionEnabled = !extensionEnabled;
-  console.log('Extension toggled:', extensionEnabled ? 'enabled' : 'disabled');
-  
-  // Save state to storage
-  browser.storage.local.set({ extensionEnabled: extensionEnabled });
-  
-  // Update icon
-  updateStatusIcon();
-  
-  // Broadcast state change to all content scripts
-  browser.tabs.query({}, (tabs) => {
-    tabs.forEach((tab) => {
-      browser.tabs.sendMessage(tab.id, {
-        type: 'EXTENSION_STATE_CHANGE',
-        enabled: extensionEnabled
-      }).catch(() => {
-        // Ignore errors for tabs that don't have content scripts
-      });
-    });
-  });
-});
 
 // Handle messages from content scripts
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'GET_KEYWORDS') {
-    // Send current keywords, whitelist, and enabled state to requesting content script
+    // Send current keywords and whitelist to requesting content script
     sendResponse({
       contentKeywords: contentKeywords,
-      whitelist: whitelist,
-      enabled: extensionEnabled
+      whitelist: whitelist
     });
   }
 });
@@ -286,26 +257,21 @@ function cleanupBackground() {
 // Set up cleanup for background script
 browser.runtime.onSuspend.addListener(cleanupBackground);
 
-// Load saved extension state on startup
-browser.storage.local.get(['extensionEnabled']).then((result) => {
-  if (result.extensionEnabled !== undefined) {
-    extensionEnabled = result.extensionEnabled;
-  }
-  console.log('Extension state loaded:', extensionEnabled ? 'enabled' : 'disabled');
-  
-  // Initialize status icon and keywords on startup
-  updateStatusIcon(); // Set initial state based on loaded preferences
-  
-  // Compile initial regex patterns
-  compileKeywordRegexes();
-  
-  fetchKeywords().then(() => {
-    // Set up centralized SSE connection for real-time updates
-    setupSSEConnection();
-  }).catch(() => {
-    // Still set up SSE connection even if initial fetch failed
-    setupSSEConnection();
-  });
+// Initialize on startup
+console.log('Extension starting - always active');
+
+// Initialize status icon and keywords on startup
+updateStatusIcon();
+
+// Compile initial regex patterns
+compileKeywordRegexes();
+
+fetchKeywords().then(() => {
+  // Set up centralized SSE connection for real-time updates
+  setupSSEConnection();
+}).catch(() => {
+  // Still set up SSE connection even if initial fetch failed
+  setupSSEConnection();
 });
 
 // Check if URL should be skipped for performance reasons
@@ -359,11 +325,6 @@ function setCachedResult(url, result) {
 
 browser.webRequest.onBeforeRequest.addListener(
   function(details) {
-    // Skip all processing if extension is disabled
-    if (!extensionEnabled) {
-      return;
-    }
-    
     const url = details.url.toLowerCase();
     
     // Skip checking localhost/127.0.0.1 URLs to prevent redirect loops

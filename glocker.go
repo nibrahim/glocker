@@ -974,7 +974,24 @@ func installGlocker() {
 	log.Println("╚════════════════════════════════════════════════╝")
 	log.Println()
 
-	// Step 1: Get current executable path
+	// Step 1: Validate config file before installation
+	log.Println("Validating configuration file...")
+	configData, err := os.ReadFile("conf/conf.yaml")
+	if err != nil {
+		log.Fatalf("Failed to read config file conf/conf.yaml: %v", err)
+	}
+
+	var config Config
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		log.Fatalf("Invalid YAML in config file conf/conf.yaml: %v", err)
+	}
+
+	if err := validateConfig(&config); err != nil {
+		log.Fatalf("Configuration validation failed: %v", err)
+	}
+	log.Println("✓ Configuration file is valid")
+
+	// Step 2: Get current executable path
 	exe, err := os.Executable()
 	if err != nil {
 		log.Fatalf("Failed to get executable path: %v", err)
@@ -985,7 +1002,7 @@ func installGlocker() {
 		log.Fatalf("Failed to resolve executable path: %v", err)
 	}
 
-	// Copy config file from conf/conf.yaml to target location
+	// Step 3: Copy config file from conf/conf.yaml to target location
 	log.Printf("Copying config file from conf/conf.yaml to %s", GLOCKER_CONFIG_FILE)
 
 	// Create config directory if it doesn't exist

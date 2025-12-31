@@ -64,10 +64,29 @@ function compileKeywordRegexes() {
   
   // Compile whitelist regexes
   whitelistRegexes = whitelist.map(pattern => {
-    const escapedPattern = pattern.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let regex;
+
+    // Check if pattern is a wildcard subdomain pattern (e.g., "*.atlassian.net")
+    if (pattern.startsWith('*.')) {
+      // Remove the "*." prefix
+      const domain = pattern.substring(2);
+      // Escape special regex characters in the domain
+      const escapedDomain = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      // Create regex to match any subdomain of the domain
+      // Pattern: one or more subdomain levels + . + domain
+      // Example: *.atlassian.net matches jira.atlassian.net, app.prod.atlassian.net, etc.
+      // but NOT atlassian.net itself
+      regex = new RegExp(`\\b[a-z0-9]([a-z0-9.-]*[a-z0-9])?\\.${escapedDomain}\\b`, 'i');
+    } else {
+      // Exact match - escape the entire pattern
+      const escapedPattern = pattern.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      regex = new RegExp(escapedPattern, 'i');
+    }
+
     return {
       pattern: pattern,
-      regex: new RegExp(escapedPattern, 'i')
+      regex: regex
     };
   });
   

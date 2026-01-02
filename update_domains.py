@@ -700,9 +700,11 @@ def main():
         return
 
     if len(sys.argv) != 2:
-        print("Usage: ./update_domains.py [source_id|strip]", file=sys.stderr)
-        print("       ./update_domains.py          - List all sources", file=sys.stderr)
-        print("       ./update_domains.py strip    - Remove all managed domain sources", file=sys.stderr)
+        progname = sys.argv[0]
+        help_message = f"""Usage: {progname} [source_id|strip]
+       {progname}          - List all sources", file=sys.stderr)
+       {progname} strip    - Remove all managed domain sources"""
+        print(help_message,file=sys.stderr)
         sys.exit(1)
 
     # Check for strip command

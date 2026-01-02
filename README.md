@@ -13,6 +13,7 @@ That's what glocker tries to do.
 
 # Strategies and features
 
+Glocker modifies the `/etc/hosts` file to redirect blocked domains to 127.0.0.1 (localhost). When users attempt to access these blocked domains, glocker detects and tracks these attempts as violations.
 
 
 

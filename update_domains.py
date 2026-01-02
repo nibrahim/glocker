@@ -22,9 +22,7 @@ from typing import Optional, Tuple, List, Dict, Callable
 CONFIG_FILE = "conf/conf.yaml"
 
 
-# ==============================================================================
-# Utility Functions
-# ==============================================================================
+## Utility Functions
 
 def fetch_url(url: str) -> bytes:
     """Fetch content from a URL."""
@@ -96,10 +94,7 @@ def find_domains_section_end(lines: list, start_idx: int) -> int:
 
     return len(lines)
 
-
-# ==============================================================================
-# Source-Specific Functions: Bon Appetit Porn Domains
-# ==============================================================================
+## Source-Specific Functions: Bon Appetit Porn Domains
 
 def fetch_bon_appetit() -> Tuple[List[str], str, Dict]:
     """
@@ -166,9 +161,7 @@ def parse_bon_appetit(domain: str) -> str:
     return f'  - {{"name": "{domain}", "always_block": true, "absolute": true}}'
 
 
-# ==============================================================================
-# Source-Specific Functions: StevenBlack Hosts
-# ==============================================================================
+## Source-Specific Functions: StevenBlack Hosts
 
 def fetch_stevenblack() -> Tuple[List[str], str, Dict]:
     """

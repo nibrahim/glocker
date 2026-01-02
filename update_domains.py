@@ -22,9 +22,7 @@ from typing import Optional, Tuple, List, Dict, Callable
 CONFIG_FILE = "conf/conf.yaml"
 
 
-# ==============================================================================
-# Utility Functions
-# ==============================================================================
+## Utility Functions
 
 def fetch_url(url: str) -> bytes:
     """Fetch content from a URL."""
@@ -96,10 +94,7 @@ def find_domains_section_end(lines: list, start_idx: int) -> int:
 
     return len(lines)
 
-
-# ==============================================================================
-# Source-Specific Functions: Bon Appetit Porn Domains
-# ==============================================================================
+## Source-Specific Functions: Bon Appetit Porn Domains
 
 def fetch_bon_appetit() -> Tuple[List[str], str, Dict]:
     """
@@ -166,9 +161,7 @@ def parse_bon_appetit(domain: str) -> str:
     return f'  - {{"name": "{domain}", "always_block": true, "absolute": true}}'
 
 
-# ==============================================================================
-# Source-Specific Functions: StevenBlack Hosts
-# ==============================================================================
+## Source-Specific Functions: StevenBlack Hosts
 
 def fetch_stevenblack() -> Tuple[List[str], str, Dict]:
     """
@@ -244,9 +237,7 @@ def parse_stevenblack(domain: str) -> str:
     return f'  - {{\"name\": \"{domain}\", \"always_block\": true, \"absolute\": true}}'
 
 
-# ==============================================================================
-# Source-Specific Functions: HaGeZi DoH/VPN/TOR/Proxy Bypass
-# ==============================================================================
+## Source-Specific Functions: HaGeZi DoH/VPN/TOR/Proxy Bypass
 
 def fetch_hagezi() -> Tuple[List[str], str, Dict]:
     """
@@ -324,9 +315,7 @@ def parse_hagezi(domain: str) -> str:
     return f'  - {{\"name\": \"{domain}\", \"always_block\": true, \"absolute\": true}}'
 
 
-# ==============================================================================
-# Source-Specific Functions: UnblockStop Proxy Bypass
-# ==============================================================================
+## Source-Specific Functions: UnblockStop Proxy Bypass
 
 def fetch_unblockstop() -> Tuple[List[str], str, Dict]:
     """
@@ -390,10 +379,7 @@ def parse_unblockstop(domain: str) -> str:
     return f'  - {{\"name\": \"{domain}\", \"always_block\": true, \"absolute\": true}}'
 
 
-# ==============================================================================
-# Source Registry
-# ==============================================================================
-
+## Source Registry
 SOURCES = [
     {
         'id': 1,
@@ -431,9 +417,7 @@ SOURCES = [
 ]
 
 
-# ==============================================================================
-# Generic Source Update Logic
-# ==============================================================================
+## Generic Source Update Logic
 
 def get_source_by_id(source_id: int) -> Optional[Dict]:
     """Get source definition by ID."""
@@ -590,10 +574,7 @@ def update_source(source_id: int):
         print(f"  Error writing config file: {e}", file=sys.stderr)
         sys.exit(1)
 
-
-# ==============================================================================
-# Strip Managed Sources
-# ==============================================================================
+## Strip Managed Sources
 
 def strip_managed_sources():
     """Remove all managed domain lists from the config file."""
@@ -659,11 +640,7 @@ def strip_managed_sources():
         print(f"  Error writing config file: {e}", file=sys.stderr)
         sys.exit(1)
 
-
-# ==============================================================================
-# Source Listing
-# ==============================================================================
-
+## Source Listing
 def list_sources():
     """Display all available sources with their current status."""
     # Read config file once
@@ -713,10 +690,7 @@ def list_sources():
     print("  ./update_domains.py <number>  - Update a specific source")
     print("  ./update_domains.py strip     - Remove all managed sources\n")
 
-
-# ==============================================================================
-# Main Entry Point
-# ==============================================================================
+## Main Entry Point
 
 def main():
     """Main execution function with CLI argument parsing."""

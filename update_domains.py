@@ -702,9 +702,9 @@ def main():
     if len(sys.argv) != 2:
         progname = sys.argv[0]
         help_message = f"""Usage: {progname} [source_id|strip]
-       {progname}          - List all sources", file=sys.stderr)
+       {progname}          - List all sources
        {progname} strip    - Remove all managed domain sources"""
-        print(help_message,file=sys.stderr)
+        print(help_message, file=sys.stderr)
         sys.exit(1)
 
     # Check for strip command

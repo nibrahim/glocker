@@ -1,0 +1,186 @@
+package config
+
+import (
+	"testing"
+)
+
+func TestValidateConfig_EmptyDomainName(t *testing.T) {
+	cfg := &Config{
+		Domains: []Domain{
+			{Name: ""}, // Invalid: empty domain name
+		},
+	}
+
+	err := ValidateConfig(cfg)
+	if err == nil {
+		t.Fatal("Expected validation error for empty domain name")
+	}
+	if err != ErrEmptyDomainName {
+		t.Errorf("Expected ErrEmptyDomainName, got: %v", err)
+	}
+}
+
+func TestValidateConfig_InvalidTimeFormat(t *testing.T) {
+	cfg := &Config{
+		Domains: []Domain{
+			{
+				Name: "example.com",
+				TimeWindows: []TimeWindow{
+					{
+						Start: "25:00", // Invalid hour
+						End:   "17:00",
+						Days:  []string{"Mon"},
+					},
+				},
+			},
+		},
+	}
+
+	err := ValidateConfig(cfg)
+	if err == nil {
+		t.Fatal("Expected validation error for invalid time format")
+	}
+}
+
+func TestValidateConfig_EmptyDays(t *testing.T) {
+	cfg := &Config{
+		Domains: []Domain{
+			{
+				Name: "example.com",
+				TimeWindows: []TimeWindow{
+					{
+						Start: "09:00",
+						End:   "17:00",
+						Days:  []string{}, // Invalid: no days specified
+					},
+				},
+			},
+		},
+	}
+
+	err := ValidateConfig(cfg)
+	if err == nil {
+		t.Fatal("Expected validation error for empty days")
+	}
+}
+
+func TestValidateConfig_ValidConfig(t *testing.T) {
+	cfg := &Config{
+		Domains: []Domain{
+			{
+				Name:        "example.com",
+				AlwaysBlock: true,
+			},
+			{
+				Name: "reddit.com",
+				TimeWindows: []TimeWindow{
+					{
+						Start: "09:00",
+						End:   "17:00",
+						Days:  []string{"Mon", "Tue", "Wed", "Thu", "Fri"},
+					},
+				},
+			},
+		},
+		HostsPath:       "/etc/hosts",
+		EnforceInterval: 60,
+	}
+
+	err := ValidateConfig(cfg)
+	if err != nil {
+		t.Fatalf("Expected valid config, got error: %v", err)
+	}
+}
+
+func TestValidateConfig_SudoersEnabled(t *testing.T) {
+	cfg := &Config{
+		Sudoers: SudoersConfig{
+			Enabled: true,
+			User:    "", // Invalid: empty user when enabled
+		},
+	}
+
+	err := ValidateConfig(cfg)
+	if err == nil {
+		t.Fatal("Expected validation error for sudoers config")
+	}
+}
+
+func TestValidateConfig_ForbiddenPrograms(t *testing.T) {
+	cfg := &Config{
+		EnableForbiddenPrograms: true,
+		ForbiddenPrograms: ForbiddenProgramsConfig{
+			Enabled: true,
+			Programs: []ForbiddenProgram{
+				{Name: ""}, // Invalid: empty program name
+			},
+		},
+	}
+
+	err := ValidateConfig(cfg)
+	if err == nil {
+		t.Fatal("Expected validation error for forbidden programs")
+	}
+	if err != ErrEmptyProgramName {
+		t.Errorf("Expected ErrEmptyProgramName, got: %v", err)
+	}
+}
+
+func TestIsValidTime(t *testing.T) {
+	tests := []struct {
+		time  string
+		valid bool
+	}{
+		{"09:00", true},
+		{"23:59", true},
+		{"00:00", true},
+		{"9:00", true},   // Also valid (Go's time.Parse accepts this)
+		{"25:00", false}, // Invalid hour
+		{"12:60", false}, // Invalid minute
+		{"abc", false},   // Not a time
+		{"", false},      // Empty string
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.time, func(t *testing.T) {
+			result := isValidTime(tt.time)
+			if result != tt.valid {
+				t.Errorf("isValidTime(%q) = %v, want %v", tt.time, result, tt.valid)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_FileNotFound(t *testing.T) {
+	// Note: This test assumes GlockerConfigFile doesn't exist or isn't accessible
+	// In a real test, we'd use dependency injection or test fixtures
+	_, err := LoadConfig()
+	if err == nil {
+		// If this passes, the config file actually exists, which is OK
+		t.Skip("Config file exists, skipping file not found test")
+	}
+}
+
+func TestSetupLogging(t *testing.T) {
+	tests := []struct {
+		logLevel string
+		// Note: We can't easily test the actual log level set,
+		// but we can ensure it doesn't panic
+	}{
+		{"debug"},
+		{"info"},
+		{"warn"},
+		{"warning"},
+		{"error"},
+		{"invalid"}, // Should default to info
+		{""},        // Should default to info
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.logLevel, func(t *testing.T) {
+			cfg := &Config{LogLevel: tt.logLevel}
+			// Should not panic
+			SetupLogging(cfg)
+		})
+	}
+}

@@ -274,6 +274,13 @@ func BroadcastSSE(message string) {
 	}
 }
 
+// GetSSEClientCount returns the number of connected SSE clients.
+func GetSSEClientCount() int {
+	sseClientsMutex.RLock()
+	defer sseClientsMutex.RUnlock()
+	return len(sseClients)
+}
+
 // Violation tracking functions
 
 // GetViolations returns a copy of the violations list.

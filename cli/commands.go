@@ -21,30 +21,127 @@ func GetStatusResponse(cfg *config.Config) string {
 	response.WriteString("║                 LIVE STATUS                    ║\n")
 	response.WriteString("╚════════════════════════════════════════════════╝\n\n")
 
-	// Current time and blocking state
+	// Current time and service status
 	response.WriteString(fmt.Sprintf("Current Time: %s\n", now.Format("2006-01-02 15:04:05")))
-	currentDay := now.Weekday().String()[:3]
-	currentTime := now.Format("15:04")
-	response.WriteString(fmt.Sprintf("Day/Time: %s %s\n\n", currentDay, currentTime))
+	response.WriteString(fmt.Sprintf("Service Status: Running\n"))
+	response.WriteString(fmt.Sprintf("Enforcement Interval: %d seconds\n\n", cfg.EnforceInterval))
 
-	// Domains currently being blocked
+	// Get currently blocked domains
 	blockedDomains := enforcement.GetDomainsToBlock(cfg, now)
-	response.WriteString(fmt.Sprintf("Currently Blocking: %d domains\n", len(blockedDomains)))
+	response.WriteString(fmt.Sprintf("Currently Blocked Domains: %d\n", len(blockedDomains)))
 
-	// Temporary unblocks
+	// Show temporary unblocks
 	unblocks := state.GetTempUnblocks()
-	response.WriteString(fmt.Sprintf("Temporary Unblocks: %d active\n", len(unblocks)))
+	activeUnblocks := 0
+	for _, unblock := range unblocks {
+		if now.Before(unblock.ExpiresAt) {
+			activeUnblocks++
+		}
+	}
+	response.WriteString(fmt.Sprintf("Temporary Unblocks: %d active\n", activeUnblocks))
 
-	// Panic mode status
+	if activeUnblocks > 0 {
+		response.WriteString("  Active temporary unblocks:\n")
+		for _, unblock := range unblocks {
+			if now.Before(unblock.ExpiresAt) {
+				remaining := unblock.ExpiresAt.Sub(now)
+				response.WriteString(fmt.Sprintf("    - %s (expires in %v)\n", unblock.Domain, remaining.Round(time.Minute)))
+			}
+		}
+	}
+	response.WriteString("\n")
+
+	// Count domains by type
+	alwaysBlockCount := 0
+	timeBasedCount := 0
+	loggedCount := 0
+	for _, domain := range cfg.Domains {
+		if domain.AlwaysBlock {
+			alwaysBlockCount++
+		} else {
+			timeBasedCount++
+		}
+		if domain.LogBlocking {
+			loggedCount++
+		}
+	}
+
+	response.WriteString(fmt.Sprintf("Total Domains: %d (%d always blocked, %d time-based, %d with detailed logging)\n",
+		len(cfg.Domains), alwaysBlockCount, timeBasedCount, loggedCount))
+
+	// Show violation tracking status
+	if cfg.ViolationTracking.Enabled {
+		violations := state.GetViolations()
+		recentViolations := 0
+		cutoff := now.Add(-time.Duration(cfg.ViolationTracking.TimeWindowMinutes) * time.Minute)
+		for _, v := range violations {
+			if v.Timestamp.After(cutoff) {
+				recentViolations++
+			}
+		}
+
+		response.WriteString("\n")
+		response.WriteString("Violation Tracking:\n")
+		response.WriteString(fmt.Sprintf("  Recent Violations: %d/%d (in last %d minutes)\n",
+			recentViolations, cfg.ViolationTracking.MaxViolations, cfg.ViolationTracking.TimeWindowMinutes))
+		response.WriteString(fmt.Sprintf("  Total Violations: %d\n", len(violations)))
+	}
+
+	// Show time-based blocked domains
+	if timeBasedCount > 0 {
+		response.WriteString("\n")
+		response.WriteString(fmt.Sprintf("Time-Based Domains (%d):\n", timeBasedCount))
+		count := 0
+		for _, domain := range cfg.Domains {
+			if !domain.AlwaysBlock && len(domain.TimeWindows) > 0 {
+				response.WriteString(fmt.Sprintf("  %s: %s\n", domain.Name, formatTimeWindows(domain.TimeWindows)))
+				count++
+				if count >= 10 {
+					response.WriteString(fmt.Sprintf("  ... and %d more\n", timeBasedCount-10))
+					break
+				}
+			}
+		}
+	}
+
+	// Show forbidden programs with time windows
+	if cfg.EnableForbiddenPrograms && cfg.ForbiddenPrograms.Enabled && len(cfg.ForbiddenPrograms.Programs) > 0 {
+		response.WriteString("\n")
+		response.WriteString(fmt.Sprintf("Forbidden Programs (%d):\n", len(cfg.ForbiddenPrograms.Programs)))
+		for _, program := range cfg.ForbiddenPrograms.Programs {
+			if len(program.TimeWindows) > 0 {
+				response.WriteString(fmt.Sprintf("  %s: %s\n", program.Name, formatTimeWindows(program.TimeWindows)))
+			} else {
+				response.WriteString(fmt.Sprintf("  %s: always\n", program.Name))
+			}
+		}
+	}
+
+	// Show panic mode status
 	panicUntil := state.GetPanicUntil()
 	if !panicUntil.IsZero() && now.Before(panicUntil) {
 		remaining := panicUntil.Sub(now)
-		response.WriteString(fmt.Sprintf("\n⚠️  PANIC MODE ACTIVE ⚠️\n"))
+		response.WriteString("\n")
+		response.WriteString("⚠️  PANIC MODE ACTIVE ⚠️\n")
 		response.WriteString(fmt.Sprintf("Time Remaining: %v\n", remaining.Round(time.Second)))
 	}
 
 	response.WriteString("\nEND\n")
 	return response.String()
+}
+
+// formatTimeWindows converts time windows to a readable string.
+func formatTimeWindows(windows []config.TimeWindow) string {
+	if len(windows) == 0 {
+		return "always"
+	}
+
+	var parts []string
+	for _, window := range windows {
+		days := strings.Join(window.Days, ",")
+		parts = append(parts, fmt.Sprintf("%s-%s (%s)", window.Start, window.End, days))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // ProcessReloadRequest reloads the configuration.

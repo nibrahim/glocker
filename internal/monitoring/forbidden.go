@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"glocker/config"
+	"glocker/internal/config"
 	"glocker/internal/state"
 	"glocker/internal/utils"
-	"glocker/notify"
+	"glocker/internal/notify"
 )
 
 // MonitorForbiddenPrograms continuously monitors and kills forbidden programs based on time windows.

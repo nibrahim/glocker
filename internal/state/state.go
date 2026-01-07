@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"glocker/config"
+	"glocker/internal/config"
 )
 
 // FileChecksum represents a file's checksum for tamper detection.

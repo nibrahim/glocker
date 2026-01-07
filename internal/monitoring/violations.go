@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"glocker/config"
+	"glocker/internal/config"
 	"glocker/internal/state"
-	"glocker/notify"
+	"glocker/internal/notify"
 )
 
 // RecordViolation adds a violation to the tracking system and checks thresholds.

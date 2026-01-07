@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"glocker/config"
-	"glocker/enforcement"
+	"glocker/internal/config"
+	"glocker/internal/enforcement"
 	"glocker/internal/state"
 	"glocker/internal/utils"
-	"glocker/monitoring"
-	"glocker/notify"
+	"glocker/internal/monitoring"
+	"glocker/internal/notify"
 )
 
 // HandleWebTrackingRequest processes incoming web tracking requests and enforces blocking.

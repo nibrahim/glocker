@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"glocker/config"
-	"glocker/enforcement"
+	"glocker/internal/config"
+	"glocker/internal/enforcement"
 	"glocker/internal/state"
 )
 

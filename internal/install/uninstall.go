@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"glocker/config"
+	"glocker/internal/config"
 )
 
 // RestoreSystemChanges removes all glocker modifications and restores the system to its original state.

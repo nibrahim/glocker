@@ -8,7 +8,7 @@ import (
 	"os"
 	"os/exec"
 
-	"glocker/config"
+	"glocker/internal/config"
 )
 
 // StartWebTrackingServer starts HTTP and HTTPS servers for web tracking and browser extension communication.

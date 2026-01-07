@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"glocker/config"
+	"glocker/internal/config"
 )
 
 // UpdateHosts updates the /etc/hosts file with blocked domains.

@@ -12,13 +12,13 @@ import (
 	"syscall"
 	"time"
 
-	"glocker/cli"
-	"glocker/config"
-	"glocker/enforcement"
-	"glocker/install"
-	"glocker/ipc"
-	"glocker/monitoring"
-	"glocker/web"
+	"glocker/internal/cli"
+	"glocker/internal/config"
+	"glocker/internal/enforcement"
+	"glocker/internal/install"
+	"glocker/internal/ipc"
+	"glocker/internal/monitoring"
+	"glocker/internal/web"
 )
 
 func main() {

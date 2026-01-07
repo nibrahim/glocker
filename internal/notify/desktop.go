@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"glocker/config"
+	"glocker/internal/config"
 )
 
 // SendNotification sends a desktop notification using the configured command.

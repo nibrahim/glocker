@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"glocker/config"
+	"glocker/internal/config"
 	"glocker/internal/state"
 )
 

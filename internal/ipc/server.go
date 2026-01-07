@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"glocker/cli"
-	"glocker/config"
-	"glocker/enforcement"
-	"glocker/install"
+	"glocker/internal/cli"
+	"glocker/internal/config"
+	"glocker/internal/enforcement"
+	"glocker/internal/install"
 )
 
 const SocketPath = "/tmp/glocker.sock"

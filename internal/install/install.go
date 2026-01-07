@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"glocker/config"
+	"glocker/internal/config"
 	"glocker/internal/utils"
 )
 

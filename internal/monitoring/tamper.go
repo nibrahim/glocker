@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"glocker/config"
+	"glocker/internal/config"
 	"glocker/internal/state"
-	"glocker/notify"
+	"glocker/internal/notify"
 )
 
 // MonitorTampering continuously monitors file checksums and system state for tampering.

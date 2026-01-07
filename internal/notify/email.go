@@ -9,7 +9,7 @@ import (
 
 	"github.com/mailgun/mailgun-go/v4"
 
-	"glocker/config"
+	"glocker/internal/config"
 	"glocker/internal/state"
 )
 

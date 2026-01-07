@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"glocker/config"
+	"glocker/internal/config"
 )
 
 // RunOnce performs a single enforcement cycle, applying all configured blocking mechanisms.

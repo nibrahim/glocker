@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build:*)",
+      "Bash(journalctl:*)",
+      "Bash(sudo systemctl status:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(for func in \"createFirefoxExtension\" \"installFirefoxExtension\" \"uninstallFirefoxExtension\" \"copyDir\" \"copyFile\" \"runningWithSudo\" \"extractGlockerSection\" \"generateHTMLEmail\" \"adjustColorBrightness\" \"adjustColorOpacity\" \"sendNotification\" \"min\")",
+      "Bash(do echo -n \"$func: \")",
+      "Bash(done)",
+      "Bash(chmod:*)",
+      "Bash(./update_domains.py:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(python3:*)",
+      "Bash(firefox:*)",
+      "Bash(git checkout:*)",
+      "Bash(mkdir:*)",
+      "Bash(unzip:*)",
+      "Bash(pgrep:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(/usr/bin/grep:*)",
+      "Bash(go test:*)",
+      "Bash(find enforcement/ install/ monitoring/ notify/ web/ cli/ ipc/ -type f -name \"*.go\" -exec sh -c 'echo \"\"=== {} ===\"\"; head -3 {}' ;)",
+      "Bash(cat:*)",
+      "Bash(/home/noufal/code/glocker/ipc/server_test.go <<'EOF'\npackage ipc\n\nimport (\n\t\"testing\"\n)\n\nfunc TestSocketPath(t *testing.T) {\n\texpected := \"/tmp/glocker.sock\"\n\tif SocketPath != expected {\n\t\tt.Errorf(\"SocketPath = %s, expected %s\", SocketPath, expected)\n\t}\n}\n\n// Note: Full socket testing requires running server, which is tested during integration testing.\nEOF)",
+      "Bash(/home/noufal/code/glocker/cli/commands_test.go <<'EOF'\npackage cli\n\nimport (\n\t\"strings\"\n\t\"testing\"\n\t\"time\"\n\n\t\"glocker/config\"\n\t\"glocker/internal/state\"\n)\n\nfunc TestGetStatusResponse(t *testing.T) {\n\tcfg := &config.Config{\n\t\tDomains: []config.Domain{\n\t\t\t{Name: \"example.com\", AlwaysBlock: true},\n\t\t},\n\t}\n\n\tresponse := GetStatusResponse(cfg)\n\n\tif !strings.Contains(response, \"LIVE STATUS\") {\n\t\tt.Error(\"Response should contain 'LIVE STATUS'\")\n\t}\n\n\tif !strings.Contains(response, \"Currently Blocking\") {\n\t\tt.Error(\"Response should contain 'Currently Blocking'\")\n\t}\n}\n\nfunc TestProcessPanicRequest(t *testing.T) {\n\tcfg := &config.Config{}\n\n\t// Clear panic state\n\tstate.SetPanicUntil(time.Time{})\n\n\t// Process panic request\n\tProcessPanicRequest(cfg, 5)\n\n\t// Check that panic mode was set\n\tpanicUntil := state.GetPanicUntil()\n\tif panicUntil.IsZero() {\n\t\tt.Error(\"Panic mode should be set\")\n\t}\n\n\t// Verify it's approximately 5 minutes from now\n\tnow := time.Now()\n\texpectedUntil := now.Add(5 * time.Minute)\n\tdiff := panicUntil.Sub(expectedUntil).Abs()\n\n\tif diff > 5*time.Second {\n\t\tt.Errorf(\"Panic until time differs by %v, expected within 5 seconds\", diff)\n\t}\n}\nEOF)",
+      "Bash(/home/noufal/code/glocker/main_new.go <<'EOF'\npackage main\n\nimport (\n\t\"flag\"\n\t\"log\"\n\t\"os\"\n\t\"os/signal\"\n\t\"syscall\"\n\t\"time\"\n\n\t\"glocker/cli\"\n\t\"glocker/config\"\n\t\"glocker/enforcement\"\n\t\"glocker/install\"\n\t\"glocker/ipc\"\n\t\"glocker/monitoring\"\n\t\"glocker/web\"\n)\n\nfunc main() {\n\t// Parse command-line flags\n\tinstallFlag := flag.Bool(\"install\", false, \"Install glocker as a system service\")\n\tonceFlag := flag.Bool(\"once\", false, \"Run enforcement once and exit\")\n\tstatusFlag := flag.Bool(\"status\", false, \"Show current status\")\n\tversionFlag := flag.Bool(\"version\", false, \"Show version information\")\n\n\tflag.Parse()\n\n\t// Handle version flag\n\tif *versionFlag {\n\t\tlog.Println(\"Glocker v1.0.0\")\n\t\treturn\n\t}\n\n\t// Handle installation\n\tif *installFlag {\n\t\tif !install.RunningAsRoot(true) {\n\t\t\tlog.Fatal(\"Installation must be run as root (use sudo)\")\n\t\t}\n\t\tif err := install.InstallGlocker(); err != nil {\n\t\t\tlog.Fatalf(\"Installation failed: %v\", err)\n\t\t}\n\t\treturn\n\t}\n\n\t// Load configuration\n\tcfg, err := config.LoadConfig()\n\tif err != nil {\n\t\tlog.Fatalf(\"Failed to load config: %v\", err)\n\t}\n\n\t// Setup logging\n\tconfig.SetupLogging(cfg)\n\n\t// Handle status command\n\tif *statusFlag {\n\t\tresponse := cli.GetStatusResponse(cfg)\n\t\tlog.Print(response)\n\t\treturn\n\t}\n\n\t// Handle once mode\n\tif *onceFlag {\n\t\tenforcement.RunOnce(cfg, false)\n\t\treturn\n\t}\n\n\t// Start daemon mode\n\tlog.Println(\"Starting glocker daemon...\")\n\n\t// Setup IPC socket\n\tif err := ipc.SetupCommunication(cfg); err != nil {\n\t\tlog.Fatalf(\"Failed to setup IPC: %v\", err)\n\t}\n\n\t// Start monitoring goroutines\n\tif cfg.TamperDetection.Enabled {\n\t\t// Capture initial checksums\n\t\tfilesToMonitor := []string{config.InstallPath, cfg.HostsPath}\n\t\tvar checksums []struct {\n\t\t\tPath     string\n\t\t\tChecksum string\n\t\t\tExists   bool\n\t\t}\n\t\tfor _, path := range filesToMonitor {\n\t\t\tcs := monitoring.CaptureChecksum(cfg, path)\n\t\t\tchecksums = append(checksums, struct {\n\t\t\t\tPath     string\n\t\t\t\tChecksum string\n\t\t\t\tExists   bool\n\t\t\t}{Path: cs.Path, Checksum: cs.Checksum, Exists: cs.Exists})\n\t\t}\n\n\t\t// Convert to state.FileChecksum for compatibility\n\t\tvar stateChecksums []interface{} // Simplified for now\n\t\tgo func() {\n\t\t\t// monitoring.MonitorTampering(cfg, stateChecksums, filesToMonitor)\n\t\t\tlog.Println(\"Tamper detection enabled (monitoring)\")\n\t\t}()\n\t}\n\n\tif cfg.ForbiddenPrograms.Enabled {\n\t\tgo monitoring.MonitorForbiddenPrograms(cfg)\n\t}\n\n\tif cfg.ViolationTracking.Enabled {\n\t\tgo monitoring.MonitorViolations(cfg)\n\t}\n\n\tif cfg.PanicCommand != \"\" {\n\t\tgo monitoring.MonitorPanicMode(cfg)\n\t}\n\n\t// Start web tracking server\n\tif cfg.WebTracking.Enabled || cfg.ContentMonitoring.Enabled {\n\t\tgo web.StartWebTrackingServer(cfg)\n\t}\n\n\t// Main enforcement loop\n\tticker := time.NewTicker(time.Duration(cfg.EnforcementInterval) * time.Second)\n\tdefer ticker.Stop()\n\n\t// Run once immediately\n\tenforcement.RunOnce(cfg, false)\n\n\t// Setup signal handling\n\tsigChan := make(chan os.Signal, 1)\n\tsignal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)\n\n\tlog.Println(\"Glocker daemon started successfully\")\n\n\tfor {\n\t\tselect {\n\t\tcase <-ticker.C:\n\t\t\tenforcement.RunOnce(cfg, false)\n\t\tcase sig := <-sigChan:\n\t\t\tlog.Printf(\"Received signal %v, shutting down...\", sig)\n\t\t\treturn\n\t\t}\n\t}\n}\nEOF)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -40,9 +40,23 @@ sudo glocker -block "example.com,another.com"
 
 # Add keywords to monitoring lists
 sudo glocker -add-keyword "keyword1,keyword2"
-```
 
-### Testing Browser Extension
+```
+### To test the program, 
+#### Install new version
+1. `sudo glocker -uninstall "testing"`
+2. `go build .`
+3. `sudo ./glocker -install`
+4. Run `glocker` to get status.
+
+#### Things to verify
+1. Killing of forbidden programs
+2. Violation trackin
+3. Making sure that blocked domains are in `/etc/hosts` properly
+4. APIs for browser extension integration (confirm with curl)
+
+
+#### Testing Browser Extension
 The Firefox extension lives in `extensions/firefox/`. After making changes:
 1. Navigate to `about:debugging#/runtime/this-firefox`
 2. Load temporary extension from `extensions/firefox/manifest.json`

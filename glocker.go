@@ -3407,26 +3407,34 @@ func monitorForbiddenPrograms(config *Config) {
 		for _, program := range config.ForbiddenPrograms.Programs {
 			// Check if any time window is active for this program
 			programForbidden := false
-			for _, window := range program.TimeWindows {
-				// For midnight-crossing windows (e.g., 20:00-05:00), we need to check both:
-				// - Current day for times >= start (e.g., Mon 20:00-23:59)
-				// - Previous day for times <= end (e.g., Tue 00:00-05:00 should check Mon)
-				dayToCheck := currentDay
-				if window.Start > window.End && currentTime <= window.End {
-					// We're in the early morning portion of a window that started yesterday
-					yesterday := now.AddDate(0, 0, -1).Weekday().String()[:3]
-					dayToCheck = yesterday
-					slog.Debug("Checking previous day for wraparound window", "current_day", currentDay, "checking_day", dayToCheck, "current_time", currentTime, "window", fmt.Sprintf("%s-%s", window.Start, window.End))
-				}
 
-				if !slices.Contains(window.Days, dayToCheck) {
-					continue
-				}
+			// If no time windows specified, block the program completely (always forbidden)
+			if len(program.TimeWindows) == 0 {
+				programForbidden = true
+				slog.Debug("Program has no time windows - blocking completely", "program", program.Name)
+			} else {
+				// Check time windows
+				for _, window := range program.TimeWindows {
+					// For midnight-crossing windows (e.g., 20:00-05:00), we need to check both:
+					// - Current day for times >= start (e.g., Mon 20:00-23:59)
+					// - Previous day for times <= end (e.g., Tue 00:00-05:00 should check Mon)
+					dayToCheck := currentDay
+					if window.Start > window.End && currentTime <= window.End {
+						// We're in the early morning portion of a window that started yesterday
+						yesterday := now.AddDate(0, 0, -1).Weekday().String()[:3]
+						dayToCheck = yesterday
+						slog.Debug("Checking previous day for wraparound window", "current_day", currentDay, "checking_day", dayToCheck, "current_time", currentTime, "window", fmt.Sprintf("%s-%s", window.Start, window.End))
+					}
 
-				if isInTimeWindow(currentTime, window.Start, window.End) {
-					programForbidden = true
-					slog.Debug("Program is forbidden in current time window", "program", program.Name, "window", fmt.Sprintf("%s-%s", window.Start, window.End), "day_checked", dayToCheck)
-					break
+					if !slices.Contains(window.Days, dayToCheck) {
+						continue
+					}
+
+					if isInTimeWindow(currentTime, window.Start, window.End) {
+						programForbidden = true
+						slog.Debug("Program is forbidden in current time window", "program", program.Name, "window", fmt.Sprintf("%s-%s", window.Start, window.End), "day_checked", dayToCheck)
+						break
+					}
 				}
 			}
 

@@ -9,9 +9,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"glocker/cli"
 	"glocker/config"
+	"glocker/enforcement"
+	"glocker/install"
 )
 
 const SocketPath = "/tmp/glocker.sock"
@@ -118,6 +121,29 @@ func HandleConnection(cfg *config.Config, conn net.Conn) {
 			}
 			conn.Write([]byte(fmt.Sprintf("OK: Entering panic mode for %d minutes\n", minutes)))
 			go cli.ProcessPanicRequest(cfg, minutes)
+		case "lock":
+			conn.Write([]byte("OK: Lock request received\n"))
+			go processLockRequest(cfg)
+		case "add-keyword":
+			if len(parts) != 2 {
+				conn.Write([]byte("ERROR: Invalid format. Use 'add-keyword:keywords'\n"))
+				continue
+			}
+			keywords := strings.TrimSpace(parts[1])
+			conn.Write([]byte("OK: Add keyword request received\n"))
+			go processAddKeywordRequest(cfg, keywords)
+		case "uninstall":
+			if len(parts) != 2 {
+				conn.Write([]byte("ERROR: Invalid format. Use 'uninstall:reason'\n"))
+				continue
+			}
+			reason := strings.TrimSpace(parts[1])
+			if reason == "" {
+				conn.Write([]byte("ERROR: Reason cannot be empty\n"))
+				continue
+			}
+			conn.Write([]byte("OK: Uninstall request received\n"))
+			go processUninstallRequest(cfg, reason, conn)
 		default:
 			conn.Write([]byte("ERROR: Unknown action\n"))
 		}
@@ -158,4 +184,61 @@ func SendSocketMessage(action, payload string) (string, error) {
 	}
 
 	return response.String(), nil
+}
+
+// processLockRequest forces sudoers to be locked immediately.
+func processLockRequest(cfg *config.Config) {
+	slog.Debug("Processing lock request - forcing sudoers block")
+
+	now := time.Now()
+	// Force block sudoers regardless of time windows (forceBlock = true)
+	if err := enforcement.UpdateSudoers(cfg, now, false, true); err != nil {
+		log.Printf("ERROR: Failed to lock sudoers: %v", err)
+	} else {
+		log.Println("✓ Sudoers access locked")
+	}
+}
+
+// processAddKeywordRequest adds keywords to both URL and content keyword lists.
+func processAddKeywordRequest(cfg *config.Config, keywordsStr string) {
+	slog.Debug("Processing add-keyword request", "keywords", keywordsStr)
+
+	keywords := strings.Split(keywordsStr, ",")
+	for _, keyword := range keywords {
+		keyword = strings.TrimSpace(keyword)
+		if keyword == "" {
+			continue
+		}
+
+		// Add to both URL and content keywords
+		cfg.ExtensionKeywords.URLKeywords = append(cfg.ExtensionKeywords.URLKeywords, keyword)
+		cfg.ExtensionKeywords.ContentKeywords = append(cfg.ExtensionKeywords.ContentKeywords, keyword)
+
+		log.Printf("KEYWORD ADDED: %s", keyword)
+	}
+
+	// TODO: Persist to config file and broadcast to SSE clients
+}
+
+// processUninstallRequest handles the uninstallation process.
+func processUninstallRequest(cfg *config.Config, reason string, conn net.Conn) {
+	log.Printf("Uninstall requested: %s", reason)
+
+	// Restore system changes
+	if err := install.RestoreSystemChanges(cfg); err != nil {
+		log.Printf("ERROR: Failed to restore system changes: %v", err)
+		conn.Write([]byte(fmt.Sprintf("ERROR: Failed to restore system: %v\n", err)))
+		return
+	}
+
+	// Send completion signal
+	conn.Write([]byte("COMPLETED: System changes restored\n"))
+
+	// Give time for the message to be sent
+	time.Sleep(100 * time.Millisecond)
+
+	log.Println("Uninstall complete. Exiting daemon.")
+
+	// Exit daemon
+	os.Exit(0)
 }

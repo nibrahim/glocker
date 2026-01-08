@@ -9,6 +9,7 @@ and checks timestamps to avoid redundant updates.
 Usage:
     ./update_domains.py          - List all available sources
     ./update_domains.py <id>     - Update from specific source
+    ./update_domains.py all      - Update from all sources sequentially
     ./update_domains.py strip    - Remove all managed sources (keeps manual domains)
 """
 
@@ -688,7 +689,45 @@ def list_sources():
 
     print("Usage:")
     print("  ./update_domains.py <number>  - Update a specific source")
+    print("  ./update_domains.py all       - Update all sources")
     print("  ./update_domains.py strip     - Remove all managed sources\n")
+
+## Update All Sources
+
+def update_all_sources():
+    """Update domains from all sources sequentially."""
+    print("\nUpdating all domain sources...\n")
+    print("=" * 60)
+
+    success_count = 0
+    error_count = 0
+    skipped_count = 0
+
+    for source in SOURCES:
+        print(f"\n[{source['id']}/{len(SOURCES)}] Processing: {source['name']}")
+        print("-" * 60)
+
+        try:
+            update_source(source['id'])
+            success_count += 1
+        except SystemExit as e:
+            # update_source() calls sys.exit() on errors
+            # Catch it and continue with next source
+            if e.code == 0:
+                # Exit code 0 means success or "already up to date"
+                skipped_count += 1
+            else:
+                error_count += 1
+                print(f"  ⚠️  Error updating source {source['id']}, continuing with next source...")
+
+    # Summary
+    print("\n" + "=" * 60)
+    print("Update Summary:")
+    print(f"  ✓ Successfully updated: {success_count}")
+    print(f"  ⊘ Already up to date: {skipped_count}")
+    if error_count > 0:
+        print(f"  ✗ Errors: {error_count}")
+    print("=" * 60 + "\n")
 
 ## Main Entry Point
 
@@ -701,11 +740,17 @@ def main():
 
     if len(sys.argv) != 2:
         progname = sys.argv[0]
-        help_message = f"""Usage: {progname} [source_id|strip]
+        help_message = f"""Usage: {progname} [source_id|all|strip]
        {progname}          - List all sources
+       {progname} all      - Update all sources
        {progname} strip    - Remove all managed domain sources"""
         print(help_message, file=sys.stderr)
         sys.exit(1)
+
+    # Check for all command
+    if sys.argv[1].lower() in ['all', '-all', '--all']:
+        update_all_sources()
+        return
 
     # Check for strip command
     if sys.argv[1].lower() == 'strip':
@@ -716,7 +761,7 @@ def main():
     try:
         source_id = int(sys.argv[1])
     except ValueError:
-        print(f"Error: Invalid source ID '{sys.argv[1]}'. Must be a number or 'strip'.", file=sys.stderr)
+        print(f"Error: Invalid source ID '{sys.argv[1]}'. Must be a number, 'all', or 'strip'.", file=sys.stderr)
         print("\nAvailable sources:")
         list_sources()
         sys.exit(1)

@@ -129,6 +129,7 @@ func killMatchingProcesses(cfg *config.Config, programName string) {
 	}
 
 	// Kill matching processes
+	violationRecorded := false // Track if we've recorded a violation for this program
 	for _, processes := range processGroups {
 		if len(processes) == 0 {
 			continue
@@ -137,9 +138,10 @@ func killMatchingProcesses(cfg *config.Config, programName string) {
 		proc := processes[0]
 		slog.Debug("Found forbidden process", "pid", proc.PID, "name", proc.Name)
 
-		// Record violation
-		if cfg.ViolationTracking.Enabled {
-			RecordViolation(cfg, "forbidden_program", proc.Name, fmt.Sprintf("PID: %s", proc.PID))
+		// Record violation only once per program name (not per subprocess)
+		if !violationRecorded && cfg.ViolationTracking.Enabled {
+			RecordViolation(cfg, "forbidden_program", programName, fmt.Sprintf("Killed %d process(es)", len(processGroups)))
+			violationRecorded = true
 		}
 
 		// Kill the process
@@ -147,15 +149,16 @@ func killMatchingProcesses(cfg *config.Config, programName string) {
 			killedProcesses = append(killedProcesses, fmt.Sprintf("%s (PID: %s)", proc.Name, proc.PID))
 			log.Printf("KILLED FORBIDDEN PROGRAM: %s (PID: %s) - matched filter: %s", proc.Name, proc.PID, programName)
 
-			// Send desktop notification
-			notify.SendNotification(cfg, "Glocker Alert",
-				fmt.Sprintf("Terminated forbidden program: %s", proc.Name),
-				"normal", "dialog-warning")
-
 			// Wait then force kill if still running
 			time.Sleep(2 * time.Second)
 			exec.Command("kill", "-9", proc.PID).Run()
 		}
+	}
+
+	// Send desktop notification once for all killed processes
+	if len(killedProcesses) > 0 {
+		message := fmt.Sprintf("Terminated forbidden program: %s (%d process(es))", programName, len(killedProcesses))
+		notify.SendNotification(cfg, "Glocker Alert", message, "normal", "dialog-warning")
 	}
 
 	// Send accountability email if processes were killed

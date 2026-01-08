@@ -69,7 +69,7 @@ func TestGetStatusResponse_WithExtensionKeywords(t *testing.T) {
 }
 
 func TestGetStatusResponse_WithManyKeywords(t *testing.T) {
-	// Test with more than 10 keywords to verify truncation
+	// Test with many keywords to verify all are shown
 	manyKeywords := []string{"k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8", "k9", "k10", "k11", "k12"}
 
 	cfg := &config.Config{
@@ -83,14 +83,16 @@ func TestGetStatusResponse_WithManyKeywords(t *testing.T) {
 
 	response := GetStatusResponse(cfg)
 
-	// Should show first 10 keywords and indicate there are more
-	if !strings.Contains(response, "... and 2 more") {
-		t.Error("Response should indicate there are more keywords")
+	// Should show all keywords (no truncation)
+	for _, keyword := range manyKeywords {
+		if !strings.Contains(response, keyword) {
+			t.Errorf("Response should contain keyword '%s'", keyword)
+		}
 	}
 
-	// Should show first keyword
-	if !strings.Contains(response, "k1") {
-		t.Error("Response should contain first keyword")
+	// Should show correct count
+	if !strings.Contains(response, "URL Keywords (12):") {
+		t.Error("Response should show correct URL Keywords count")
 	}
 }
 

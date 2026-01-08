@@ -123,25 +123,15 @@ func GetStatusResponse(cfg *config.Config) string {
 		response.WriteString("Extension Keywords:\n")
 
 		if len(cfg.ExtensionKeywords.URLKeywords) > 0 {
-			response.WriteString(fmt.Sprintf("  URL Keywords (%d): ", len(cfg.ExtensionKeywords.URLKeywords)))
-			if len(cfg.ExtensionKeywords.URLKeywords) <= 10 {
-				response.WriteString(strings.Join(cfg.ExtensionKeywords.URLKeywords, ", "))
-			} else {
-				response.WriteString(strings.Join(cfg.ExtensionKeywords.URLKeywords[:10], ", "))
-				response.WriteString(fmt.Sprintf(" ... and %d more", len(cfg.ExtensionKeywords.URLKeywords)-10))
-			}
-			response.WriteString("\n")
+			response.WriteString(fmt.Sprintf("  URL Keywords (%d): %s\n",
+				len(cfg.ExtensionKeywords.URLKeywords),
+				strings.Join(cfg.ExtensionKeywords.URLKeywords, ", ")))
 		}
 
 		if len(cfg.ExtensionKeywords.ContentKeywords) > 0 {
-			response.WriteString(fmt.Sprintf("  Content Keywords (%d): ", len(cfg.ExtensionKeywords.ContentKeywords)))
-			if len(cfg.ExtensionKeywords.ContentKeywords) <= 10 {
-				response.WriteString(strings.Join(cfg.ExtensionKeywords.ContentKeywords, ", "))
-			} else {
-				response.WriteString(strings.Join(cfg.ExtensionKeywords.ContentKeywords[:10], ", "))
-				response.WriteString(fmt.Sprintf(" ... and %d more", len(cfg.ExtensionKeywords.ContentKeywords)-10))
-			}
-			response.WriteString("\n")
+			response.WriteString(fmt.Sprintf("  Content Keywords (%d): %s\n",
+				len(cfg.ExtensionKeywords.ContentKeywords),
+				strings.Join(cfg.ExtensionKeywords.ContentKeywords, ", ")))
 		}
 
 		if len(cfg.ExtensionKeywords.Whitelist) > 0 {

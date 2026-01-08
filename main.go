@@ -269,6 +269,46 @@ func main() {
 		return
 	}
 
+	// Handle status command (try socket first, only load config if needed)
+	if *statusFlag {
+		// Try to get live status from socket first
+		if _, err := os.Stat(ipc.SocketPath); err == nil {
+			conn, err := net.Dial("unix", ipc.SocketPath)
+			if err == nil {
+				defer conn.Close()
+
+				log.Println("=== LIVE STATUS ===")
+				conn.Write([]byte("status\n"))
+
+				scanner := bufio.NewScanner(conn)
+				for scanner.Scan() {
+					line := scanner.Text()
+					if line == "END" {
+						break
+					}
+					fmt.Println(line)
+				}
+				return
+			}
+		}
+
+		// Socket not available, need to load config for static status
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			log.Fatalf("Failed to load config: %v", err)
+		}
+		config.SetupLogging(cfg)
+
+		log.Println("=== STATIC STATUS ===")
+		log.Println("(Service not running - showing configuration only)")
+		response := cli.GetStatusResponse(cfg)
+		fmt.Print(response)
+
+		// Also show dry-run enforcement
+		enforcement.RunOnce(cfg, true)
+		return
+	}
+
 	// Handle default behavior (no flags) - show status or help
 	if flag.NFlag() == 0 {
 		// Check if socket exists and daemon is running
@@ -301,7 +341,7 @@ func main() {
 		return
 	}
 
-	// Load configuration (needed for status, once, and enforce modes)
+	// Load configuration (needed for once and enforce modes)
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -309,40 +349,6 @@ func main() {
 
 	// Setup logging
 	config.SetupLogging(cfg)
-
-	// Handle status command
-	if *statusFlag {
-		// Try to get live status from socket first
-		if _, err := os.Stat(ipc.SocketPath); err == nil {
-			conn, err := net.Dial("unix", ipc.SocketPath)
-			if err == nil {
-				defer conn.Close()
-
-				log.Println("=== LIVE STATUS ===")
-				conn.Write([]byte("status\n"))
-
-				scanner := bufio.NewScanner(conn)
-				for scanner.Scan() {
-					line := scanner.Text()
-					if line == "END" {
-						break
-					}
-					fmt.Println(line)
-				}
-				return
-			}
-		}
-
-		// Socket not available, fall back to static status
-		log.Println("=== STATIC STATUS ===")
-		log.Println("(Service not running - showing configuration only)")
-		response := cli.GetStatusResponse(cfg)
-		fmt.Print(response)
-
-		// Also show dry-run enforcement
-		enforcement.RunOnce(cfg, true)
-		return
-	}
 
 	// Handle once mode
 	if *onceFlag {

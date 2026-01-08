@@ -117,6 +117,38 @@ func GetStatusResponse(cfg *config.Config) string {
 		}
 	}
 
+	// Show extension keywords
+	if len(cfg.ExtensionKeywords.URLKeywords) > 0 || len(cfg.ExtensionKeywords.ContentKeywords) > 0 {
+		response.WriteString("\n")
+		response.WriteString("Extension Keywords:\n")
+
+		if len(cfg.ExtensionKeywords.URLKeywords) > 0 {
+			response.WriteString(fmt.Sprintf("  URL Keywords (%d): ", len(cfg.ExtensionKeywords.URLKeywords)))
+			if len(cfg.ExtensionKeywords.URLKeywords) <= 10 {
+				response.WriteString(strings.Join(cfg.ExtensionKeywords.URLKeywords, ", "))
+			} else {
+				response.WriteString(strings.Join(cfg.ExtensionKeywords.URLKeywords[:10], ", "))
+				response.WriteString(fmt.Sprintf(" ... and %d more", len(cfg.ExtensionKeywords.URLKeywords)-10))
+			}
+			response.WriteString("\n")
+		}
+
+		if len(cfg.ExtensionKeywords.ContentKeywords) > 0 {
+			response.WriteString(fmt.Sprintf("  Content Keywords (%d): ", len(cfg.ExtensionKeywords.ContentKeywords)))
+			if len(cfg.ExtensionKeywords.ContentKeywords) <= 10 {
+				response.WriteString(strings.Join(cfg.ExtensionKeywords.ContentKeywords, ", "))
+			} else {
+				response.WriteString(strings.Join(cfg.ExtensionKeywords.ContentKeywords[:10], ", "))
+				response.WriteString(fmt.Sprintf(" ... and %d more", len(cfg.ExtensionKeywords.ContentKeywords)-10))
+			}
+			response.WriteString("\n")
+		}
+
+		if len(cfg.ExtensionKeywords.Whitelist) > 0 {
+			response.WriteString(fmt.Sprintf("  Whitelisted: %d domains\n", len(cfg.ExtensionKeywords.Whitelist)))
+		}
+	}
+
 	// Show panic mode status
 	panicUntil := state.GetPanicUntil()
 	if !panicUntil.IsZero() && now.Before(panicUntil) {

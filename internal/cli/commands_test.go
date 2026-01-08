@@ -27,6 +27,73 @@ func TestGetStatusResponse(t *testing.T) {
 	}
 }
 
+func TestGetStatusResponse_WithExtensionKeywords(t *testing.T) {
+	cfg := &config.Config{
+		Domains: []config.Domain{
+			{Name: "example.com", AlwaysBlock: true},
+		},
+		ExtensionKeywords: config.ExtensionKeywordsConfig{
+			URLKeywords:     []string{"gambling", "casino", "poker"},
+			ContentKeywords: []string{"bet", "jackpot"},
+			Whitelist:       []string{"example.com", "safe.com"},
+		},
+	}
+
+	response := GetStatusResponse(cfg)
+
+	// Should contain extension keywords section
+	if !strings.Contains(response, "Extension Keywords:") {
+		t.Error("Response should contain 'Extension Keywords:'")
+	}
+
+	// Should show URL keywords
+	if !strings.Contains(response, "URL Keywords (3):") {
+		t.Error("Response should show URL Keywords count")
+	}
+	if !strings.Contains(response, "gambling") || !strings.Contains(response, "casino") || !strings.Contains(response, "poker") {
+		t.Error("Response should contain all URL keywords")
+	}
+
+	// Should show content keywords
+	if !strings.Contains(response, "Content Keywords (2):") {
+		t.Error("Response should show Content Keywords count")
+	}
+	if !strings.Contains(response, "bet") || !strings.Contains(response, "jackpot") {
+		t.Error("Response should contain all content keywords")
+	}
+
+	// Should show whitelist count
+	if !strings.Contains(response, "Whitelisted: 2 domains") {
+		t.Error("Response should show whitelist count")
+	}
+}
+
+func TestGetStatusResponse_WithManyKeywords(t *testing.T) {
+	// Test with more than 10 keywords to verify truncation
+	manyKeywords := []string{"k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8", "k9", "k10", "k11", "k12"}
+
+	cfg := &config.Config{
+		Domains: []config.Domain{
+			{Name: "example.com", AlwaysBlock: true},
+		},
+		ExtensionKeywords: config.ExtensionKeywordsConfig{
+			URLKeywords: manyKeywords,
+		},
+	}
+
+	response := GetStatusResponse(cfg)
+
+	// Should show first 10 keywords and indicate there are more
+	if !strings.Contains(response, "... and 2 more") {
+		t.Error("Response should indicate there are more keywords")
+	}
+
+	// Should show first keyword
+	if !strings.Contains(response, "k1") {
+		t.Error("Response should contain first keyword")
+	}
+}
+
 func TestProcessPanicRequest(t *testing.T) {
 	cfg := &config.Config{}
 

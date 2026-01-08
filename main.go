@@ -7,7 +7,9 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -91,6 +93,40 @@ func main() {
 			log.Fatalf("Failed to read completion response: %v", err)
 		}
 		log.Printf("Completion: %s", strings.TrimSpace(completionResponse))
+
+		// Now stop and disable the systemd service (daemon has exited)
+		log.Println("Stopping and disabling glocker service...")
+		if err := exec.Command("systemctl", "stop", "glocker.service").Run(); err != nil {
+			log.Printf("   Warning: couldn't stop service: %v", err)
+		} else {
+			log.Println("✓ Service stopped")
+		}
+
+		if err := exec.Command("systemctl", "disable", "glocker.service").Run(); err != nil {
+			log.Printf("   Warning: couldn't disable service: %v", err)
+		} else {
+			log.Println("✓ Service disabled")
+		}
+
+		// Reload systemd daemon
+		log.Println("Reloading systemd daemon...")
+		if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
+			log.Printf("   Warning: couldn't reload systemd daemon: %v", err)
+		} else {
+			log.Println("✓ Systemd daemon reloaded")
+		}
+
+		// Print manual deletion commands
+		log.Println()
+		log.Println("🎉 Glocker system changes have been restored!")
+		log.Println("   All protections have been removed and original settings restored.")
+		log.Printf("   Uninstall reason: %s", *uninstallReason)
+		log.Println()
+		log.Println("To complete the uninstall, manually run these commands:")
+		log.Printf("   rm -f %s", "/etc/systemd/system/glocker.service")
+		log.Printf("   rm -f %s", config.InstallPath)
+		log.Printf("   rm -f %s", config.GlockerConfigFile)
+		log.Printf("   rmdir %s", filepath.Dir(config.GlockerConfigFile))
 
 		return
 	}

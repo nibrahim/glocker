@@ -141,6 +141,50 @@ func TestIsTempUnblocked(t *testing.T) {
 	state.SetTempUnblocks([]state.TempUnblock{})
 }
 
+func TestAbsoluteDomainIgnoresTempUnblock(t *testing.T) {
+	// Clear any existing temp unblocks
+	state.SetTempUnblocks([]state.TempUnblock{})
+
+	now := time.Now()
+
+	cfg := &config.Config{
+		Domains: []config.Domain{
+			{Name: "absolute.com", AlwaysBlock: true, Absolute: true},
+			{Name: "regular.com", AlwaysBlock: true, Absolute: false},
+		},
+	}
+
+	// Add temp unblocks for both domains
+	state.AddTempUnblock("absolute.com", now.Add(30*time.Minute))
+	state.AddTempUnblock("regular.com", now.Add(30*time.Minute))
+
+	// Get domains to block
+	blocked := GetDomainsToBlock(cfg, now)
+
+	// absolute.com should still be blocked (ignores temp unblock)
+	foundAbsolute := false
+	foundRegular := false
+	for _, domain := range blocked {
+		if domain == "absolute.com" {
+			foundAbsolute = true
+		}
+		if domain == "regular.com" {
+			foundRegular = true
+		}
+	}
+
+	if !foundAbsolute {
+		t.Error("absolute.com should be blocked even with temp unblock")
+	}
+
+	if foundRegular {
+		t.Error("regular.com should not be blocked with temp unblock")
+	}
+
+	// Clean up
+	state.SetTempUnblocks([]state.TempUnblock{})
+}
+
 func TestCleanupExpiredUnblocks(t *testing.T) {
 	// Clear any existing temp unblocks
 	state.SetTempUnblocks([]state.TempUnblock{})

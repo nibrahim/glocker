@@ -180,6 +180,20 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) {
 			continue
 		}
 
+		// Check if domain is absolute - cannot be unblocked
+		isAbsolute := false
+		for _, domain := range cfg.Domains {
+			if domain.Name == host && domain.Absolute {
+				isAbsolute = true
+				log.Printf("REJECTED: Cannot unblock %s - marked as absolute (cannot be temporarily unblocked)", host)
+				break
+			}
+		}
+
+		if isAbsolute {
+			continue
+		}
+
 		// Add to temporary unblocks
 		duration := time.Duration(cfg.Unblocking.TempUnblockTime) * time.Minute
 		if duration == 0 {

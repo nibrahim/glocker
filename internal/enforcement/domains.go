@@ -32,14 +32,17 @@ func GetDomainsToBlock(cfg *config.Config, now time.Time) []string {
 			slog.Debug("Evaluating domain", "domain", domain.Name, "always_block", domain.AlwaysBlock, "absolute", domain.Absolute)
 		}
 
-		// Check if domain is temporarily unblocked
-		if IsTempUnblocked(domain.Name, now) {
-			tempUnblockedCount++
-			if domain.LogBlocking {
-				slog.Debug("Domain is temporarily unblocked", "domain", domain.Name)
-				log.Printf("DOMAIN STATUS: %s -> temporarily unblocked (expires soon)", domain.Name)
+		// Absolute domains cannot be temporarily unblocked - skip temp unblock check
+		if !domain.Absolute {
+			// Check if domain is temporarily unblocked (only for non-absolute domains)
+			if IsTempUnblocked(domain.Name, now) {
+				tempUnblockedCount++
+				if domain.LogBlocking {
+					slog.Debug("Domain is temporarily unblocked", "domain", domain.Name)
+					log.Printf("DOMAIN STATUS: %s -> temporarily unblocked (expires soon)", domain.Name)
+				}
+				continue
 			}
-			continue
 		}
 
 		if domain.AlwaysBlock {

@@ -95,6 +95,23 @@ func RestoreSystemChanges(cfg *config.Config) error {
 		log.Println("✓ Socket file removed")
 	}
 
+	// Make service file mutable (daemon can't delete it while running)
+	log.Println("Making service file mutable...")
+	servicePath := "/etc/systemd/system/glocker.service"
+	if err := exec.Command("chattr", "-i", servicePath).Run(); err != nil {
+		log.Printf("   Warning: couldn't make service file mutable: %v", err)
+	} else {
+		log.Println("✓ Service file made mutable")
+	}
+
+	// Make binary mutable (daemon can't delete itself while running)
+	log.Println("Making glocker binary mutable...")
+	if err := exec.Command("chattr", "-i", config.InstallPath).Run(); err != nil {
+		log.Printf("   Warning: couldn't make binary mutable: %v", err)
+	} else {
+		log.Println("✓ Glocker binary made mutable")
+	}
+
 	log.Println("✓ System changes restored successfully")
 	return nil
 }

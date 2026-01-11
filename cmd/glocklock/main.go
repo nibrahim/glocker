@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -46,7 +47,7 @@ func main() {
 	// Determine effective duration
 	effectiveDuration := defaultDuration
 	if cfg != nil && cfg.ViolationTracking.LockDuration != "" {
-		if d, err := time.ParseDuration(cfg.ViolationTracking.LockDuration); err == nil {
+		if d, err := parseDuration(cfg.ViolationTracking.LockDuration); err == nil {
 			effectiveDuration = d
 		}
 	}
@@ -136,4 +137,20 @@ func loadConfig(path string) *config.Config {
 	}
 
 	return &cfg
+}
+
+// parseDuration parses a duration string.
+// Accepts Go duration format ("10s", "1m") or plain numbers (interpreted as seconds).
+func parseDuration(s string) (time.Duration, error) {
+	// First try Go's duration format
+	if d, err := time.ParseDuration(s); err == nil {
+		return d, nil
+	}
+
+	// Try parsing as plain number (seconds)
+	if secs, err := strconv.Atoi(s); err == nil {
+		return time.Duration(secs) * time.Second, nil
+	}
+
+	return 0, fmt.Errorf("invalid duration: %s", s)
 }

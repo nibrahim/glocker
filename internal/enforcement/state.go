@@ -22,6 +22,10 @@ type EnforcementState struct {
 	expectedHostsHash string
 	lastBlockedCount  int
 
+	// Time window domains - cached list of domains that have time windows (not always_block)
+	// This is a small list (typically <10) vs 800K always_block domains
+	timeWindowDomains []config.Domain
+
 	// Time window state - tracks which domains are in blocking period
 	lastTimeWindowState map[string]bool // domain -> was blocked by time window
 
@@ -49,6 +53,18 @@ var (
 func InitialEnforcement(cfg *config.Config) {
 	now := time.Now()
 	log.Printf("Performing initial enforcement at %s", now.Format("2006-01-02 15:04:05"))
+
+	// Cache the list of domains with time windows (small list, typically <10)
+	var timeWindowDomains []config.Domain
+	for _, domain := range cfg.Domains {
+		if !domain.AlwaysBlock && len(domain.TimeWindows) > 0 {
+			timeWindowDomains = append(timeWindowDomains, domain)
+		}
+	}
+	enforcementState.mu.Lock()
+	enforcementState.timeWindowDomains = timeWindowDomains
+	enforcementState.mu.Unlock()
+	log.Printf("Cached %d domains with time windows for state tracking", len(timeWindowDomains))
 
 	// Clean up expired temporary unblocks
 	CleanupExpiredUnblocks(now)
@@ -96,12 +112,19 @@ func InitialEnforcement(cfg *config.Config) {
 		SelfHeal(cfg)
 	}
 
-	// Store time window state for all domains
+	// Store time window state
 	enforcementState.mu.Lock()
-	enforcementState.lastTimeWindowState = buildTimeWindowState(cfg, now)
+	enforcementState.lastTimeWindowState = buildTimeWindowState(now)
 	enforcementState.lastTempUnblockCount = len(state.GetTempUnblocks())
 	enforcementState.lastEnforcement = now
 	enforcementState.mu.Unlock()
+
+	// Clear the large domain list from config to free memory
+	// We've cached time-window domains and have the hosts file checksum
+	// If we need to rebuild, we'll reload config from disk
+	domainCount := len(cfg.Domains)
+	cfg.Domains = nil
+	log.Printf("Cleared %d domains from memory (kept %d time-window domains cached)", domainCount, len(timeWindowDomains))
 
 	log.Println("Initial enforcement completed")
 }
@@ -135,7 +158,7 @@ func EnforcementCheck(cfg *config.Config) {
 
 	// 2. Check if time window state changed for any domain
 	if !hostsNeedsUpdate {
-		currentTimeWindowState := buildTimeWindowState(cfg, now)
+		currentTimeWindowState := buildTimeWindowState(now)
 		for domain, wasBlocked := range lastTimeWindowState {
 			if currentTimeWindowState[domain] != wasBlocked {
 				hostsNeedsUpdate = true
@@ -178,26 +201,34 @@ func EnforcementCheck(cfg *config.Config) {
 	// Apply updates if needed
 	if hostsNeedsUpdate {
 		log.Printf("Hosts update needed: %s", reason)
-		blockedDomains := GetDomainsToBlock(cfg, now)
 
-		if cfg.EnableHosts {
-			if err := UpdateHosts(cfg, blockedDomains, false); err != nil {
-				log.Printf("ERROR updating hosts: %v", err)
-			} else {
-				// Update stored hash
-				if hash, err := computeFileChecksum(cfg.HostsPath); err == nil {
-					enforcementState.mu.Lock()
-					enforcementState.expectedHostsHash = hash
-					enforcementState.lastBlockedCount = len(blockedDomains)
-					enforcementState.mu.Unlock()
+		// Reload config from disk to get full domain list
+		freshCfg, err := config.LoadConfig()
+		if err != nil {
+			log.Printf("ERROR: Failed to reload config for hosts update: %v", err)
+		} else {
+			blockedDomains := GetDomainsToBlock(freshCfg, now)
+
+			if freshCfg.EnableHosts {
+				if err := UpdateHosts(freshCfg, blockedDomains, false); err != nil {
+					log.Printf("ERROR updating hosts: %v", err)
+				} else {
+					// Update stored hash
+					if hash, err := computeFileChecksum(freshCfg.HostsPath); err == nil {
+						enforcementState.mu.Lock()
+						enforcementState.expectedHostsHash = hash
+						enforcementState.lastBlockedCount = len(blockedDomains)
+						enforcementState.mu.Unlock()
+					}
 				}
 			}
-		}
 
-		if cfg.EnableFirewall {
-			if err := UpdateFirewall(blockedDomains, false); err != nil {
-				log.Printf("ERROR updating firewall: %v", err)
+			if freshCfg.EnableFirewall {
+				if err := UpdateFirewall(blockedDomains, false); err != nil {
+					log.Printf("ERROR updating firewall: %v", err)
+				}
 			}
+			// freshCfg goes out of scope here, freeing the domain list
 		}
 	}
 
@@ -215,7 +246,7 @@ func EnforcementCheck(cfg *config.Config) {
 
 	// Update state
 	enforcementState.mu.Lock()
-	enforcementState.lastTimeWindowState = buildTimeWindowState(cfg, now)
+	enforcementState.lastTimeWindowState = buildTimeWindowState(now)
 	enforcementState.lastTempUnblockCount = currentTempUnblocks
 	if cfg.Sudoers.Enabled {
 		enforcementState.lastSudoersLocked = !isSudoersAllowed(cfg, now)
@@ -231,17 +262,17 @@ func ForceEnforcement(cfg *config.Config) {
 }
 
 // buildTimeWindowState creates a map of domain -> isBlockedByTimeWindow for current time.
-func buildTimeWindowState(cfg *config.Config, now time.Time) map[string]bool {
+// Uses the cached timeWindowDomains list (typically <10 domains) instead of iterating 800K domains.
+func buildTimeWindowState(now time.Time) map[string]bool {
 	result := make(map[string]bool)
 	currentDay := now.Weekday().String()[:3]
 	currentTime := now.Format("15:04")
 
-	for _, domain := range cfg.Domains {
-		if domain.AlwaysBlock {
-			// Always blocked domains don't change based on time
-			continue
-		}
+	enforcementState.mu.RLock()
+	domains := enforcementState.timeWindowDomains
+	enforcementState.mu.RUnlock()
 
+	for _, domain := range domains {
 		blocked := false
 		for _, window := range domain.TimeWindows {
 			// For midnight-crossing windows, check previous day for early morning times

@@ -185,8 +185,8 @@ func ProcessReloadRequest(cfg *config.Config) {
 	// Replace config pointer contents
 	*cfg = *newCfg
 
-	// Re-apply enforcement with new config
-	enforcement.RunOnce(cfg, false)
+	// Force full enforcement with new config
+	enforcement.ForceEnforcement(cfg)
 
 	log.Println("✓ Configuration reloaded successfully")
 }
@@ -228,8 +228,8 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) {
 		log.Printf("UNBLOCKED: %s (reason: %s) until %s", host, reason, expiresAt.Format("15:04:05"))
 	}
 
-	// Re-apply enforcement immediately
-	enforcement.RunOnce(cfg, false)
+	// Force enforcement to apply changes immediately
+	enforcement.ForceEnforcement(cfg)
 }
 
 // ProcessBlockRequest adds domains to the block list.
@@ -252,8 +252,8 @@ func ProcessBlockRequest(cfg *config.Config, hostsStr string) {
 		log.Printf("BLOCKED: %s", host)
 	}
 
-	// Re-apply enforcement immediately
-	enforcement.RunOnce(cfg, false)
+	// Force enforcement to apply changes immediately
+	enforcement.ForceEnforcement(cfg)
 }
 
 // ProcessPanicRequest activates panic mode for the specified duration.

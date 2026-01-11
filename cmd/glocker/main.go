@@ -27,8 +27,7 @@ func main() {
 	// Parse command-line flags
 	installFlag := flag.Bool("install", false, "Install glocker as a system service")
 	uninstallReason := flag.String("uninstall", "", "Uninstall Glocker and revert all changes (provide reason)")
-	onceFlag := flag.Bool("once", false, "Run enforcement once and exit")
-	enforceFlag := flag.Bool("enforce", false, "Run enforcement loop (runs continuously)")
+	daemonFlag := flag.Bool("daemon", false, "Run as daemon (for systemd service)")
 	statusFlag := flag.Bool("status", false, "Show current status and configuration")
 	reloadFlag := flag.Bool("reload", false, "Reload configuration from config file")
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
@@ -303,9 +302,6 @@ func main() {
 		log.Println("(Service not running - showing configuration only)")
 		response := cli.GetStatusResponse(cfg)
 		fmt.Print(response)
-
-		// Also show dry-run enforcement
-		enforcement.RunOnce(cfg, true)
 		return
 	}
 
@@ -341,7 +337,12 @@ func main() {
 		return
 	}
 
-	// Load configuration (needed for once and enforce modes)
+	// Daemon mode (started by systemd or manually with -daemon)
+	if !*daemonFlag {
+		log.Fatal("No matching command. Use -h for help, or -daemon to start the daemon.")
+	}
+
+	// Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -349,17 +350,6 @@ func main() {
 
 	// Setup logging
 	config.SetupLogging(cfg)
-
-	// Handle once mode
-	if *onceFlag {
-		enforcement.RunOnce(cfg, false)
-		return
-	}
-
-	// Start daemon mode (only with -enforce flag or if no flags matched)
-	if !*enforceFlag {
-		log.Fatal("No matching command. Use -h for help.")
-	}
 
 	log.Println("Starting glocker daemon...")
 
@@ -370,10 +360,8 @@ func main() {
 
 	// Start monitoring goroutines
 	if cfg.TamperDetection.Enabled {
-		// Tamper detection monitoring (simplified for now)
 		go func() {
 			log.Println("Tamper detection enabled")
-			// Full implementation would call monitoring.MonitorTampering
 		}()
 	}
 
@@ -394,12 +382,13 @@ func main() {
 		go web.StartWebTrackingServer(cfg)
 	}
 
-	// Main enforcement loop
+	// Initial enforcement - build hosts file and store state
+	log.Println("Performing initial enforcement...")
+	enforcement.InitialEnforcement(cfg)
+
+	// Main enforcement loop - only check for changes
 	ticker := time.NewTicker(time.Duration(cfg.EnforceInterval) * time.Second)
 	defer ticker.Stop()
-
-	// Run once immediately
-	enforcement.RunOnce(cfg, false)
 
 	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
@@ -410,7 +399,7 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			enforcement.RunOnce(cfg, false)
+			enforcement.EnforcementCheck(cfg)
 		case sig := <-sigChan:
 			log.Printf("Received signal %v, shutting down...", sig)
 			return

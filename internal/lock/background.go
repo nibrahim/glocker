@@ -87,9 +87,28 @@ func createBackgroundPixmap(conn *xgb.Conn, screen *xproto.ScreenInfo, img image
 	offsetX := (scaledWidth - screenWidth) / 2
 	offsetY := (scaledHeight - screenHeight) / 2
 
+	// Get max request length from X server (in 4-byte units)
+	// Default is 65535 * 4 = 262140 bytes, subtract some overhead for the request header
+	setup := xproto.Setup(conn)
+	maxReqLen := int(setup.MaximumRequestLength) * 4
+	if maxReqLen == 0 {
+		maxReqLen = 262140 // Default fallback
+	}
+	// Leave room for request header (about 28 bytes for PutImage)
+	maxDataLen := maxReqLen - 100
+
+	// Calculate max rows per chunk based on max data length
+	// Each pixel is 4 bytes (BGRX)
+	bytesPerRow := screenWidth * 4
+	rowHeight := maxDataLen / bytesPerRow
+	if rowHeight < 1 {
+		rowHeight = 1
+	}
+	if rowHeight > screenHeight {
+		rowHeight = screenHeight
+	}
+
 	// Convert image to X11 format and draw in chunks
-	// X11 PutImage has size limits, so we draw in rows
-	rowHeight := 64 // Process 64 rows at a time
 	for startY := 0; startY < screenHeight; startY += rowHeight {
 		endY := startY + rowHeight
 		if endY > screenHeight {

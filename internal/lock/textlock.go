@@ -15,6 +15,7 @@ type TextLocker struct {
 	conn   *xgb.Conn
 	screen *xproto.ScreenInfo
 	window xproto.Window
+	font   xproto.Font
 
 	targetText string
 	typedText  string
@@ -111,6 +112,14 @@ func (tl *TextLocker) Lock() error {
 	if err := tl.loadKeyboardMapping(); err != nil {
 		return fmt.Errorf("failed to load keyboard mapping: %w", err)
 	}
+
+	// Load a large font
+	font, err := loadLargeFont(conn)
+	if err != nil {
+		return fmt.Errorf("failed to load font: %w", err)
+	}
+	tl.font = font
+	defer closeFont(conn, tl.font)
 
 	// Create the lock window
 	if err := tl.createWindow(); err != nil {
@@ -403,13 +412,13 @@ func (tl *TextLocker) drawScreen() {
 	// Clear screen
 	xproto.ClearArea(tl.conn, false, tl.window, 0, 0, 0, 0)
 
-	// White text
+	// White text with large font
 	err = xproto.CreateGCChecked(
 		tl.conn,
 		gc,
 		xproto.Drawable(tl.window),
-		xproto.GcForeground,
-		[]uint32{0xffffff},
+		xproto.GcForeground|xproto.GcFont,
+		[]uint32{0xffffff, uint32(tl.font)},
 	).Check()
 	if err != nil {
 		return
@@ -417,8 +426,8 @@ func (tl *TextLocker) drawScreen() {
 
 	screenWidth := int(tl.screen.WidthInPixels)
 	screenHeight := int(tl.screen.HeightInPixels)
-	charWidth := 7  // Approximate width of fixed font character
-	lineHeight := 16 // Approximate line height
+	charWidth := CharWidth
+	lineHeight := LineHeight
 
 	// Calculate text wrapping width (80% of screen)
 	maxLineWidth := int(float64(screenWidth) * 0.8)
@@ -518,7 +527,7 @@ func (tl *TextLocker) drawText(gc xproto.Gcontext, text string, x, y int) {
 			chunk,
 		)
 		text = text[len(chunk):]
-		x += len(chunk) * 7 // Advance x position
+		x += len(chunk) * CharWidth // Advance x position
 	}
 }
 

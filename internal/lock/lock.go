@@ -17,6 +17,7 @@ type Locker struct {
 	conn     *xgb.Conn
 	screen   *xproto.ScreenInfo
 	window   xproto.Window
+	font     xproto.Font
 	duration time.Duration
 	message  string
 
@@ -92,6 +93,14 @@ func (l *Locker) Lock() error {
 		return fmt.Errorf("no screens found")
 	}
 	l.screen = &setup.Roots[0]
+
+	// Load a large font
+	font, err := loadLargeFont(conn)
+	if err != nil {
+		return fmt.Errorf("failed to load font: %w", err)
+	}
+	l.font = font
+	defer closeFont(conn, l.font)
 
 	// Create the lock window
 	if err := l.createWindow(); err != nil {
@@ -300,13 +309,13 @@ func (l *Locker) drawScreen(remaining time.Duration) {
 	}
 	defer xproto.FreeGC(l.conn, gc)
 
-	// White foreground for text
+	// White foreground with large font
 	err = xproto.CreateGCChecked(
 		l.conn,
 		gc,
 		xproto.Drawable(l.window),
-		xproto.GcForeground,
-		[]uint32{0xffffff},
+		xproto.GcForeground|xproto.GcFont,
+		[]uint32{0xffffff, uint32(l.font)},
 	).Check()
 	if err != nil {
 		return
@@ -321,9 +330,9 @@ func (l *Locker) drawScreen(remaining time.Duration) {
 	secs = secs % 60
 	timeStr := fmt.Sprintf("%s - Unlocking in %02d:%02d", l.message, mins, secs)
 
-	// Calculate center position (approximate)
+	// Calculate center position
 	textLen := len(timeStr)
-	x := (int(l.screen.WidthInPixels) - textLen*8) / 2 // Approximate 8 pixels per char
+	x := (int(l.screen.WidthInPixels) - textLen*CharWidth) / 2
 	y := int(l.screen.HeightInPixels) / 2
 
 	// Draw text

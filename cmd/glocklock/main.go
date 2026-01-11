@@ -1,13 +1,13 @@
-// Command lockdemo demonstrates the screen locker.
+// Command glocklock is a screen locker utility for glocker.
 //
 // Usage:
 //
 //	# Time-based lock (default)
-//	go run ./cmd/lockdemo -duration 10s
-//	go run ./cmd/lockdemo -duration 1m -message "Taking a break"
+//	go run ./cmd/glocklock -duration 10s
+//	go run ./cmd/glocklock -duration 1m -message "Taking a break"
 //
 //	# Text-based lock (requires typing text to unlock)
-//	go run ./cmd/lockdemo -text /path/to/file.txt
+//	go run ./cmd/glocklock -text /path/to/file.txt
 package main
 
 import (

@@ -17,7 +17,7 @@ Glocker modifies the `/etc/hosts` file to redirect blocked domains to 127.0.0.1 
 
 # Utilities
 
-## lockdemo
+## glocklock
 
 A standalone screen locker for X11 with two modes:
 
@@ -25,17 +25,17 @@ A standalone screen locker for X11 with two modes:
 
 ```bash
 # Lock for 10 seconds (default)
-go run ./cmd/lockdemo
+go run ./cmd/glocklock
 
 # Lock for 30 seconds with custom message
-go run ./cmd/lockdemo -duration 30s -message "Break time"
+go run ./cmd/glocklock -duration 30s -message "Break time"
 ```
 
 **Text-based mode**: Requires typing a specific text (from a file) to unlock. Useful for mindful pauses or ensuring the user reads important text before continuing.
 
 ```bash
 # Lock until text from file is typed correctly
-go run ./cmd/lockdemo -text /path/to/message.txt
+go run ./cmd/glocklock -text /path/to/message.txt
 ```
 
 The text-based mode displays the target text and shows typed characters in green (correct) or red (incorrect). Press Enter when the text matches to unlock, or Escape to clear and start over.

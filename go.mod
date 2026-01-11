@@ -3,6 +3,7 @@ module glocker
 go 1.24.4
 
 require (
+	github.com/jezek/xgb v1.2.0
 	github.com/mailgun/mailgun-go/v4 v4.23.0
 	gopkg.in/yaml.v3 v3.0.1
 )

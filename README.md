@@ -15,8 +15,19 @@ That's what glocker tries to do.
 
 Glocker modifies the `/etc/hosts` file to redirect blocked domains to 127.0.0.1 (localhost). When users attempt to access these blocked domains, glocker detects and tracks these attempts as violations.
 
+# Utilities
 
+## lockdemo
 
+A standalone timeout-based screen locker for X11. Unlike password-based lockers like i3lock, this locker automatically unlocks after a configurable timeout period.
+
+```bash
+# Lock for 10 seconds (default)
+go run ./cmd/lockdemo
+
+# Lock for 30 seconds with custom message
+go run ./cmd/lockdemo -duration 30s -message "Break time"
+```
 
 # Options
 A tool that I've found which does this reasonably well is [plucky](https://getplucky.net/). However, the strategies it employs are not particularly transparent and it's tedious to get it to work. It also has a dependency on a browser and doesn't support firefox which is what I use. I opened a support case and was told that my configuration wouldn't work. Hence, I let that go. 

@@ -55,6 +55,12 @@ func main() {
 		effectiveDuration = *duration // Command-line flag overrides config
 	}
 
+	// Get background image from config
+	var backgroundImage string
+	if cfg != nil && cfg.ViolationTracking.Background != "" {
+		backgroundImage = cfg.ViolationTracking.Background
+	}
+
 	// Text-based lock from mindful flag (uses config's mindful_text)
 	if *mindful {
 		if cfg == nil || cfg.ViolationTracking.MindfulText == "" {
@@ -66,7 +72,8 @@ func main() {
 		fmt.Println("Type the displayed text exactly and press Enter to unlock.")
 
 		locker, err := lock.NewTextLocker(lock.TextLockConfig{
-			TargetText: cfg.ViolationTracking.MindfulText,
+			TargetText:      cfg.ViolationTracking.MindfulText,
+			BackgroundImage: backgroundImage,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating text locker: %v\n", err)
@@ -87,7 +94,16 @@ func main() {
 		fmt.Printf("Locking screen until text from %s is typed...\n", *textFile)
 		fmt.Println("Type the displayed text exactly and press Enter to unlock.")
 
-		locker, err := lock.NewTextLockerFromFile(*textFile)
+		content, err := os.ReadFile(*textFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading text file: %v\n", err)
+			os.Exit(1)
+		}
+
+		locker, err := lock.NewTextLocker(lock.TextLockConfig{
+			TargetText:      string(content),
+			BackgroundImage: backgroundImage,
+		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating text locker: %v\n", err)
 			os.Exit(1)
@@ -107,8 +123,9 @@ func main() {
 	fmt.Println("The screen will automatically unlock when the timer expires.")
 
 	locker, err := lock.New(lock.Config{
-		Duration: effectiveDuration,
-		Message:  *message,
+		Duration:        effectiveDuration,
+		Message:         *message,
+		BackgroundImage: backgroundImage,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating locker: %v\n", err)

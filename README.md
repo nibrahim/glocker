@@ -26,6 +26,7 @@ A standalone screen locker for X11 with two modes. Reads defaults from `/etc/glo
 violation_tracking:
   lock_duration: "5m"  # Duration: "30s", "5m", or plain number (seconds, e.g., 300)
   mindful_text: "I will focus on my work and avoid distractions."
+  background: "/path/to/image.png"  # Optional PNG/JPG background (default: dark green)
 ```
 
 **Time-based mode**: Automatically unlocks after a configurable timeout period.

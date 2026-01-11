@@ -12,14 +12,17 @@ import (
 
 // TextLocker implements a screen locker that requires typing a specific text to unlock.
 type TextLocker struct {
-	conn   *xgb.Conn
-	screen *xproto.ScreenInfo
-	window xproto.Window
-	font   xproto.Font
+	conn     *xgb.Conn
+	screen   *xproto.ScreenInfo
+	window   xproto.Window
+	font     xproto.Font
+	bgPixmap xproto.Pixmap
 
-	targetText string
-	typedText  string
-	message    string
+	targetText      string
+	typedText       string
+	message         string
+	backgroundImage string
+	backgroundColor uint32
 
 	mu       sync.Mutex
 	running  bool
@@ -37,6 +40,10 @@ type TextLockConfig struct {
 	TargetText string
 	// Message is displayed above the target text.
 	Message string
+	// BackgroundImage is the path to a PNG/JPG background image.
+	BackgroundImage string
+	// BackgroundColor is the fallback background color (RGB format).
+	BackgroundColor uint32
 }
 
 // NewTextLocker creates a new text-based locker.
@@ -47,11 +54,16 @@ func NewTextLocker(cfg TextLockConfig) (*TextLocker, error) {
 	if cfg.Message == "" {
 		cfg.Message = "Type the following text to unlock:"
 	}
+	if cfg.BackgroundColor == 0 {
+		cfg.BackgroundColor = DefaultBackgroundColor
+	}
 
 	return &TextLocker{
-		targetText: cfg.TargetText,
-		message:    cfg.Message,
-		stopChan:   make(chan struct{}),
+		targetText:      cfg.TargetText,
+		message:         cfg.Message,
+		backgroundImage: cfg.BackgroundImage,
+		backgroundColor: cfg.BackgroundColor,
+		stopChan:        make(chan struct{}),
 	}, nil
 }
 
@@ -121,6 +133,16 @@ func (tl *TextLocker) Lock() error {
 	tl.font = font
 	defer closeFont(conn, tl.font)
 
+	// Load background image if specified
+	if tl.backgroundImage != "" {
+		if img, err := loadBackgroundImage(tl.backgroundImage); err == nil {
+			if pixmap, err := createBackgroundPixmap(conn, tl.screen, img); err == nil {
+				tl.bgPixmap = pixmap
+				defer xproto.FreePixmap(conn, tl.bgPixmap)
+			}
+		}
+	}
+
 	// Create the lock window
 	if err := tl.createWindow(); err != nil {
 		return fmt.Errorf("failed to create window: %w", err)
@@ -189,11 +211,26 @@ func (tl *TextLocker) createWindow() error {
 	}
 	tl.window = wid
 
-	mask := uint32(xproto.CwBackPixel | xproto.CwOverrideRedirect | xproto.CwEventMask)
-	values := []uint32{
-		0x1a1a2e, // Background color (dark blue)
-		1,        // Override redirect
-		xproto.EventMaskExposure | xproto.EventMaskKeyPress | xproto.EventMaskStructureNotify,
+	// Create a fullscreen window with either pixmap or color background
+	var mask uint32
+	var values []uint32
+
+	if tl.bgPixmap != 0 {
+		// Use background pixmap
+		mask = uint32(xproto.CwBackPixmap | xproto.CwOverrideRedirect | xproto.CwEventMask)
+		values = []uint32{
+			uint32(tl.bgPixmap),
+			1, // Override redirect
+			xproto.EventMaskExposure | xproto.EventMaskKeyPress | xproto.EventMaskStructureNotify,
+		}
+	} else {
+		// Use background color
+		mask = uint32(xproto.CwBackPixel | xproto.CwOverrideRedirect | xproto.CwEventMask)
+		values = []uint32{
+			tl.backgroundColor,
+			1, // Override redirect
+			xproto.EventMaskExposure | xproto.EventMaskKeyPress | xproto.EventMaskStructureNotify,
+		}
 	}
 
 	err = xproto.CreateWindowChecked(

@@ -84,6 +84,7 @@ type ViolationTrackingConfig struct {
 	ResetTime         string `yaml:"reset_time"`
 	LockDuration      string `yaml:"lock_duration"`  // Duration for screen lock (e.g., "1m", "5m")
 	MindfulText       string `yaml:"mindful_text"`   // Text that must be typed to unlock
+	Background        string `yaml:"background"`     // Path to PNG/JPG background image
 }
 
 // UnblockingConfig controls temporary unblocking behavior.

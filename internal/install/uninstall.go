@@ -112,6 +112,19 @@ func RestoreSystemChanges(cfg *config.Config) error {
 		log.Println("✓ Glocker binary made mutable")
 	}
 
+	// Remove glocklock binary
+	log.Println("Removing glocklock binary...")
+	if err := exec.Command("chattr", "-i", config.GlocklockInstallPath).Run(); err != nil {
+		log.Printf("   Warning: couldn't make glocklock mutable: %v", err)
+	}
+	if err := os.Remove(config.GlocklockInstallPath); err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("   Warning: couldn't remove glocklock: %v", err)
+		}
+	} else {
+		log.Println("✓ glocklock binary removed")
+	}
+
 	log.Println("✓ System changes restored successfully")
 	return nil
 }

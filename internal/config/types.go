@@ -3,6 +3,7 @@ package config
 // Constants used throughout the glocker application
 const (
 	InstallPath          = "/usr/local/bin/glocker"
+	GlocklockInstallPath = "/usr/local/bin/glocklock"
 	GlockerConfigFile    = "/etc/glocker/config.yaml"
 	HostsMarkerStart     = "### GLOCKER START ###"
 	SudoersPath          = "/etc/sudoers"

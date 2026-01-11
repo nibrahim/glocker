@@ -99,6 +99,33 @@ func InstallGlocker() error {
 	}
 	log.Println("✓ Binary installed with setuid permissions")
 
+	// Step 4b: Install glocklock binary
+	glocklockSource := filepath.Join(filepath.Dir(exePath), "glocklock")
+	if _, err := os.Stat(glocklockSource); err == nil {
+		log.Printf("Installing glocklock to %s", config.GlocklockInstallPath)
+		if err := utils.CopyFile(glocklockSource, config.GlocklockInstallPath); err != nil {
+			log.Printf("Warning: failed to copy glocklock binary: %v", err)
+		} else {
+			// Set ownership to root:root
+			if err := os.Chown(config.GlocklockInstallPath, 0, 0); err != nil {
+				log.Printf("Warning: couldn't set glocklock ownership to root: %v", err)
+			}
+
+			// Set permissions (755, no setuid needed)
+			if err := os.Chmod(config.GlocklockInstallPath, 0o755); err != nil {
+				log.Printf("Warning: failed to set glocklock permissions: %v", err)
+			}
+
+			// Set immutable on the installed binary
+			if err := exec.Command("chattr", "+i", config.GlocklockInstallPath).Run(); err != nil {
+				log.Printf("Warning: couldn't set immutable flag on glocklock: %v", err)
+			}
+			log.Println("✓ glocklock binary installed")
+		}
+	} else {
+		log.Printf("Note: glocklock binary not found at %s, skipping", glocklockSource)
+	}
+
 	// Step 5: Create and install Firefox extension
 	if err := CreateFirefoxExtension(); err != nil {
 		log.Printf("Warning: Failed to create Firefox extension: %v", err)

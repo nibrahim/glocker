@@ -82,6 +82,8 @@ type ViolationTrackingConfig struct {
 	Command           string `yaml:"command"`
 	ResetDaily        bool   `yaml:"reset_daily"`
 	ResetTime         string `yaml:"reset_time"`
+	LockDuration      string `yaml:"lock_duration"`  // Duration for screen lock (e.g., "1m", "5m")
+	MindfulText       string `yaml:"mindful_text"`   // Text that must be typed to unlock
 }
 
 // UnblockingConfig controls temporary unblocking behavior.

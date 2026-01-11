@@ -19,23 +19,36 @@ Glocker modifies the `/etc/hosts` file to redirect blocked domains to 127.0.0.1 
 
 ## glocklock
 
-A standalone screen locker for X11 with two modes:
+A standalone screen locker for X11 with two modes. Reads defaults from `/etc/glocker/config.yaml` (use `-conf` to specify a different path).
+
+**Configuration** (in `violation_tracking` section):
+```yaml
+violation_tracking:
+  lock_duration: "5m"  # Default duration for time-based lock
+  mindful_text: "I will focus on my work and avoid distractions."
+```
 
 **Time-based mode**: Automatically unlocks after a configurable timeout period.
 
 ```bash
-# Lock for 10 seconds (default)
-go run ./cmd/glocklock
+# Lock using duration from config (default: 1 minute if no config)
+glocklock
 
-# Lock for 30 seconds with custom message
-go run ./cmd/glocklock -duration 30s -message "Break time"
+# Lock for 5 minutes with custom message
+glocklock -duration 5m -message "Break time"
+
+# Use custom config file
+glocklock -conf /path/to/config.yaml
 ```
 
-**Text-based mode**: Requires typing a specific text (from a file) to unlock. Useful for mindful pauses or ensuring the user reads important text before continuing.
+**Text-based mode**: Requires typing a specific text to unlock. Useful for mindful pauses.
 
 ```bash
+# Lock until mindful_text from config is typed correctly
+glocklock -mindful
+
 # Lock until text from file is typed correctly
-go run ./cmd/glocklock -text /path/to/message.txt
+glocklock -text /path/to/message.txt
 ```
 
 The text-based mode displays the target text and shows typed characters in green (correct) or red (incorrect). Press Enter when the text matches to unlock, or Escape to clear and start over.

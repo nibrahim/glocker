@@ -477,9 +477,9 @@ func (tl *TextLocker) drawScreen() {
 	targetLines := wrapText(tl.targetText, maxCharsPerLine)
 	typedLines := wrapText(tl.typedText, maxCharsPerLine)
 
-	// Calculate starting Y position
+	// Calculate starting Y position (bottom of screen with 50px margin)
 	totalLines := 1 + len(targetLines) + 2 + len(typedLines) + 2 // message + target + gap + typed + status
-	startY := (screenHeight - totalLines*lineHeight) / 2
+	startY := screenHeight - totalLines*lineHeight - 50
 	if startY < lineHeight {
 		startY = lineHeight
 	}

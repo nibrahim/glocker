@@ -364,10 +364,10 @@ func (l *Locker) drawScreen(remaining time.Duration) {
 	secs = secs % 60
 	timeStr := fmt.Sprintf("%s - Unlocking in %02d:%02d", l.message, mins, secs)
 
-	// Calculate center position
+	// Calculate bottom position (with 50px margin from bottom)
 	textLen := len(timeStr)
 	x := (int(l.screen.WidthInPixels) - textLen*CharWidth) / 2
-	y := int(l.screen.HeightInPixels) / 2
+	y := int(l.screen.HeightInPixels) - 50
 
 	// Draw text
 	xproto.ImageText8(

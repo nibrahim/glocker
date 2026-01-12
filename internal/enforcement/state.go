@@ -112,10 +112,15 @@ func InitialEnforcement(cfg *config.Config) {
 		SelfHeal(cfg)
 	}
 
+	// Build time window state BEFORE acquiring lock to avoid deadlock
+	// (buildTimeWindowState also acquires RLock on the same mutex)
+	timeWindowState := buildTimeWindowState(now)
+	tempUnblockCount := len(state.GetTempUnblocks())
+
 	// Store time window state
 	enforcementState.mu.Lock()
-	enforcementState.lastTimeWindowState = buildTimeWindowState(now)
-	enforcementState.lastTempUnblockCount = len(state.GetTempUnblocks())
+	enforcementState.lastTimeWindowState = timeWindowState
+	enforcementState.lastTempUnblockCount = tempUnblockCount
 	enforcementState.lastEnforcement = now
 	enforcementState.mu.Unlock()
 
@@ -244,12 +249,16 @@ func EnforcementCheck(cfg *config.Config) {
 		SelfHeal(cfg)
 	}
 
+	// Build time window state BEFORE acquiring lock to avoid deadlock
+	timeWindowState := buildTimeWindowState(now)
+	sudoersLocked := cfg.Sudoers.Enabled && !isSudoersAllowed(cfg, now)
+
 	// Update state
 	enforcementState.mu.Lock()
-	enforcementState.lastTimeWindowState = buildTimeWindowState(now)
+	enforcementState.lastTimeWindowState = timeWindowState
 	enforcementState.lastTempUnblockCount = currentTempUnblocks
 	if cfg.Sudoers.Enabled {
-		enforcementState.lastSudoersLocked = !isSudoersAllowed(cfg, now)
+		enforcementState.lastSudoersLocked = sudoersLocked
 	}
 	enforcementState.lastEnforcement = now
 	enforcementState.mu.Unlock()

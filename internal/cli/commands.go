@@ -26,9 +26,9 @@ func GetStatusResponse(cfg *config.Config) string {
 	response.WriteString(fmt.Sprintf("Service Status: Running\n"))
 	response.WriteString(fmt.Sprintf("Enforcement Interval: %d seconds\n\n", cfg.EnforceInterval))
 
-	// Get currently blocked domains
-	blockedDomains := enforcement.GetDomainsToBlock(cfg, now)
-	response.WriteString(fmt.Sprintf("Currently Blocked Domains: %d\n", len(blockedDomains)))
+	// Get blocked domain count from enforcement state (cfg.Domains is cleared after startup)
+	_, blockedCount, _ := enforcement.GetEnforcementState()
+	timeWindowDomains := enforcement.GetTimeWindowDomains()
 
 	// Show temporary unblocks
 	unblocks := state.GetTempUnblocks()
@@ -38,6 +38,13 @@ func GetStatusResponse(cfg *config.Config) string {
 			activeUnblocks++
 		}
 	}
+
+	// Adjust blocked count for active temp unblocks
+	effectiveBlocked := blockedCount - activeUnblocks
+	if effectiveBlocked < 0 {
+		effectiveBlocked = 0
+	}
+	response.WriteString(fmt.Sprintf("Currently Blocked Domains: %d\n", effectiveBlocked))
 	response.WriteString(fmt.Sprintf("Temporary Unblocks: %d active\n", activeUnblocks))
 
 	if activeUnblocks > 0 {
@@ -51,23 +58,15 @@ func GetStatusResponse(cfg *config.Config) string {
 	}
 	response.WriteString("\n")
 
-	// Count domains by type
-	alwaysBlockCount := 0
-	timeBasedCount := 0
-	loggedCount := 0
-	for _, domain := range cfg.Domains {
-		if domain.AlwaysBlock {
-			alwaysBlockCount++
-		} else {
-			timeBasedCount++
-		}
-		if domain.LogBlocking {
-			loggedCount++
-		}
+	// Domain counts from cached data
+	timeBasedCount := len(timeWindowDomains)
+	alwaysBlockCount := blockedCount - timeBasedCount
+	if alwaysBlockCount < 0 {
+		alwaysBlockCount = 0
 	}
 
-	response.WriteString(fmt.Sprintf("Total Domains: %d (%d always blocked, %d time-based, %d with detailed logging)\n",
-		len(cfg.Domains), alwaysBlockCount, timeBasedCount, loggedCount))
+	response.WriteString(fmt.Sprintf("Total Domains: %d (%d always blocked, %d time-based)\n",
+		blockedCount, alwaysBlockCount, timeBasedCount))
 
 	// Show violation tracking status
 	if cfg.ViolationTracking.Enabled {
@@ -87,19 +86,15 @@ func GetStatusResponse(cfg *config.Config) string {
 		response.WriteString(fmt.Sprintf("  Total Violations: %d\n", len(violations)))
 	}
 
-	// Show time-based blocked domains
+	// Show time-based blocked domains (from cached data)
 	if timeBasedCount > 0 {
 		response.WriteString("\n")
 		response.WriteString(fmt.Sprintf("Time-Based Domains (%d):\n", timeBasedCount))
-		count := 0
-		for _, domain := range cfg.Domains {
-			if !domain.AlwaysBlock && len(domain.TimeWindows) > 0 {
-				response.WriteString(fmt.Sprintf("  %s: %s\n", domain.Name, formatTimeWindows(domain.TimeWindows)))
-				count++
-				if count >= 10 {
-					response.WriteString(fmt.Sprintf("  ... and %d more\n", timeBasedCount-10))
-					break
-				}
+		for i, domain := range timeWindowDomains {
+			response.WriteString(fmt.Sprintf("  %s: %s\n", domain.Name, formatTimeWindows(domain.TimeWindows)))
+			if i >= 9 && len(timeWindowDomains) > 10 {
+				response.WriteString(fmt.Sprintf("  ... and %d more\n", timeBasedCount-10))
+				break
 			}
 		}
 	}

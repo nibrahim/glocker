@@ -22,8 +22,8 @@ func TestGetStatusResponse(t *testing.T) {
 		t.Error("Response should contain 'LIVE STATUS'")
 	}
 
-	if !strings.Contains(response, "Currently Blocking") {
-		t.Error("Response should contain 'Currently Blocking'")
+	if !strings.Contains(response, "Currently Blocked Domains") {
+		t.Error("Response should contain 'Currently Blocked Domains'")
 	}
 }
 

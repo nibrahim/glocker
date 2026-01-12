@@ -255,10 +255,22 @@ func EnforcementCheck(cfg *config.Config) {
 	enforcementState.mu.Unlock()
 }
 
-// ForceEnforcement forces a full enforcement cycle, typically called after config reload.
+// ForceEnforcement forces a full enforcement cycle, typically called after config reload or unblock.
+// It reloads the config from disk since cfg.Domains was cleared after initial enforcement.
 func ForceEnforcement(cfg *config.Config) {
 	log.Println("Forcing full enforcement cycle...")
-	InitialEnforcement(cfg)
+
+	// Reload config from disk to get full domain list (cfg.Domains was cleared)
+	freshCfg, err := config.LoadConfig()
+	if err != nil {
+		log.Printf("ERROR: Failed to reload config for force enforcement: %v", err)
+		return
+	}
+
+	// Copy runtime-modified settings to fresh config
+	freshCfg.ExtensionKeywords = cfg.ExtensionKeywords // May have been modified via -add-keyword
+
+	InitialEnforcement(freshCfg)
 }
 
 // buildTimeWindowState creates a map of domain -> isBlockedByTimeWindow for current time.
@@ -339,4 +351,11 @@ func GetEnforcementState() (lastEnforcement time.Time, blockedCount int, hostsHa
 	enforcementState.mu.RLock()
 	defer enforcementState.mu.RUnlock()
 	return enforcementState.lastEnforcement, enforcementState.lastBlockedCount, enforcementState.expectedHostsHash
+}
+
+// GetTimeWindowDomains returns the cached list of domains with time windows.
+func GetTimeWindowDomains() []config.Domain {
+	enforcementState.mu.RLock()
+	defer enforcementState.mu.RUnlock()
+	return enforcementState.timeWindowDomains
 }

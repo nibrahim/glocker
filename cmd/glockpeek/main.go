@@ -643,8 +643,8 @@ func printDayDetails(day time.Time) {
 			// Check if this hour is egregious
 			hourLabel := e.Time.Format("15:00")
 			if hourCounts[hour] > avgHourViolations && avgHourViolations > 0 {
-				fmt.Printf("── %s%s %s (%d violations) %s ──\n",
-					colorInverse, hourLabel, colorRed, hourCounts[hour], colorReset)
+				fmt.Printf("── %s%s%s %s(%d violations)%s ──\n",
+					colorInverse, hourLabel, colorReset, colorRed, hourCounts[hour], colorReset)
 			} else {
 				fmt.Printf("── %s ──\n", hourLabel)
 			}
@@ -798,7 +798,7 @@ func printMonthDetails(month time.Time) {
 		// Format: "Jan 02 Mon | V:12 (afternoon, porn) | U:2 (work)"
 		datePart := fmt.Sprintf("%s %s", d.date.Format("Jan 02"), d.date.Format("Mon")[:3])
 		if isEgregious {
-			datePart = fmt.Sprintf("%s %s %s", colorInverse, datePart, colorReset)
+			datePart = fmt.Sprintf("%s%s%s", colorInverse, datePart, colorReset)
 		}
 		line := datePart + " │"
 

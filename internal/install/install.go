@@ -126,6 +126,27 @@ func InstallGlocker() error {
 		log.Printf("Note: glocklock binary not found at %s, skipping", glocklockSource)
 	}
 
+	// Step 4c: Install glockpeek binary (no tamper protection - just a log parser)
+	glockpeekSource := filepath.Join(filepath.Dir(exePath), "glockpeek")
+	if _, err := os.Stat(glockpeekSource); err == nil {
+		log.Printf("Installing glockpeek to %s", config.GlockpeekInstallPath)
+		if err := utils.CopyFile(glockpeekSource, config.GlockpeekInstallPath); err != nil {
+			log.Printf("Warning: failed to copy glockpeek binary: %v", err)
+		} else {
+			// Set ownership to root:root
+			if err := os.Chown(config.GlockpeekInstallPath, 0, 0); err != nil {
+				log.Printf("Warning: couldn't set glockpeek ownership to root: %v", err)
+			}
+			// Set permissions (755)
+			if err := os.Chmod(config.GlockpeekInstallPath, 0o755); err != nil {
+				log.Printf("Warning: failed to set glockpeek permissions: %v", err)
+			}
+			log.Println("✓ glockpeek binary installed")
+		}
+	} else {
+		log.Printf("Note: glockpeek binary not found at %s, skipping", glockpeekSource)
+	}
+
 	// Step 5: Create and install Firefox extension
 	if err := CreateFirefoxExtension(); err != nil {
 		log.Printf("Warning: Failed to create Firefox extension: %v", err)

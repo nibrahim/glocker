@@ -125,6 +125,16 @@ func RestoreSystemChanges(cfg *config.Config) error {
 		log.Println("✓ glocklock binary removed")
 	}
 
+	// Remove glockpeek binary (no immutable flag to remove)
+	log.Println("Removing glockpeek binary...")
+	if err := os.Remove(config.GlockpeekInstallPath); err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("   Warning: couldn't remove glockpeek: %v", err)
+		}
+	} else {
+		log.Println("✓ glockpeek binary removed")
+	}
+
 	log.Println("✓ System changes restored successfully")
 	return nil
 }

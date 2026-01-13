@@ -1,9 +1,10 @@
 .PHONY: build-all reinstall update-blocklists test
 
-# Build both glocker and glocklock binaries
+# Build all binaries
 build-all:
 	go build -o glocker ./cmd/glocker
 	go build -o glocklock ./cmd/glocklock
+	go build -o glockpeek ./cmd/glockpeek
 
 # Rebuild and reinstall
 reinstall: build-all

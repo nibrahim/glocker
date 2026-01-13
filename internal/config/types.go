@@ -4,6 +4,7 @@ package config
 const (
 	InstallPath          = "/usr/local/bin/glocker"
 	GlocklockInstallPath = "/usr/local/bin/glocklock"
+	GlockpeekInstallPath = "/usr/local/bin/glockpeek"
 	GlockerConfigFile    = "/etc/glocker/config.yaml"
 	HostsMarkerStart     = "### GLOCKER START ###"
 	SudoersPath          = "/etc/sudoers"

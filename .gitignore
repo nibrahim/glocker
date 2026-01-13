@@ -1,6 +1,7 @@
 # Built binaries (in root directory)
 /glocker
 /glocklock
+/glockpeek
 conf/conf.yaml
 .aider*
 extensions/firefox/web-ext-artifacts/

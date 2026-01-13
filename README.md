@@ -54,6 +54,45 @@ glocklock -text /path/to/message.txt
 
 The text-based mode displays the target text and shows typed characters in green (correct) or red (incorrect). Press Enter when the text matches to unlock, or Escape to clear and start over.
 
+## glockpeek
+
+A log analysis tool that provides summaries and insights from glocker's violation and unblock logs.
+
+**Summary mode** (default): Shows aggregated statistics with colored bar charts.
+
+```bash
+# Show all summaries (violations and unblocks)
+glockpeek
+
+# Show only violations or unblocks
+glockpeek -violations
+glockpeek -unblocks
+
+# Show top 10 items instead of default 5
+glockpeek -top 10
+```
+
+**Date filtering**: Narrow down to specific time periods.
+
+```bash
+# Filter by year, month, or specific date
+glockpeek -from 2024
+glockpeek -from 2024-06
+glockpeek -from 2024-06-15 -to 2024-06-30
+```
+
+**Detailed views**: See individual events for a specific day or aggregated daily stats for a month.
+
+```bash
+# Detailed timeline for a specific day
+glockpeek -day 2024-06-15
+
+# Daily aggregates for a month
+glockpeek -month 2024-06
+```
+
+The output uses colored bars (red for above average, green for below) and inverse video highlighting for egregious periods.
+
 # Options
 A tool that I've found which does this reasonably well is [plucky](https://getplucky.net/). However, the strategies it employs are not particularly transparent and it's tedious to get it to work. It also has a dependency on a browser and doesn't support firefox which is what I use. I opened a support case and was told that my configuration wouldn't work. Hence, I let that go. 
 

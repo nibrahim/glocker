@@ -28,7 +28,8 @@ func main() {
 	installFlag := flag.Bool("install", false, "Install glocker as a system service")
 	uninstallReason := flag.String("uninstall", "", "Uninstall Glocker and revert all changes (provide reason)")
 	daemonFlag := flag.Bool("daemon", false, "Run as daemon (for systemd service)")
-	statusFlag := flag.Bool("status", false, "Show current status and configuration")
+	statusFlag := flag.Bool("status", false, "Show runtime status (violations, temp unblocks, panic mode)")
+	infoFlag := flag.Bool("info", false, "Show configuration info (domains, programs, keywords)")
 	reloadFlag := flag.Bool("reload", false, "Reload configuration from config file")
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
 	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock (format: 'domain1,domain2:reason')")
@@ -276,7 +277,6 @@ func main() {
 			if err == nil {
 				defer conn.Close()
 
-				log.Println("=== LIVE STATUS ===")
 				conn.Write([]byte("status\n"))
 
 				scanner := bufio.NewScanner(conn)
@@ -298,9 +298,43 @@ func main() {
 		}
 		config.SetupLogging(cfg)
 
-		log.Println("=== STATIC STATUS ===")
 		log.Println("(Service not running - showing configuration only)")
 		response := cli.GetStatusResponse(cfg)
+		fmt.Print(response)
+		return
+	}
+
+	// Handle info command
+	if *infoFlag {
+		// Try to get info from socket first
+		if _, err := os.Stat(ipc.SocketPath); err == nil {
+			conn, err := net.Dial("unix", ipc.SocketPath)
+			if err == nil {
+				defer conn.Close()
+
+				conn.Write([]byte("info\n"))
+
+				scanner := bufio.NewScanner(conn)
+				for scanner.Scan() {
+					line := scanner.Text()
+					if line == "END" {
+						break
+					}
+					fmt.Println(line)
+				}
+				return
+			}
+		}
+
+		// Socket not available, need to load config for static info
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			log.Fatalf("Failed to load config: %v", err)
+		}
+		config.SetupLogging(cfg)
+
+		log.Println("(Service not running - showing configuration only)")
+		response := cli.GetInfoResponse(cfg)
 		fmt.Print(response)
 		return
 	}

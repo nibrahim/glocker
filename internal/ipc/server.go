@@ -78,6 +78,9 @@ func HandleConnection(cfg *config.Config, conn net.Conn) {
 		case "status":
 			response := cli.GetStatusResponse(cfg)
 			conn.Write([]byte(response))
+		case "info":
+			response := cli.GetInfoResponse(cfg)
+			conn.Write([]byte(response))
 		case "reload":
 			conn.Write([]byte("OK: Reload request received\n"))
 			go cli.ProcessReloadRequest(cfg)

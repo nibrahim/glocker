@@ -12,23 +12,21 @@ import (
 	"glocker/internal/state"
 )
 
-// GetStatusResponse returns a formatted status report for the system.
+// GetStatusResponse returns a formatted runtime status report.
 func GetStatusResponse(cfg *config.Config) string {
 	var response strings.Builder
 	now := time.Now()
 
 	response.WriteString("╔════════════════════════════════════════════════╗\n")
-	response.WriteString("║                 LIVE STATUS                    ║\n")
+	response.WriteString("║              RUNTIME STATUS                    ║\n")
 	response.WriteString("╚════════════════════════════════════════════════╝\n\n")
 
 	// Current time and service status
 	response.WriteString(fmt.Sprintf("Current Time: %s\n", now.Format("2006-01-02 15:04:05")))
-	response.WriteString(fmt.Sprintf("Service Status: Running\n"))
-	response.WriteString(fmt.Sprintf("Enforcement Interval: %d seconds\n\n", cfg.EnforceInterval))
+	response.WriteString(fmt.Sprintf("Service Status: Running\n\n"))
 
-	// Get blocked domain count from enforcement state (cfg.Domains is cleared after startup)
+	// Get blocked domain count from enforcement state
 	_, blockedCount, _ := enforcement.GetEnforcementState()
-	timeWindowDomains := enforcement.GetTimeWindowDomains()
 
 	// Show temporary unblocks
 	unblocks := state.GetTempUnblocks()
@@ -56,17 +54,6 @@ func GetStatusResponse(cfg *config.Config) string {
 			}
 		}
 	}
-	response.WriteString("\n")
-
-	// Domain counts from cached data
-	timeBasedCount := len(timeWindowDomains)
-	alwaysBlockCount := blockedCount - timeBasedCount
-	if alwaysBlockCount < 0 {
-		alwaysBlockCount = 0
-	}
-
-	response.WriteString(fmt.Sprintf("Total Domains: %d (%d always blocked, %d time-based)\n",
-		blockedCount, alwaysBlockCount, timeBasedCount))
 
 	// Show violation tracking status
 	if cfg.ViolationTracking.Enabled {
@@ -86,9 +73,43 @@ func GetStatusResponse(cfg *config.Config) string {
 		response.WriteString(fmt.Sprintf("  Total Violations: %d\n", len(violations)))
 	}
 
+	// Show panic mode status
+	panicUntil := state.GetPanicUntil()
+	if !panicUntil.IsZero() && now.Before(panicUntil) {
+		remaining := panicUntil.Sub(now)
+		response.WriteString("\n")
+		response.WriteString("⚠️  PANIC MODE ACTIVE ⚠️\n")
+		response.WriteString(fmt.Sprintf("Time Remaining: %v\n", remaining.Round(time.Second)))
+	}
+
+	response.WriteString("\nEND\n")
+	return response.String()
+}
+
+// GetInfoResponse returns a formatted configuration information report.
+func GetInfoResponse(cfg *config.Config) string {
+	var response strings.Builder
+
+	response.WriteString("╔════════════════════════════════════════════════╗\n")
+	response.WriteString("║            CONFIGURATION INFO                  ║\n")
+	response.WriteString("╚════════════════════════════════════════════════╝\n\n")
+
+	response.WriteString(fmt.Sprintf("Enforcement Interval: %d seconds\n", cfg.EnforceInterval))
+
+	// Get domain counts from enforcement state
+	_, blockedCount, _ := enforcement.GetEnforcementState()
+	timeWindowDomains := enforcement.GetTimeWindowDomains()
+	timeBasedCount := len(timeWindowDomains)
+	alwaysBlockCount := blockedCount - timeBasedCount
+	if alwaysBlockCount < 0 {
+		alwaysBlockCount = 0
+	}
+
+	response.WriteString(fmt.Sprintf("Total Domains: %d (%d always blocked, %d time-based)\n\n",
+		blockedCount, alwaysBlockCount, timeBasedCount))
+
 	// Show time-based blocked domains (from cached data)
 	if timeBasedCount > 0 {
-		response.WriteString("\n")
 		response.WriteString(fmt.Sprintf("Time-Based Domains (%d):\n", timeBasedCount))
 		for i, domain := range timeWindowDomains {
 			response.WriteString(fmt.Sprintf("  %s: %s\n", domain.Name, formatTimeWindows(domain.TimeWindows)))
@@ -97,11 +118,11 @@ func GetStatusResponse(cfg *config.Config) string {
 				break
 			}
 		}
+		response.WriteString("\n")
 	}
 
 	// Show forbidden programs with time windows
 	if cfg.EnableForbiddenPrograms && cfg.ForbiddenPrograms.Enabled && len(cfg.ForbiddenPrograms.Programs) > 0 {
-		response.WriteString("\n")
 		response.WriteString(fmt.Sprintf("Forbidden Programs (%d):\n", len(cfg.ForbiddenPrograms.Programs)))
 
 		// Separate always-blocked and time-windowed programs
@@ -125,11 +146,11 @@ func GetStatusResponse(cfg *config.Config) string {
 		for _, program := range timeWindowed {
 			response.WriteString(fmt.Sprintf("  %s: %s\n", program.Name, formatTimeWindows(program.TimeWindows)))
 		}
+		response.WriteString("\n")
 	}
 
 	// Show extension keywords
 	if len(cfg.ExtensionKeywords.URLKeywords) > 0 || len(cfg.ExtensionKeywords.ContentKeywords) > 0 {
-		response.WriteString("\n")
 		response.WriteString("Extension Keywords:\n")
 
 		if len(cfg.ExtensionKeywords.URLKeywords) > 0 {
@@ -147,15 +168,6 @@ func GetStatusResponse(cfg *config.Config) string {
 		if len(cfg.ExtensionKeywords.Whitelist) > 0 {
 			response.WriteString(fmt.Sprintf("  Whitelisted: %d domains\n", len(cfg.ExtensionKeywords.Whitelist)))
 		}
-	}
-
-	// Show panic mode status
-	panicUntil := state.GetPanicUntil()
-	if !panicUntil.IsZero() && now.Before(panicUntil) {
-		remaining := panicUntil.Sub(now)
-		response.WriteString("\n")
-		response.WriteString("⚠️  PANIC MODE ACTIVE ⚠️\n")
-		response.WriteString(fmt.Sprintf("Time Remaining: %v\n", remaining.Round(time.Second)))
 	}
 
 	response.WriteString("\nEND\n")

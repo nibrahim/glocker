@@ -103,12 +103,27 @@ func GetStatusResponse(cfg *config.Config) string {
 	if cfg.EnableForbiddenPrograms && cfg.ForbiddenPrograms.Enabled && len(cfg.ForbiddenPrograms.Programs) > 0 {
 		response.WriteString("\n")
 		response.WriteString(fmt.Sprintf("Forbidden Programs (%d):\n", len(cfg.ForbiddenPrograms.Programs)))
+
+		// Separate always-blocked and time-windowed programs
+		var alwaysBlocked []string
+		var timeWindowed []config.ForbiddenProgram
+
 		for _, program := range cfg.ForbiddenPrograms.Programs {
 			if len(program.TimeWindows) > 0 {
-				response.WriteString(fmt.Sprintf("  %s: %s\n", program.Name, formatTimeWindows(program.TimeWindows)))
+				timeWindowed = append(timeWindowed, program)
 			} else {
-				response.WriteString(fmt.Sprintf("  %s: always\n", program.Name))
+				alwaysBlocked = append(alwaysBlocked, program.Name)
 			}
+		}
+
+		// Show always-blocked programs on one line
+		if len(alwaysBlocked) > 0 {
+			response.WriteString(fmt.Sprintf("  always: %s\n", strings.Join(alwaysBlocked, ", ")))
+		}
+
+		// Show time-windowed programs individually
+		for _, program := range timeWindowed {
+			response.WriteString(fmt.Sprintf("  %s: %s\n", program.Name, formatTimeWindows(program.TimeWindows)))
 		}
 	}
 

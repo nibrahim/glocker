@@ -81,7 +81,7 @@ func TestGetStatusResponse_WithManyKeywords(t *testing.T) {
 		},
 	}
 
-	response := GetStatusResponse(cfg)
+	response := GetInfoResponse(cfg)
 
 	// Should show all keywords (no truncation)
 	for _, keyword := range manyKeywords {

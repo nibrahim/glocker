@@ -18,8 +18,8 @@ func TestGetStatusResponse(t *testing.T) {
 
 	response := GetStatusResponse(cfg)
 
-	if !strings.Contains(response, "LIVE STATUS") {
-		t.Error("Response should contain 'LIVE STATUS'")
+	if !strings.Contains(response, "RUNTIME STATUS") {
+		t.Error("Response should contain 'RUNTIME STATUS'")
 	}
 
 	if !strings.Contains(response, "Currently Blocked Domains") {

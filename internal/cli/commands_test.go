@@ -39,7 +39,7 @@ func TestGetStatusResponse_WithExtensionKeywords(t *testing.T) {
 		},
 	}
 
-	response := GetStatusResponse(cfg)
+	response := GetInfoResponse(cfg)
 
 	// Should contain extension keywords section
 	if !strings.Contains(response, "Extension Keywords:") {

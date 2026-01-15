@@ -137,6 +137,9 @@ The output includes:
 ### glocklock - Screen Locker
 
 A standalone X11 screen locker with two modes, designed for mindful breaks.
+It will read the `violation_tracking` section from the config file and work
+accordingly. However, the settings can be overridden by command line flags 
+listed below.
 
 **Time-based Mode** - Automatically unlocks after a timeout:
 
@@ -183,7 +186,7 @@ Glocker uses multiple independent monitors that work together to enforce blockin
 **What it does:** Modifies `/etc/hosts` to redirect blocked domains to `127.0.0.1`
 
 **How it works:**
-- Writes blocked domains between `### GLOCKER START ###` and `### GLOCKER END ###` markers
+- Writes blocked domains below `### GLOCKER START ###`.
 - Sets file immutable using `chattr +i` (when enabled)
 - Updates every 60 seconds (configurable via `enforce_interval_seconds`)
 - Handles 800,000+ domains efficiently (memory optimization clears list after initial write)
@@ -371,7 +374,7 @@ panic_command: "sudo pm-suspend"
                                     |
                                     v
      ┌──────────────────────────────────────────────────────┐
-     |              DNS/Hosts Resolution                     |
+     |              DNS/Hosts Resolution                    |
      |  /etc/hosts redirects blocked.com → 127.0.0.1        |
      └──────────────────────────────────────────────────────┘
                                     |
@@ -383,25 +386,25 @@ panic_command: "sudo pm-suspend"
                                     |
                                     v
      ┌──────────────────────────────────────────────────────┐
-     |              Violation Recording                      |
-     |  • Increment violation counter                        |
-     |  • Log to database with timestamp                     |
-     |  • Execute web_tracking.command (alert sound)         |
-     |  • Send to accountability partner (if enabled)        |
+     |              Violation Recording                     |
+     |  • Increment violation counter                       |
+     |  • Log to database with timestamp                    |
+     |  • Execute web_tracking.command (alert sound)        |
+     |  • Send to accountability partner (if enabled)       |
      └──────────────────────────────────────────────────────┘
                                     |
                                     v
      ┌──────────────────────────────────────────────────────┐
-     |           Check Violation Threshold                   |
-     |  If count >= max_violations in time_window:           |
-     |    Execute violation_tracking.command (lock screen)   |
+     |           Check Violation Threshold                  |
+     |  If count >= max_violations in time_window:          |
+     |    Execute violation_tracking.command (lock screen)  |
      └──────────────────────────────────────────────────────┘
                                     |
                                     v
      ┌──────────────────────────────────────────────────────┐
-     |              Show Blocking Page                       |
-     |  Redirect to: http://127.0.0.1/blocked?domain=...     |
-     |  Display blocking reason and time remaining           |
+     |              Show Blocking Page                      |
+     |  Redirect to: http://127.0.0.1/blocked?domain=...    |
+     |  Display blocking reason and time remaining          |
      └──────────────────────────────────────────────────────┘
 
      Meanwhile, in parallel:
@@ -469,6 +472,43 @@ domains:
 - `absolute: true` - Cannot be temporarily unblocked (for high-risk sites)
 - `time_windows` - Blocked only during specified times/days
 - Time format: 24-hour `HH:MM`, supports midnight-crossing (e.g., `22:00` to `05:00`)
+
+### Updating Domain Blocklists
+
+The `update_domains.py` script automates updating domain lists from curated blocklists. It supports multiple sources with automatic timestamp checking for idempotent updates.
+
+**Available sources:**
+1. **Bon Appetit Porn Domains** - Comprehensive adult content blocklist (~800K domains)
+2. **StevenBlack Unified Hosts** - Ads and malware domains
+3. **HaGeZi DoH/VPN/TOR/Proxy Bypass** - Blocks encrypted DNS, VPN, TOR, proxy bypass methods
+4. **UnblockStop Proxy Bypass** - Blocks proxy and filter-bypass sites (CroxyProxy, etc.)
+
+**Usage:**
+
+```bash
+# List all available sources and their status
+./update_domains.py
+
+# Update from a specific source
+./update_domains.py 1
+
+# Update from all sources
+./update_domains.py all
+
+# Remove all managed domain lists (keeps manual domains)
+./update_domains.py strip
+```
+
+**Features:**
+- **Idempotent updates** - Only updates if source timestamp has changed
+- **Automatic deduplication** - Removes duplicate domains and `www.` prefixes
+- **Source markers** - Each source is marked in the config file for easy identification
+- **Preserves manual domains** - Only modifies managed source sections
+
+After updating domains, reload the configuration:
+```bash
+glocker -reload
+```
 
 ### Temporary Unblocking
 
@@ -597,12 +637,12 @@ Glocker is a **Go application** organized into modular packages under `internal/
 
 ```
 glocker/
-├── main.go                      # Entry point, CLI flags, daemon startup
-├── cmd/                         # Additional binaries
+├── main.go                     # Entry point, CLI flags, daemon startup
+├── cmd/                        # Additional binaries
 │   ├── glocker/                # Main daemon
 │   ├── glocklock/              # Screen locker utility
 │   └── glockpeek/              # Log analysis tool
-├── internal/                    # Application packages
+├── internal/                   # Application packages
 │   ├── cli/                    # Command processors
 │   ├── config/                 # Configuration loading (YAML)
 │   ├── enforcement/            # Core blocking logic
@@ -613,7 +653,7 @@ glocker/
 │   ├── state/                  # Thread-safe global state
 │   ├── utils/                  # Shared utilities
 │   └── web/                    # HTTP server for extension
-├── extensions/firefox/          # Browser extension
+├── extensions/firefox/         # Browser extension
 ├── conf/conf.yaml              # Sample configuration (~60MB)
 └── extras/glocker.service      # Systemd service definition
 ```
@@ -785,7 +825,6 @@ lsattr /etc/hosts
 ::1 www.blocked-domain1.com
 127.0.0.1 blocked-domain2.com
 ...
-### GLOCKER END ###
 
 # User's custom entries below (preserved)
 ```

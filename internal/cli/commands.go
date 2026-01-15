@@ -10,6 +10,7 @@ import (
 	"glocker/internal/config"
 	"glocker/internal/enforcement"
 	"glocker/internal/state"
+	"glocker/internal/web"
 )
 
 // GetStatusResponse returns a formatted runtime status report.
@@ -206,6 +207,9 @@ func ProcessReloadRequest(cfg *config.Config) {
 
 	// Replace config pointer contents
 	*cfg = *newCfg
+
+	// Clear domain cache since config changed
+	web.ClearDomainCache()
 
 	// Force full enforcement with new config
 	enforcement.ForceEnforcement(cfg)

@@ -10,15 +10,26 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"glocker/internal/config"
-	"glocker/internal/enforcement"
 	"glocker/internal/state"
 	"glocker/internal/utils"
 	"glocker/internal/monitoring"
 	"glocker/internal/notify"
 )
+
+// blockedDomainCache stores domains that have been checked, populated on first access.
+// This keeps memory usage low while making repeat violations fast.
+type blockedDomainCache struct {
+	mu      sync.RWMutex
+	domains map[string]*config.Domain // domain name -> full domain config (nil if not blocked)
+}
+
+var domainCache = &blockedDomainCache{
+	domains: make(map[string]*config.Domain),
+}
 
 // HandleWebTrackingRequest processes incoming web tracking requests and enforces blocking.
 // It checks if the requested host is in the blocked domains list and takes appropriate action.
@@ -41,40 +52,10 @@ func HandleWebTrackingRequest(cfg *config.Config, w http.ResponseWriter, r *http
 
 	slog.Debug("Web tracking request received", "host", host, "url", r.URL.String(), "method", r.Method)
 
-	// Check if this host is in our blocked domains list
-	isBlocked := false
-	matchedDomain := ""
-	now := time.Now()
-	blockedDomains := enforcement.GetDomainsToBlock(cfg, now)
+	// Check if this host is blocked (uses lazy-loaded cache)
+	isBlocked, matchedDomain := isHostBlocked(host)
 
-	for _, blockedDomain := range blockedDomains {
-		// Direct match
-		if host == blockedDomain {
-			isBlocked = true
-			matchedDomain = blockedDomain
-			break
-		}
-		// www subdomain match
-		if host == "www."+blockedDomain {
-			isBlocked = true
-			matchedDomain = blockedDomain
-			break
-		}
-		// Any subdomain match
-		if strings.HasSuffix(host, "."+blockedDomain) {
-			isBlocked = true
-			matchedDomain = blockedDomain
-			break
-		}
-		// Reverse check - if host is the base domain and blocked domain has www
-		if strings.HasPrefix(blockedDomain, "www.") && host == blockedDomain[4:] {
-			isBlocked = true
-			matchedDomain = blockedDomain
-			break
-		}
-	}
-
-	slog.Debug("Host blocking check", "host", host, "is_blocked", isBlocked, "matched_domain", matchedDomain, "blocked_domains_count", len(blockedDomains))
+	slog.Debug("Host blocking check", "host", host, "is_blocked", isBlocked, "matched_domain", matchedDomain)
 
 	if isBlocked {
 		// Determine the blocking reason
@@ -122,6 +103,106 @@ func HandleWebTrackingRequest(cfg *config.Config, w http.ResponseWriter, r *http
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	}
+}
+
+// isHostBlocked checks if a host is blocked using a lazy-loaded cache.
+// First access loads from config and caches result. Subsequent accesses are instant.
+// Returns (isBlocked, matchedDomain).
+func isHostBlocked(host string) (bool, string) {
+	// Build list of domains to check (host and all parent domains)
+	domainsToCheck := []string{host}
+
+	// Strip www. prefix if present
+	hostWithoutWWW := host
+	if strings.HasPrefix(host, "www.") {
+		hostWithoutWWW = host[4:]
+		domainsToCheck = append(domainsToCheck, hostWithoutWWW)
+	}
+
+	// Add parent domains (e.g., for "api.elevenlabs.io", check "elevenlabs.io")
+	parts := strings.Split(hostWithoutWWW, ".")
+	for i := 1; i < len(parts)-1; i++ {
+		parentDomain := strings.Join(parts[i:], ".")
+		domainsToCheck = append(domainsToCheck, parentDomain)
+	}
+
+	// Check cache first (fast path)
+	domainCache.mu.RLock()
+	for _, checkDomain := range domainsToCheck {
+		if domainConfig, exists := domainCache.domains[checkDomain]; exists {
+			domainCache.mu.RUnlock()
+			if domainConfig != nil {
+				// Domain is blocked and cached
+				slog.Debug("Cache hit: domain is blocked", "host", host, "matched", checkDomain)
+				return true, checkDomain
+			}
+			// Domain was checked before and is not blocked
+			slog.Debug("Cache hit: domain not blocked", "host", host)
+			return false, ""
+		}
+	}
+	domainCache.mu.RUnlock()
+
+	// Cache miss - need to load from config (slow path, only happens once per domain)
+	slog.Debug("Cache miss: loading domain from config", "host", host)
+
+	freshCfg, err := config.LoadConfig()
+	if err != nil {
+		log.Printf("Failed to load config for domain check: %v", err)
+		return false, ""
+	}
+
+	now := time.Now()
+	currentDay := now.Weekday().String()[:3]
+	currentTime := now.Format("15:04")
+
+	// Check each potential domain match
+	domainCache.mu.Lock()
+	defer domainCache.mu.Unlock()
+
+	for _, checkDomain := range domainsToCheck {
+		// Find in config
+		for _, configDomain := range freshCfg.Domains {
+			if configDomain.Name == checkDomain {
+				// Check if domain is currently blocked
+				isBlocked := false
+
+				if configDomain.AlwaysBlock {
+					isBlocked = true
+				} else {
+					// Check time windows
+					for _, window := range configDomain.TimeWindows {
+						if slices.Contains(window.Days, currentDay) && utils.IsInTimeWindow(currentTime, window.Start, window.End) {
+							isBlocked = true
+							break
+						}
+					}
+				}
+
+				if isBlocked {
+					// Cache the domain config
+					cachedDomain := configDomain // Copy
+					domainCache.domains[checkDomain] = &cachedDomain
+					slog.Debug("Cached blocked domain", "domain", checkDomain, "always_block", configDomain.AlwaysBlock)
+					return true, checkDomain
+				}
+			}
+		}
+
+		// Cache negative result (domain not blocked)
+		domainCache.domains[checkDomain] = nil
+	}
+
+	slog.Debug("Domain not blocked", "host", host)
+	return false, ""
+}
+
+// ClearDomainCache clears the domain cache. Called after config reload.
+func ClearDomainCache() {
+	domainCache.mu.Lock()
+	defer domainCache.mu.Unlock()
+	domainCache.domains = make(map[string]*config.Domain)
+	slog.Debug("Domain cache cleared")
 }
 
 // executeWebTrackingCommand executes the configured command when a blocked site is accessed.
@@ -300,28 +381,56 @@ func HandleSSERequest(cfg *config.Config, w http.ResponseWriter, r *http.Request
 }
 
 // GetBlockingReason returns a human-readable reason for why a domain is blocked.
+// Uses the cached domain config if available, otherwise loads from disk.
 func GetBlockingReason(cfg *config.Config, domain string, now time.Time) string {
 	currentDay := now.Weekday().String()[:3]
 	currentTime := now.Format("15:04")
 
-	// Find the domain in the config
-	for _, configDomain := range cfg.Domains {
-		if configDomain.Name == domain {
-			if configDomain.AlwaysBlock {
-				if configDomain.Absolute {
-					return "always blocked (absolute - cannot be temporarily unblocked)"
-				}
-				return "always blocked"
-			}
+	// Check if we have this domain cached
+	domainCache.mu.RLock()
+	cachedDomain, exists := domainCache.domains[domain]
+	domainCache.mu.RUnlock()
 
-			// Check which time window is active
-			for _, window := range configDomain.TimeWindows {
-				if slices.Contains(window.Days, currentDay) && utils.IsInTimeWindow(currentTime, window.Start, window.End) {
-					return fmt.Sprintf("time-based block (active %s-%s on %s)", window.Start, window.End, strings.Join(window.Days, ","))
-				}
+	var configDomain config.Domain
+	if exists && cachedDomain != nil {
+		// Use cached domain config
+		configDomain = *cachedDomain
+	} else {
+		// Not cached, load from disk
+		freshCfg, err := config.LoadConfig()
+		if err != nil {
+			log.Printf("Failed to reload config for blocking reason: %v", err)
+			return "blocked by glocker"
+		}
+
+		// Find the domain in the config
+		found := false
+		for _, d := range freshCfg.Domains {
+			if d.Name == domain {
+				configDomain = d
+				found = true
+				break
 			}
+		}
+		if !found {
+			return "blocked by glocker"
 		}
 	}
 
-	return "unknown blocking rule"
+	// Determine blocking reason
+	if configDomain.AlwaysBlock {
+		if configDomain.Absolute {
+			return "always blocked (absolute - cannot be temporarily unblocked)"
+		}
+		return "always blocked"
+	}
+
+	// Check which time window is active
+	for _, window := range configDomain.TimeWindows {
+		if slices.Contains(window.Days, currentDay) && utils.IsInTimeWindow(currentTime, window.Start, window.End) {
+			return fmt.Sprintf("time-based block (active %s-%s on %s)", window.Start, window.End, strings.Join(window.Days, ","))
+		}
+	}
+
+	return "blocked by glocker"
 }

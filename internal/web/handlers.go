@@ -381,40 +381,55 @@ func HandleSSERequest(cfg *config.Config, w http.ResponseWriter, r *http.Request
 }
 
 // GetBlockingReason returns a human-readable reason for why a domain is blocked.
-// Uses the cached domain config if available, otherwise loads from disk.
+// Checks cfg.Domains if populated (tests), otherwise uses cache or loads from disk.
 func GetBlockingReason(cfg *config.Config, domain string, now time.Time) string {
 	currentDay := now.Weekday().String()[:3]
 	currentTime := now.Format("15:04")
 
-	// Check if we have this domain cached
-	domainCache.mu.RLock()
-	cachedDomain, exists := domainCache.domains[domain]
-	domainCache.mu.RUnlock()
-
 	var configDomain config.Domain
-	if exists && cachedDomain != nil {
-		// Use cached domain config
-		configDomain = *cachedDomain
-	} else {
-		// Not cached, load from disk
-		freshCfg, err := config.LoadConfig()
-		if err != nil {
-			log.Printf("Failed to reload config for blocking reason: %v", err)
-			return "blocked by glocker"
-		}
+	found := false
 
-		// Find the domain in the config
-		found := false
-		for _, d := range freshCfg.Domains {
+	// If cfg.Domains is populated (e.g., in tests), use it directly
+	if len(cfg.Domains) > 0 {
+		for _, d := range cfg.Domains {
 			if d.Name == domain {
 				configDomain = d
 				found = true
 				break
 			}
 		}
-		if !found {
-			return "blocked by glocker"
+	} else {
+		// In normal runtime, cfg.Domains is cleared for memory optimization
+		// Check if we have this domain cached
+		domainCache.mu.RLock()
+		cachedDomain, exists := domainCache.domains[domain]
+		domainCache.mu.RUnlock()
+
+		if exists && cachedDomain != nil {
+			// Use cached domain config
+			configDomain = *cachedDomain
+			found = true
+		} else {
+			// Not cached, load from disk
+			freshCfg, err := config.LoadConfig()
+			if err != nil {
+				log.Printf("Failed to reload config for blocking reason: %v", err)
+				return "blocked by glocker"
+			}
+
+			// Find the domain in the config
+			for _, d := range freshCfg.Domains {
+				if d.Name == domain {
+					configDomain = d
+					found = true
+					break
+				}
+			}
 		}
+	}
+
+	if !found {
+		return "blocked by glocker"
 	}
 
 	// Determine blocking reason

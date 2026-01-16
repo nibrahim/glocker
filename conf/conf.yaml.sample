@@ -2,7 +2,7 @@
 # Glocker Sample Configuration File
 # ============================================================================
 # This is a sample configuration file that demonstrates all available options.
-# Copy this to /etc/glocker/config.yaml and customize for your needs.
+# Installing glocker will copy such a file to /etc/glocker/config.yaml
 #
 # After making changes, reload with: glocker -reload
 # ============================================================================

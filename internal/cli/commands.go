@@ -218,10 +218,28 @@ func ProcessReloadRequest(cfg *config.Config) {
 }
 
 // ProcessUnblockRequest processes a temporary unblock request.
-func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) {
+func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) error {
 	slog.Debug("Processing unblock request", "hosts", hostsStr, "reason", reason)
 
+	// Validate reason against configured valid reasons
+	if len(cfg.Unblocking.Reasons) > 0 {
+		validReason := false
+		for _, validR := range cfg.Unblocking.Reasons {
+			if strings.EqualFold(reason, validR) {
+				validReason = true
+				break
+			}
+		}
+		if !validReason {
+			errMsg := fmt.Sprintf("REJECTED: Invalid reason '%s'. Valid reasons: %s",
+				reason, strings.Join(cfg.Unblocking.Reasons, ", "))
+			log.Println(errMsg)
+			return fmt.Errorf("invalid reason: %s (valid reasons: %s)", reason, strings.Join(cfg.Unblocking.Reasons, ", "))
+		}
+	}
+
 	hosts := strings.Split(hostsStr, ",")
+	unblocked := 0
 	for _, host := range hosts {
 		host = strings.TrimSpace(host)
 		if host == "" {
@@ -252,10 +270,15 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) {
 		state.AddTempUnblock(host, expiresAt)
 
 		log.Printf("UNBLOCKED: %s (reason: %s) until %s", host, reason, expiresAt.Format("15:04:05"))
+		unblocked++
 	}
 
 	// Force enforcement to apply changes immediately
-	enforcement.ForceEnforcement(cfg)
+	if unblocked > 0 {
+		enforcement.ForceEnforcement(cfg)
+	}
+
+	return nil
 }
 
 // ProcessBlockRequest adds domains to the block list.

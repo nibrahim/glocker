@@ -101,8 +101,12 @@ func HandleConnection(cfg *config.Config, conn net.Conn) {
 				conn.Write([]byte("ERROR: Reason cannot be empty\n"))
 				continue
 			}
+			// Process unblock request and check for errors
+			if err := cli.ProcessUnblockRequest(cfg, domains, reason); err != nil {
+				conn.Write([]byte(fmt.Sprintf("ERROR: %v\n", err)))
+				continue
+			}
 			conn.Write([]byte("OK: Unblock request received\n"))
-			go cli.ProcessUnblockRequest(cfg, domains, reason)
 		case "block":
 			if len(parts) != 2 {
 				conn.Write([]byte("ERROR: Invalid format. Use 'block:domains'\n"))

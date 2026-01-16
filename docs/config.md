@@ -103,6 +103,13 @@ unblocking:
   temp_unblock_time: 20  # Minutes
 ```
 
+**Reason Validation:**
+- The `reasons` list defines valid reasons for temporary unblocking
+- When unblocking, you must provide one of these reasons
+- Reason validation is case-insensitive (e.g., "Work" matches "work")
+- If the reasons list is empty, any reason will be accepted
+- Invalid reasons will be rejected with an error
+
 Usage: `glocker -unblock "youtube.com:work research"`
 
 ## Web Tracking

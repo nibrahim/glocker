@@ -129,6 +129,7 @@ func TestProcessUnblockRequest_RejectsAbsoluteDomains(t *testing.T) {
 		},
 		Unblocking: config.UnblockingConfig{
 			TempUnblockTime: 30,
+			Reasons:         []string{"work", "research"},
 		},
 	}
 
@@ -136,7 +137,7 @@ func TestProcessUnblockRequest_RejectsAbsoluteDomains(t *testing.T) {
 	state.SetTempUnblocks([]state.TempUnblock{})
 
 	// Try to unblock both domains
-	ProcessUnblockRequest(cfg, "absolute.com,regular.com", "testing")
+	ProcessUnblockRequest(cfg, "absolute.com,regular.com", "work")
 
 	// Check temp unblocks
 	unblocks := state.GetTempUnblocks()
@@ -155,5 +156,87 @@ func TestProcessUnblockRequest_RejectsAbsoluteDomains(t *testing.T) {
 		if unblock.Domain == "absolute.com" {
 			t.Error("absolute.com should not be in temp unblocks")
 		}
+	}
+}
+
+func TestProcessUnblockRequest_ValidatesReasons(t *testing.T) {
+	cfg := &config.Config{
+		Domains: []config.Domain{
+			{Name: "example.com", AlwaysBlock: true},
+		},
+		Unblocking: config.UnblockingConfig{
+			TempUnblockTime: 30,
+			Reasons:         []string{"work", "research", "emergency"},
+		},
+	}
+
+	tests := []struct {
+		name        string
+		reason      string
+		shouldError bool
+	}{
+		{"valid reason - work", "work", false},
+		{"valid reason - research", "research", false},
+		{"valid reason - emergency", "emergency", false},
+		{"valid reason - case insensitive", "WORK", false},
+		{"invalid reason", "fun", true},
+		{"invalid reason - empty", "", true},
+		{"invalid reason - random", "just because", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Clear temp unblocks before each test
+			state.SetTempUnblocks([]state.TempUnblock{})
+
+			err := ProcessUnblockRequest(cfg, "example.com", tt.reason)
+
+			if tt.shouldError {
+				if err == nil {
+					t.Errorf("Expected error for reason '%s', but got nil", tt.reason)
+				}
+				// Verify domain was NOT unblocked
+				unblocks := state.GetTempUnblocks()
+				if len(unblocks) > 0 {
+					t.Errorf("Domain should not be unblocked with invalid reason, but got %d unblocks", len(unblocks))
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error for reason '%s', but got: %v", tt.reason, err)
+				}
+				// Verify domain WAS unblocked
+				unblocks := state.GetTempUnblocks()
+				if len(unblocks) != 1 {
+					t.Errorf("Expected 1 unblock for valid reason '%s', got %d", tt.reason, len(unblocks))
+				}
+			}
+		})
+	}
+}
+
+func TestProcessUnblockRequest_NoReasonValidationWhenListEmpty(t *testing.T) {
+	cfg := &config.Config{
+		Domains: []config.Domain{
+			{Name: "example.com", AlwaysBlock: true},
+		},
+		Unblocking: config.UnblockingConfig{
+			TempUnblockTime: 30,
+			Reasons:         []string{}, // Empty list - any reason should be accepted
+		},
+	}
+
+	// Clear temp unblocks
+	state.SetTempUnblocks([]state.TempUnblock{})
+
+	// Try to unblock with any reason (should work when list is empty)
+	err := ProcessUnblockRequest(cfg, "example.com", "any reason at all")
+	if err != nil {
+		t.Errorf("Expected no error when reasons list is empty, got: %v", err)
+	}
+
+	// Verify domain was unblocked
+	unblocks := state.GetTempUnblocks()
+	if len(unblocks) != 1 {
+		t.Errorf("Expected 1 unblock, got %d", len(unblocks))
 	}
 }

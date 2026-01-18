@@ -72,11 +72,11 @@ Each system can be independently enabled/disabled and configured with time windo
 
 ```yaml
 domains:
-  # Always blocked (no time windows = always block by default)
+  # Always blocked (permanent - default)
   - {name: "reddit.com"}
 
-  # Always blocked, cannot be temporarily unblocked
-  - {name: "facebook.com", absolute: true}
+  # Always blocked, but can be temporarily unblocked
+  - {name: "youtube.com", unblockable: true}
 
   # Time-based blocking - only blocked during specified windows
   - name: "twitter.com"
@@ -103,9 +103,9 @@ violation_tracking:
 ```
 
 **Domain Blocking Behavior:**
-- **No time windows specified** → Domain is always blocked (default behavior)
-- **Time windows specified** → Domain is only blocked during those time windows
-- **`absolute: true`** → Domain cannot be temporarily unblocked (permanent block)
+- **No time windows** → Always blocked (permanent by default)
+- **Time windows specified** → Only blocked during those time windows
+- **`unblockable: true`** → Domain can be temporarily unblocked (otherwise permanent)
 
 See [sample config](conf/conf.yaml) and [configuration guide](docs/config.md) for all options.
 

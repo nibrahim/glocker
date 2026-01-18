@@ -243,13 +243,14 @@ type Domain struct {
     Name        string
     AlwaysBlock bool         // Deprecated: use TimeWindows instead
     TimeWindows []TimeWindow // If empty, domain is always blocked (default)
-    Absolute    bool         // Cannot be temporarily unblocked
+    Absolute    bool         // Deprecated: domains are permanent by default
+    Unblockable bool         // Set to true to allow temporary unblocking (default: false)
 }
 
 // Domain blocking logic (internal/enforcement/domains.go):
-// - No time windows → Always blocked (default behavior)
+// - No time windows → Always blocked (permanent by default)
 // - Time windows specified → Blocked only during those windows
-// - Absolute flag → Cannot be temporarily unblocked
+// - Unblockable flag → Allows temporary unblocking (default: permanent)
 ```
 
 ### Control Flow

@@ -26,15 +26,15 @@ hosts_path: "/etc/hosts"
 
 ## Blocked Domains
 
-Domains are blocked by default unless time windows are specified:
+Domains are permanently blocked by default unless marked as unblockable:
 
 ```yaml
 domains:
-  # Always blocked (no time windows = always blocked by default)
+  # Always blocked (permanent - default)
   - {name: "reddit.com"}
 
-  # Always blocked, cannot be temporarily unblocked
-  - {name: "facebook.com", absolute: true}
+  # Always blocked, but can be temporarily unblocked
+  - {name: "youtube.com", unblockable: true}
 
   # Time-based blocking - only blocked during specified windows
   - name: "twitter.com"
@@ -49,14 +49,14 @@ domains:
 
 ### Domain Blocking Behavior
 
-**Default behavior:** Domains without time windows are **always blocked**.
+**Default behavior:** Domains are **permanently blocked** (cannot be temporarily unblocked).
 
-- **No time windows** → Domain is always blocked (can be temporarily unblocked unless `absolute: true`)
-- **Time windows specified** → Domain is only blocked during those time windows
-- **`absolute: true`** → Domain cannot be temporarily unblocked (permanent block)
+- **No time windows** → Always blocked (permanent by default)
+- **Time windows specified** → Only blocked during those time windows
+- **`unblockable: true`** → Domain can be temporarily unblocked (use for sites you occasionally need)
 - Time format: 24-hour `HH:MM`, supports midnight-crossing (e.g., `22:00` to `05:00`)
 
-**Note:** The `always_block` field is deprecated. The presence or absence of time windows now determines blocking behavior.
+**Note:** The `always_block` and `absolute` fields are deprecated. Domains are permanent by default; use `unblockable: true` for sites that can be temporarily unblocked.
 
 ## Updating Domain Blocklists
 

@@ -144,7 +144,7 @@ func TestIsTempUnblocked(t *testing.T) {
 	state.SetTempUnblocks([]state.TempUnblock{})
 }
 
-func TestAbsoluteDomainIgnoresTempUnblock(t *testing.T) {
+func TestPermanentDomainIgnoresTempUnblock(t *testing.T) {
 	// Clear any existing temp unblocks
 	state.SetTempUnblocks([]state.TempUnblock{})
 
@@ -152,36 +152,36 @@ func TestAbsoluteDomainIgnoresTempUnblock(t *testing.T) {
 
 	cfg := &config.Config{
 		Domains: []config.Domain{
-			{Name: "absolute.com", Absolute: true}, // No time windows, absolute
-			{Name: "regular.com"},                  // No time windows, regular
+			{Name: "permanent.com"},                  // No time windows, permanent (default)
+			{Name: "unblockable.com", Unblockable: true}, // No time windows, but unblockable
 		},
 	}
 
 	// Add temp unblocks for both domains
-	state.AddTempUnblock("absolute.com", now.Add(30*time.Minute))
-	state.AddTempUnblock("regular.com", now.Add(30*time.Minute))
+	state.AddTempUnblock("permanent.com", now.Add(30*time.Minute))
+	state.AddTempUnblock("unblockable.com", now.Add(30*time.Minute))
 
 	// Get domains to block
 	blocked := GetDomainsToBlock(cfg, now)
 
-	// absolute.com should still be blocked (ignores temp unblock)
-	foundAbsolute := false
-	foundRegular := false
+	// permanent.com should still be blocked (ignores temp unblock - not unblockable)
+	foundPermanent := false
+	foundUnblockable := false
 	for _, domain := range blocked {
-		if domain == "absolute.com" {
-			foundAbsolute = true
+		if domain == "permanent.com" {
+			foundPermanent = true
 		}
-		if domain == "regular.com" {
-			foundRegular = true
+		if domain == "unblockable.com" {
+			foundUnblockable = true
 		}
 	}
 
-	if !foundAbsolute {
-		t.Error("absolute.com should be blocked even with temp unblock")
+	if !foundPermanent {
+		t.Error("permanent.com should be blocked even with temp unblock (not marked as unblockable)")
 	}
 
-	if foundRegular {
-		t.Error("regular.com should not be blocked with temp unblock")
+	if foundUnblockable {
+		t.Error("unblockable.com should not be blocked with temp unblock (marked as unblockable)")
 	}
 
 	// Clean up
@@ -217,29 +217,45 @@ func TestCleanupExpiredUnblocks(t *testing.T) {
 func TestGetBlockingReason_AlwaysBlock(t *testing.T) {
 	cfg := &config.Config{
 		Domains: []config.Domain{
-			{Name: "example.com"}, // No time windows = always blocked
+			{Name: "example.com"}, // No time windows = always blocked (permanent by default)
 		},
 	}
 
 	now := time.Now()
 	reason := GetBlockingReason(cfg, "example.com", now)
 
-	if reason != "always blocked (no time windows)" {
-		t.Errorf("Expected 'always blocked (no time windows)', got '%s'", reason)
+	if reason != "always blocked (permanent)" {
+		t.Errorf("Expected 'always blocked (permanent)', got '%s'", reason)
 	}
 }
 
-func TestGetBlockingReason_Absolute(t *testing.T) {
+func TestGetBlockingReason_Permanent(t *testing.T) {
 	cfg := &config.Config{
 		Domains: []config.Domain{
-			{Name: "example.com", Absolute: true}, // No time windows = always blocked, absolute
+			{Name: "example.com"}, // No time windows, not unblockable = permanent
 		},
 	}
 
 	now := time.Now()
 	reason := GetBlockingReason(cfg, "example.com", now)
 
-	expected := "always blocked (absolute - cannot be temporarily unblocked)"
+	expected := "always blocked (permanent)"
+	if reason != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, reason)
+	}
+}
+
+func TestGetBlockingReason_Unblockable(t *testing.T) {
+	cfg := &config.Config{
+		Domains: []config.Domain{
+			{Name: "example.com", Unblockable: true}, // No time windows, but unblockable
+		},
+	}
+
+	now := time.Now()
+	reason := GetBlockingReason(cfg, "example.com", now)
+
+	expected := "always blocked (can be temporarily unblocked)"
 	if reason != expected {
 		t.Errorf("Expected '%s', got '%s'", expected, reason)
 	}

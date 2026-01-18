@@ -29,12 +29,13 @@ func GetDomainsToBlock(cfg *config.Config, now time.Time) []string {
 
 	for _, domain := range cfg.Domains {
 		if domain.LogBlocking {
-			slog.Debug("Evaluating domain", "domain", domain.Name, "always_block", domain.AlwaysBlock, "absolute", domain.Absolute, "has_time_windows", len(domain.TimeWindows) > 0)
+			slog.Debug("Evaluating domain", "domain", domain.Name, "unblockable", domain.Unblockable, "has_time_windows", len(domain.TimeWindows) > 0)
 		}
 
-		// Absolute domains cannot be temporarily unblocked - skip temp unblock check
-		if !domain.Absolute {
-			// Check if domain is temporarily unblocked (only for non-absolute domains)
+		// NEW BEHAVIOR: Domains are permanent (non-unblockable) by default
+		// Only check temp unblock for domains explicitly marked as unblockable
+		if domain.Unblockable {
+			// Check if domain is temporarily unblocked (only for unblockable domains)
 			if IsTempUnblocked(domain.Name, now) {
 				tempUnblockedCount++
 				if domain.LogBlocking {
@@ -52,11 +53,11 @@ func GetDomainsToBlock(cfg *config.Config, now time.Time) []string {
 			alwaysBlockCount++
 			blocked = append(blocked, domain.Name)
 			if domain.LogBlocking {
-				blockType := "always blocked (no time windows)"
-				if domain.Absolute {
-					blockType = "always blocked (absolute, no time windows)"
+				blockType := "always blocked (permanent)"
+				if domain.Unblockable {
+					blockType = "always blocked (unblockable)"
 				}
-				slog.Debug("Domain marked for always block (no time windows)", "domain", domain.Name, "absolute", domain.Absolute)
+				slog.Debug("Domain marked for always block", "domain", domain.Name, "unblockable", domain.Unblockable)
 				log.Printf("DOMAIN STATUS: %s -> %s", domain.Name, blockType)
 				loggedBlocked = append(loggedBlocked, domain.Name)
 			}
@@ -167,11 +168,12 @@ func GetBlockingReason(cfg *config.Config, domain string, now time.Time) string 
 	for _, configDomain := range cfg.Domains {
 		if configDomain.Name == domain {
 			// NEW BEHAVIOR: Domains without time windows are always blocked by default
+			// Domains are permanent (non-unblockable) by default
 			if len(configDomain.TimeWindows) == 0 {
-				if configDomain.Absolute {
-					return "always blocked (absolute - cannot be temporarily unblocked)"
+				if configDomain.Unblockable {
+					return "always blocked (can be temporarily unblocked)"
 				}
-				return "always blocked (no time windows)"
+				return "always blocked (permanent)"
 			}
 
 			// Check which time window is active

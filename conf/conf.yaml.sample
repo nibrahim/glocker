@@ -594,20 +594,35 @@ forbidden_programs:
 # ----------------------------------------------------------------------------
 # Configure which domains to block and when
 
+# NEW BEHAVIOR: Domains are PERMANENTLY BLOCKED by default
+# - No time windows = always blocked, cannot be temporarily unblocked
+# - Add 'unblockable: true' to allow temporary unblocking with: glocker -unblock
+# - Add time_windows to block only during specific times
+#
 # Domains can be configured three ways:
 #
-# 1. Always blocked (24/7):
-#    - Set always_block: true
-#    - Optionally set absolute: true to prevent temporary unblocking
+# 1. Always blocked (permanent - default):
+#    - Just specify the name
+#    - Domain is blocked 24/7 and CANNOT be temporarily unblocked
+#    - Use for high-risk sites (adult content, gambling, etc.)
+#    Example: - {name: "reddit.com"}
 #
-# 2. Time-based blocking:
-#    - Set always_block: false
-#    - Define time_windows with start/end times and days
+# 2. Always blocked (but unblockable):
+#    - Specify name and unblockable: true
+#    - Domain is blocked 24/7 but CAN be temporarily unblocked
+#    - Use for sites you occasionally need (YouTube for work, etc.)
+#    Example: - {name: "youtube.com", unblockable: true}
+#
+# 3. Time-based blocking:
+#    - Specify name and time_windows
+#    - Blocked only during specified times/days
 #    - Multiple time windows can be specified
-#
-# 3. Time windows with absolute flag:
-#    - Combine time-based blocking with absolute: true
-#    - Blocked only during time windows, but cannot be temporarily unblocked
+#    Example:
+#      - name: "twitter.com"
+#        time_windows:
+#          - start: "09:00"
+#            end: "17:00"
+#            days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
 #
 # Domain matching rules:
 #   - Exact match: "example.com" blocks example.com
@@ -623,8 +638,9 @@ forbidden_programs:
 #
 # Tips for choosing domains:
 #   - Start with your biggest distractions
-#   - Use absolute: true for high-risk sites (adult content, gambling)
-#   - Use time-based blocking for work distractions (social media)
+#   - Most domains should be permanent (no unblockable flag)
+#   - Only add unblockable: true for sites you legitimately need occasionally
+#   - Use time-based blocking for work distractions that are okay outside work hours
 #   - Review your browser history to find your weak points
 
 domains:
@@ -634,69 +650,42 @@ domains:
   # These sites are blocked 24/7 but can be unblocked with: glocker -unblock
   # Use case: Block by default, unblock only when legitimately needed
 
-  - name: "reddit.com"
-    always_block: true
-
-  - name: "twitter.com"
-    always_block: true
-
-  - name: "facebook.com"
-    always_block: true
-
-  - name: "instagram.com"
-    always_block: true
-
-  - name: "tiktok.com"
-    always_block: true
+  - {name: "reddit.com", unblockable: true}
+  - {name: "twitter.com", unblockable: true}
+  - {name: "facebook.com", unblockable: true}
+  - {name: "instagram.com", unblockable: true}
+  - {name: "tiktok.com", unblockable: true}
 
   # -------------------------------------------------------------------------
-  # High-Risk Sites - Always Blocked (Absolute - Cannot be Unblocked)
+  # High-Risk Sites - Always Blocked (Permanent - Cannot be Unblocked)
   # -------------------------------------------------------------------------
-  # These sites cannot be temporarily unblocked under any circumstances
+  # These sites are permanently blocked and cannot be temporarily unblocked
   # Use case: Sites you want completely blocked (adult content, gambling, etc.)
+  # NOTE: This is the DEFAULT behavior - no extra flags needed!
 
-  - name: "pornhub.com"
-    always_block: true
-    absolute: true
-
-  - name: "xvideos.com"
-    always_block: true
-    absolute: true
-
-  - name: "gambling-site.com"
-    always_block: true
-    absolute: true
-
-  - name: "casino.com"
-    always_block: true
-    absolute: true
+  - {name: "pornhub.com"}
+  - {name: "xvideos.com"}
+  - {name: "gambling-site.com"}
+  - {name: "casino.com"}
 
   # -------------------------------------------------------------------------
-  # Proxy and VPN Sites - Always Blocked (Absolute)
+  # Proxy and VPN Sites - Always Blocked (Permanent)
   # -------------------------------------------------------------------------
-  # These sites help bypass filters and must be blocked absolutely
+  # These sites help bypass filters and must be blocked permanently
   # Add any proxy/VPN sites you discover here
 
-  - name: "croxyproxy.com"
-    always_block: true
-    absolute: true
-
-  - name: "proxysite.com"
-    always_block: true
-    absolute: true
-
-  - name: "hide.me"
-    always_block: true
-    absolute: true
+  - {name: "croxyproxy.com"}
+  - {name: "proxysite.com"}
+  - {name: "hide.me"}
 
   # -------------------------------------------------------------------------
   # Time-Based Blocking - Only Blocked During Specific Hours
   # -------------------------------------------------------------------------
   # Use case: Allow access outside work hours, block during focus time
+  # NOTE: When time_windows are specified, domain is ONLY blocked during those times
 
   # YouTube - blocked during work hours
   - name: "youtube.com"
-    always_block: false
     time_windows:
       # Weekday work hours: 9am-5pm
       - start: "09:00"
@@ -710,7 +699,6 @@ domains:
 
   # Hacker News - blocked during deep work hours
   - name: "news.ycombinator.com"
-    always_block: false
     time_windows:
       # Morning focus: 9am-12pm
       - start: "09:00"
@@ -724,7 +712,6 @@ domains:
 
   # Netflix - blocked before 6 PM on weekdays
   - name: "netflix.com"
-    always_block: false
     time_windows:
       # Block all day until 6 PM
       - start: "00:00"
@@ -733,7 +720,6 @@ domains:
 
   # Gaming sites - blocked during work hours
   - name: "kongregate.com"
-    always_block: false
     time_windows:
       - start: "09:00"
         end: "18:00"
@@ -745,14 +731,12 @@ domains:
   # Prevent news doom-scrolling during work hours
 
   - name: "news.google.com"
-    always_block: false
     time_windows:
       - start: "09:00"
         end: "17:00"
         days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
 
   - name: "cnn.com"
-    always_block: false
     time_windows:
       - start: "09:00"
         end: "17:00"
@@ -763,14 +747,14 @@ domains:
   # -------------------------------------------------------------------------
   # Add your own domains below following the examples above
   #
-  # Template for always-blocked domain:
-  # - name: "example.com"
-  #   always_block: true
-  #   absolute: true  # Optional: prevents temporary unblocking
+  # Template for permanent block (cannot be unblocked):
+  # - {name: "example.com"}
+  #
+  # Template for always-blocked but unblockable:
+  # - {name: "example.com", unblockable: true}
   #
   # Template for time-based blocking:
   # - name: "example.com"
-  #   always_block: false
   #   time_windows:
   #     - start: "09:00"
   #       end: "17:00"

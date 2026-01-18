@@ -29,7 +29,7 @@ func GetDomainsToBlock(cfg *config.Config, now time.Time) []string {
 
 	for _, domain := range cfg.Domains {
 		if domain.LogBlocking {
-			slog.Debug("Evaluating domain", "domain", domain.Name, "always_block", domain.AlwaysBlock, "absolute", domain.Absolute)
+			slog.Debug("Evaluating domain", "domain", domain.Name, "always_block", domain.AlwaysBlock, "absolute", domain.Absolute, "has_time_windows", len(domain.TimeWindows) > 0)
 		}
 
 		// Absolute domains cannot be temporarily unblocked - skip temp unblock check
@@ -45,22 +45,25 @@ func GetDomainsToBlock(cfg *config.Config, now time.Time) []string {
 			}
 		}
 
-		if domain.AlwaysBlock {
+		// NEW BEHAVIOR: If no time windows are specified, always block (default)
+		// This makes time windows the primary control mechanism
+		if len(domain.TimeWindows) == 0 {
+			// No time windows means always block
 			alwaysBlockCount++
 			blocked = append(blocked, domain.Name)
 			if domain.LogBlocking {
-				blockType := "always blocked"
+				blockType := "always blocked (no time windows)"
 				if domain.Absolute {
-					blockType = "always blocked (absolute)"
+					blockType = "always blocked (absolute, no time windows)"
 				}
-				slog.Debug("Domain marked for always block", "domain", domain.Name, "absolute", domain.Absolute)
+				slog.Debug("Domain marked for always block (no time windows)", "domain", domain.Name, "absolute", domain.Absolute)
 				log.Printf("DOMAIN STATUS: %s -> %s", domain.Name, blockType)
 				loggedBlocked = append(loggedBlocked, domain.Name)
 			}
 			continue
 		}
 
-		// Check time windows
+		// Check time windows - only reach here if time windows are defined
 		domainBlocked := false
 		activeWindow := ""
 		for _, window := range domain.TimeWindows {
@@ -163,11 +166,12 @@ func GetBlockingReason(cfg *config.Config, domain string, now time.Time) string 
 	// Find the domain in the config
 	for _, configDomain := range cfg.Domains {
 		if configDomain.Name == domain {
-			if configDomain.AlwaysBlock {
+			// NEW BEHAVIOR: Domains without time windows are always blocked by default
+			if len(configDomain.TimeWindows) == 0 {
 				if configDomain.Absolute {
 					return "always blocked (absolute - cannot be temporarily unblocked)"
 				}
-				return "always blocked"
+				return "always blocked (no time windows)"
 			}
 
 			// Check which time window is active

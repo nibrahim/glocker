@@ -10,14 +10,17 @@ import (
 )
 
 func TestGetDomainsToBlock_AlwaysBlock(t *testing.T) {
+	// NEW BEHAVIOR: Domains without time windows are always blocked by default
 	cfg := &config.Config{
 		Domains: []config.Domain{
-			{Name: "example.com", AlwaysBlock: true},
-			{Name: "test.com", AlwaysBlock: false},
+			{Name: "example.com"}, // No time windows = always blocked
+			{Name: "test.com", TimeWindows: []config.TimeWindow{
+				{Start: "09:00", End: "17:00", Days: []string{"Sun"}}, // Wrong day, won't block
+			}},
 		},
 	}
 
-	now := time.Now()
+	now := time.Date(2026, 1, 6, 10, 0, 0, 0, time.UTC) // Monday 10:00
 	blocked := GetDomainsToBlock(cfg, now)
 
 	if len(blocked) != 1 {
@@ -149,8 +152,8 @@ func TestAbsoluteDomainIgnoresTempUnblock(t *testing.T) {
 
 	cfg := &config.Config{
 		Domains: []config.Domain{
-			{Name: "absolute.com", AlwaysBlock: true, Absolute: true},
-			{Name: "regular.com", AlwaysBlock: true, Absolute: false},
+			{Name: "absolute.com", Absolute: true}, // No time windows, absolute
+			{Name: "regular.com"},                  // No time windows, regular
 		},
 	}
 
@@ -214,22 +217,22 @@ func TestCleanupExpiredUnblocks(t *testing.T) {
 func TestGetBlockingReason_AlwaysBlock(t *testing.T) {
 	cfg := &config.Config{
 		Domains: []config.Domain{
-			{Name: "example.com", AlwaysBlock: true},
+			{Name: "example.com"}, // No time windows = always blocked
 		},
 	}
 
 	now := time.Now()
 	reason := GetBlockingReason(cfg, "example.com", now)
 
-	if reason != "always blocked" {
-		t.Errorf("Expected 'always blocked', got '%s'", reason)
+	if reason != "always blocked (no time windows)" {
+		t.Errorf("Expected 'always blocked (no time windows)', got '%s'", reason)
 	}
 }
 
 func TestGetBlockingReason_Absolute(t *testing.T) {
 	cfg := &config.Config{
 		Domains: []config.Domain{
-			{Name: "example.com", AlwaysBlock: true, Absolute: true},
+			{Name: "example.com", Absolute: true}, // No time windows = always blocked, absolute
 		},
 	}
 
@@ -274,7 +277,7 @@ func TestGetBlockingReason_TimeWindow(t *testing.T) {
 func TestGetBlockingReason_Unknown(t *testing.T) {
 	cfg := &config.Config{
 		Domains: []config.Domain{
-			{Name: "example.com", AlwaysBlock: false},
+			{Name: "example.com"}, // Some existing domain
 		},
 	}
 
@@ -333,14 +336,19 @@ func TestGetDomainsToBlock_MultipleConditions(t *testing.T) {
 
 	cfg := &config.Config{
 		Domains: []config.Domain{
-			{Name: "always.com", AlwaysBlock: true},
+			{Name: "always.com"}, // No time windows = always blocked
 			{
 				Name: "timewindow.com",
 				TimeWindows: []config.TimeWindow{
 					{Start: "09:00", End: "17:00", Days: []string{currentDay}},
 				},
 			},
-			{Name: "never.com", AlwaysBlock: false},
+			{
+				Name: "outside.com",
+				TimeWindows: []config.TimeWindow{
+					{Start: "18:00", End: "22:00", Days: []string{currentDay}}, // Outside current time
+				},
+			},
 			{
 				Name: "wrongday.com",
 				TimeWindows: []config.TimeWindow{
@@ -352,7 +360,8 @@ func TestGetDomainsToBlock_MultipleConditions(t *testing.T) {
 
 	blocked := GetDomainsToBlock(cfg, now)
 
-	// Should block: always.com and timewindow.com
+	// Should block: always.com (no time windows) and timewindow.com (in window)
+	// Should NOT block: outside.com (outside time window) and wrongday.com (wrong day)
 	if len(blocked) != 2 {
 		t.Fatalf("Expected 2 blocked domains, got %d", len(blocked))
 	}
@@ -363,13 +372,13 @@ func TestGetDomainsToBlock_MultipleConditions(t *testing.T) {
 	}
 
 	if !blockedMap["always.com"] {
-		t.Error("always.com should be blocked")
+		t.Error("always.com should be blocked (no time windows)")
 	}
 	if !blockedMap["timewindow.com"] {
-		t.Error("timewindow.com should be blocked")
+		t.Error("timewindow.com should be blocked (in time window)")
 	}
-	if blockedMap["never.com"] {
-		t.Error("never.com should not be blocked")
+	if blockedMap["outside.com"] {
+		t.Error("outside.com should not be blocked (outside time window)")
 	}
 	if blockedMap["wrongday.com"] {
 		t.Error("wrongday.com should not be blocked (wrong day)")

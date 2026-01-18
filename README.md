@@ -71,13 +71,15 @@ Each system can be independently enabled/disabled and configured with time windo
 ## Example Configuration
 
 ```yaml
-# Always block these domains (can be temporarily unblocked)
 domains:
-  - {name: "reddit.com", always_block: true}
+  # Always blocked (no time windows = always block by default)
+  - {name: "reddit.com"}
 
-  # Time-based blocking
+  # Always blocked, cannot be temporarily unblocked
+  - {name: "facebook.com", absolute: true}
+
+  # Time-based blocking - only blocked during specified windows
   - name: "twitter.com"
-    always_block: false
     time_windows:
       - start: "09:00"
         end: "17:00"
@@ -99,6 +101,11 @@ violation_tracking:
   time_window_minutes: 60
   command: "glocklock -duration 5m"
 ```
+
+**Domain Blocking Behavior:**
+- **No time windows specified** → Domain is always blocked (default behavior)
+- **Time windows specified** → Domain is only blocked during those time windows
+- **`absolute: true`** → Domain cannot be temporarily unblocked (permanent block)
 
 See [sample config](conf/conf.yaml) and [configuration guide](docs/config.md) for all options.
 

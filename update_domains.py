@@ -159,7 +159,7 @@ def fetch_bon_appetit() -> Tuple[List[str], str, Dict]:
 
 def parse_bon_appetit(domain: str) -> str:
     """Format domain in compact JSON YAML format."""
-    return f'  - {{"name": "{domain}", "always_block": true, "absolute": true}}'
+    return f'  - {{"name": "{domain}", "absolute": true}}'
 
 
 ## Source-Specific Functions: StevenBlack Hosts
@@ -235,7 +235,7 @@ def fetch_stevenblack() -> Tuple[List[str], str, Dict]:
 
 def parse_stevenblack(domain: str) -> str:
     """Format domain in compact JSON YAML format."""
-    return f'  - {{\"name\": \"{domain}\", \"always_block\": true, \"absolute\": true}}'
+    return f'  - {{\"name\": \"{domain}\", \"absolute\": true}}'
 
 
 ## Source-Specific Functions: HaGeZi DoH/VPN/TOR/Proxy Bypass
@@ -313,7 +313,7 @@ def fetch_hagezi() -> Tuple[List[str], str, Dict]:
 
 def parse_hagezi(domain: str) -> str:
     """Format domain in compact JSON YAML format."""
-    return f'  - {{\"name\": \"{domain}\", \"always_block\": true, \"absolute\": true}}'
+    return f'  - {{\"name\": \"{domain}\", \"absolute\": true}}'
 
 
 ## Source-Specific Functions: UnblockStop Proxy Bypass
@@ -377,7 +377,7 @@ def fetch_unblockstop() -> Tuple[List[str], str, Dict]:
 
 def parse_unblockstop(domain: str) -> str:
     """Format domain in compact JSON YAML format."""
-    return f'  - {{\"name\": \"{domain}\", \"always_block\": true, \"absolute\": true}}'
+    return f'  - {{\"name\": \"{domain}\", \"absolute\": true}}'
 
 
 ## Source Registry

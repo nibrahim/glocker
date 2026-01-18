@@ -7,7 +7,7 @@ build-all:
 	go build -o glockpeek ./cmd/glockpeek
 
 # Rebuild and reinstall
-reinstall: build-all
+reinstall: build-all update-blocklists
 	sudo ./glocker -uninstall "reinstall" || true
 	sudo ./glocker -install
 

@@ -165,7 +165,7 @@ func TestHandleBlockedPageRequest_DefaultValues(t *testing.T) {
 	}
 }
 
-func TestGetBlockingReason_AlwaysBlock(t *testing.T) {
+func TestGetBlockingReason_PermanentByDefault(t *testing.T) {
 	cfg := &config.Config{
 		Domains: []config.Domain{
 			{
@@ -211,8 +211,7 @@ func TestGetBlockingReason_TimeWindow(t *testing.T) {
 	cfg := &config.Config{
 		Domains: []config.Domain{
 			{
-				Name:        "example.com",
-				AlwaysBlock: false,
+				Name: "example.com",
 				TimeWindows: []config.TimeWindow{
 					{
 						Days:  []string{currentDay},

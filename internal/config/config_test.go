@@ -68,8 +68,7 @@ func TestValidateConfig_ValidConfig(t *testing.T) {
 	cfg := &Config{
 		Domains: []Domain{
 			{
-				Name:        "example.com",
-				AlwaysBlock: true,
+				Name: "example.com", // No time windows = always blocked by default
 			},
 			{
 				Name: "reddit.com",

@@ -298,10 +298,9 @@ func ProcessBlockRequest(cfg *config.Config, hostsStr string) {
 			continue
 		}
 
-		// Add to config domains as always-block
+		// Add to config domains (no time windows = always blocked by default)
 		cfg.Domains = append(cfg.Domains, config.Domain{
-			Name:        host,
-			AlwaysBlock: true,
+			Name: host,
 		})
 
 		log.Printf("BLOCKED: %s", host)

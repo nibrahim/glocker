@@ -12,7 +12,7 @@ import (
 func TestGetStatusResponse(t *testing.T) {
 	cfg := &config.Config{
 		Domains: []config.Domain{
-			{Name: "example.com", AlwaysBlock: true},
+			{Name: "example.com"}, // No time windows = always blocked by default
 		},
 	}
 
@@ -30,7 +30,7 @@ func TestGetStatusResponse(t *testing.T) {
 func TestGetStatusResponse_WithExtensionKeywords(t *testing.T) {
 	cfg := &config.Config{
 		Domains: []config.Domain{
-			{Name: "example.com", AlwaysBlock: true},
+			{Name: "example.com"}, // No time windows = always blocked by default
 		},
 		ExtensionKeywords: config.ExtensionKeywordsConfig{
 			URLKeywords:     []string{"gambling", "casino", "poker"},
@@ -74,7 +74,7 @@ func TestGetStatusResponse_WithManyKeywords(t *testing.T) {
 
 	cfg := &config.Config{
 		Domains: []config.Domain{
-			{Name: "example.com", AlwaysBlock: true},
+			{Name: "example.com"}, // No time windows = always blocked by default
 		},
 		ExtensionKeywords: config.ExtensionKeywordsConfig{
 			URLKeywords: manyKeywords,

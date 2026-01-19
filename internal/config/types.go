@@ -25,7 +25,6 @@ type TimeWindow struct {
 // Domain represents a domain to be blocked with its blocking rules.
 type Domain struct {
 	Name        string       `yaml:"name"`
-	AlwaysBlock bool         `yaml:"always_block"`        // Deprecated: use TimeWindows instead
 	TimeWindows []TimeWindow `yaml:"time_windows,omitempty"`
 	LogBlocking bool         `yaml:"log_blocking,omitempty"`
 	Unblockable bool         `yaml:"unblockable,omitempty"` // Set to true to allow temporary unblocking (default: false = permanent)

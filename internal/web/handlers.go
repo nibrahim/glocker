@@ -165,9 +165,11 @@ func isHostBlocked(host string) (bool, string) {
 		for _, configDomain := range freshCfg.Domains {
 			if configDomain.Name == checkDomain {
 				// Check if domain is currently blocked
+				// Domains without time windows are permanently blocked by default
 				isBlocked := false
 
-				if configDomain.AlwaysBlock {
+				if len(configDomain.TimeWindows) == 0 {
+					// No time windows = always blocked
 					isBlocked = true
 				} else {
 					// Check time windows
@@ -183,7 +185,7 @@ func isHostBlocked(host string) (bool, string) {
 					// Cache the domain config
 					cachedDomain := configDomain // Copy
 					domainCache.domains[checkDomain] = &cachedDomain
-					slog.Debug("Cached blocked domain", "domain", checkDomain, "always_block", configDomain.AlwaysBlock)
+					slog.Debug("Cached blocked domain", "domain", checkDomain)
 					return true, checkDomain
 				}
 			}

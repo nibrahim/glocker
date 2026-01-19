@@ -55,9 +55,10 @@ func InitialEnforcement(cfg *config.Config) {
 	log.Printf("Performing initial enforcement at %s", now.Format("2006-01-02 15:04:05"))
 
 	// Cache the list of domains with time windows (small list, typically <10)
+	// Domains without time windows are always blocked by default, so we only cache time-windowed domains
 	var timeWindowDomains []config.Domain
 	for _, domain := range cfg.Domains {
-		if !domain.AlwaysBlock && len(domain.TimeWindows) > 0 {
+		if len(domain.TimeWindows) > 0 {
 			timeWindowDomains = append(timeWindowDomains, domain)
 		}
 	}

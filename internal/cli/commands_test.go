@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"glocker/internal/config"
+	"glocker/internal/enforcement"
 	"glocker/internal/state"
 )
 
@@ -133,6 +134,10 @@ func TestProcessUnblockRequest_RejectsPermanentDomains(t *testing.T) {
 		},
 	}
 
+	// Initialize enforcement state cache with test config
+	// This simulates what happens during daemon startup
+	enforcement.InitializeTestCache(cfg.Domains)
+
 	// Clear temp unblocks
 	state.SetTempUnblocks([]state.TempUnblock{})
 
@@ -174,6 +179,9 @@ func TestProcessUnblockRequest_AllPermanentDomainsError(t *testing.T) {
 		},
 	}
 
+	// Initialize enforcement state cache with test config
+	enforcement.InitializeTestCache(cfg.Domains)
+
 	// Clear temp unblocks
 	state.SetTempUnblocks([]state.TempUnblock{})
 
@@ -205,6 +213,9 @@ func TestProcessUnblockRequest_ValidatesReasons(t *testing.T) {
 			Reasons:         []string{"work", "research", "emergency"},
 		},
 	}
+
+	// Initialize enforcement state cache with test config
+	enforcement.InitializeTestCache(cfg.Domains)
 
 	tests := []struct {
 		name        string
@@ -260,6 +271,9 @@ func TestProcessUnblockRequest_NoReasonValidationWhenListEmpty(t *testing.T) {
 			Reasons:         []string{}, // Empty list - any reason should be accepted
 		},
 	}
+
+	// Initialize enforcement state cache with test config
+	enforcement.InitializeTestCache(cfg.Domains)
 
 	// Clear temp unblocks
 	state.SetTempUnblocks([]state.TempUnblock{})

@@ -250,27 +250,23 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) error {
 			continue
 		}
 
-		// NEW BEHAVIOR: Check if domain is unblockable
-		// Domains are permanent by default - only domains with unblockable: true can be temporarily unblocked
-		canUnblock := false
-		domainFound := false
-		for _, domain := range cfg.Domains {
-			if domain.Name == host {
-				domainFound = true
-				canUnblock = domain.Unblockable
-				break
-			}
-		}
+		// Check if domain can be unblocked using cached enforcement state
+		// This avoids reloading the entire config from disk
+		canUnblock, inConfig := enforcement.IsUnblockable(host)
 
-		if domainFound && !canUnblock {
-			log.Printf("REJECTED UNBLOCK: %s - domain is permanently blocked (not marked as unblockable)", host)
+		if !canUnblock {
+			// Domain is in config but not marked as unblockable - reject
+			if inConfig {
+				log.Printf("REJECTED UNBLOCK: %s - domain is permanently blocked (not marked as unblockable)", host)
+			} else {
+				log.Printf("REJECTED UNBLOCK: %s - domain is permanently blocked", host)
+			}
 			rejected++
 			rejectedDomains = append(rejectedDomains, host)
 			continue
 		}
 
-		// If domain not found in config, allow unblock (might be from automated blocklists)
-		// This maintains backward compatibility
+		// Domain is unblockable or not in config (allow for backward compatibility)
 
 		// Add to temporary unblocks
 		duration := time.Duration(cfg.Unblocking.TempUnblockTime) * time.Minute

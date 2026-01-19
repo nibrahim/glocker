@@ -26,6 +26,14 @@ type EnforcementState struct {
 	// This is a small list (typically <10) vs 800K always_block domains
 	timeWindowDomains []config.Domain
 
+	// Unblockable domains - cached set of domain names that can be temporarily unblocked
+	// This is a small set (typically <50) vs 800K permanent domains
+	unblockableDomains map[string]bool // domain name -> true if unblockable
+
+	// Config domain names - cached set of ALL domain names from config
+	// Used to distinguish between "in config but permanent" vs "not in config at all"
+	configDomainNames map[string]bool // domain name -> true if in config
+
 	// Time window state - tracks which domains are in blocking period
 	lastTimeWindowState map[string]bool // domain -> was blocked by time window
 
@@ -45,6 +53,8 @@ type EnforcementState struct {
 var (
 	enforcementState = &EnforcementState{
 		lastTimeWindowState: make(map[string]bool),
+		unblockableDomains:  make(map[string]bool),
+		configDomainNames:   make(map[string]bool),
 	}
 )
 
@@ -57,15 +67,25 @@ func InitialEnforcement(cfg *config.Config) {
 	// Cache the list of domains with time windows (small list, typically <10)
 	// Domains without time windows are always blocked by default, so we only cache time-windowed domains
 	var timeWindowDomains []config.Domain
+	unblockableDomains := make(map[string]bool)
+	configDomainNames := make(map[string]bool)
 	for _, domain := range cfg.Domains {
+		configDomainNames[domain.Name] = true
 		if len(domain.TimeWindows) > 0 {
 			timeWindowDomains = append(timeWindowDomains, domain)
+		}
+		if domain.Unblockable {
+			unblockableDomains[domain.Name] = true
 		}
 	}
 	enforcementState.mu.Lock()
 	enforcementState.timeWindowDomains = timeWindowDomains
+	enforcementState.unblockableDomains = unblockableDomains
+	enforcementState.configDomainNames = configDomainNames
 	enforcementState.mu.Unlock()
 	log.Printf("Cached %d domains with time windows for state tracking", len(timeWindowDomains))
+	log.Printf("Cached %d unblockable domains", len(unblockableDomains))
+	log.Printf("Cached %d total domain names from config", len(configDomainNames))
 
 	// Clean up expired temporary unblocks
 	CleanupExpiredUnblocks(now)
@@ -368,4 +388,40 @@ func GetTimeWindowDomains() []config.Domain {
 	enforcementState.mu.RLock()
 	defer enforcementState.mu.RUnlock()
 	return enforcementState.timeWindowDomains
+}
+
+// IsUnblockable checks if a domain can be temporarily unblocked.
+// Returns: (canUnblock bool, inConfig bool)
+// - canUnblock: true if domain can be unblocked
+// - inConfig: true if domain was in the original config
+func IsUnblockable(domain string) (canUnblock bool, inConfig bool) {
+	enforcementState.mu.RLock()
+	defer enforcementState.mu.RUnlock()
+
+	inConfig = enforcementState.configDomainNames[domain]
+	canUnblock = enforcementState.unblockableDomains[domain]
+
+	// If not in config at all, allow unblock (backward compat for automated lists)
+	if !inConfig {
+		canUnblock = true
+	}
+
+	return canUnblock, inConfig
+}
+
+// InitializeTestCache initializes the enforcement state cache for testing.
+// This is used by tests to set up the cache without running full enforcement.
+func InitializeTestCache(domains []config.Domain) {
+	unblockableDomains := make(map[string]bool)
+	configDomainNames := make(map[string]bool)
+	for _, domain := range domains {
+		configDomainNames[domain.Name] = true
+		if domain.Unblockable {
+			unblockableDomains[domain.Name] = true
+		}
+	}
+	enforcementState.mu.Lock()
+	enforcementState.unblockableDomains = unblockableDomains
+	enforcementState.configDomainNames = configDomainNames
+	enforcementState.mu.Unlock()
 }

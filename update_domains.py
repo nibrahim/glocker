@@ -479,8 +479,11 @@ def update_config_section(config_content: str, marker: str, marker_line_idx: Opt
     return '\n'.join(new_lines)
 
 
-def update_source(source_id: int):
-    """Update domains from a specific source."""
+def update_source(source_id: int) -> str:
+    """
+    Update domains from a specific source.
+    Returns: 'updated', 'skipped', or raises SystemExit on error
+    """
     # Step 1: Find source
     source = get_source_by_id(source_id)
     if not source:
@@ -519,7 +522,7 @@ def update_source(source_id: int):
     # Step 6: Check idempotency
     if existing_timestamp and existing_timestamp == timestamp:
         print(f"\n  Already up to date (last update: {timestamp})")
-        return
+        return 'skipped'
 
     if marker_line_idx is not None:
         print("  Update available, proceeding...")
@@ -571,6 +574,7 @@ def update_source(source_id: int):
         with open(CONFIG_FILE, 'w') as f:
             f.write(new_config)
         print(f"  Successfully updated config file\n")
+        return 'updated'
     except Exception as e:
         print(f"  Error writing config file: {e}", file=sys.stderr)
         sys.exit(1)
@@ -708,17 +712,16 @@ def update_all_sources():
         print("-" * 60)
 
         try:
-            update_source(source['id'])
-            success_count += 1
+            result = update_source(source['id'])
+            if result == 'updated':
+                success_count += 1
+            elif result == 'skipped':
+                skipped_count += 1
         except SystemExit as e:
             # update_source() calls sys.exit() on errors
             # Catch it and continue with next source
-            if e.code == 0:
-                # Exit code 0 means success or "already up to date"
-                skipped_count += 1
-            else:
-                error_count += 1
-                print(f"  ⚠️  Error updating source {source['id']}, continuing with next source...")
+            error_count += 1
+            print(f"  ⚠️  Error updating source {source['id']}, continuing with next source...")
 
     # Summary
     print("\n" + "=" * 60)

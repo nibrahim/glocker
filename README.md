@@ -166,8 +166,6 @@ See [CLAUDE.md](CLAUDE.md) for complete file map and developer guide.
 
 - **[Domain Blocklist Updater](update_domains.py)** - Automated domain list updates from curated sources
 - **[Android Port Architecture](ANDROID.md)** - Design docs for Android version
-- **[Gap Analysis](GAP_ANALYSIS.md)** - Detailed refactoring analysis
-- **[Implementation Status](IMPLEMENTATION_STATUS.md)** - Feature completion report
 
 ## System Requirements
 

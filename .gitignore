@@ -7,3 +7,4 @@ conf/conf.yaml
 extensions/firefox/web-ext-artifacts/
 extensions/firefox/.amo-upload-uuid
 .claude
+README.html

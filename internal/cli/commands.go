@@ -246,19 +246,31 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) error {
 			continue
 		}
 
-		// Check if domain is absolute - cannot be unblocked
-		isAbsolute := false
+		// NEW BEHAVIOR: Check if domain is unblockable
+		// Domains are permanent by default - only domains with unblockable: true can be temporarily unblocked
+		canUnblock := false
+		domainFound := false
 		for _, domain := range cfg.Domains {
-			if domain.Name == host && domain.Absolute {
-				isAbsolute = true
-				log.Printf("REJECTED: Cannot unblock %s - marked as absolute (cannot be temporarily unblocked)", host)
+			if domain.Name == host {
+				domainFound = true
+				canUnblock = domain.Unblockable
+
+				// For backward compatibility, also check old Absolute field
+				// If domain has Absolute: true (old config), it cannot be unblocked
+				if domain.Absolute {
+					canUnblock = false
+				}
 				break
 			}
 		}
 
-		if isAbsolute {
+		if domainFound && !canUnblock {
+			log.Printf("REJECTED: Cannot unblock %s - domain is permanently blocked (not marked as unblockable)", host)
 			continue
 		}
+
+		// If domain not found in config, allow unblock (might be from automated blocklists)
+		// This maintains backward compatibility
 
 		// Add to temporary unblocks
 		duration := time.Duration(cfg.Unblocking.TempUnblockTime) * time.Minute

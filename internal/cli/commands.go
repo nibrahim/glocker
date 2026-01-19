@@ -240,6 +240,10 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) error {
 
 	hosts := strings.Split(hostsStr, ",")
 	unblocked := 0
+	rejected := 0
+	var rejectedDomains []string
+	var unblockedDomains []string
+
 	for _, host := range hosts {
 		host = strings.TrimSpace(host)
 		if host == "" {
@@ -259,7 +263,9 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) error {
 		}
 
 		if domainFound && !canUnblock {
-			log.Printf("REJECTED: Cannot unblock %s - domain is permanently blocked (not marked as unblockable)", host)
+			log.Printf("REJECTED UNBLOCK: %s - domain is permanently blocked (not marked as unblockable)", host)
+			rejected++
+			rejectedDomains = append(rejectedDomains, host)
 			continue
 		}
 
@@ -277,11 +283,28 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) error {
 
 		log.Printf("UNBLOCKED: %s (reason: %s) until %s", host, reason, expiresAt.Format("15:04:05"))
 		unblocked++
+		unblockedDomains = append(unblockedDomains, host)
+	}
+
+	// Log summary
+	if unblocked > 0 && rejected > 0 {
+		log.Printf("UNBLOCK SUMMARY: %d unblocked (%s), %d rejected (%s)",
+			unblocked, strings.Join(unblockedDomains, ", "),
+			rejected, strings.Join(rejectedDomains, ", "))
+	} else if unblocked > 0 {
+		log.Printf("UNBLOCK SUMMARY: %d domain(s) unblocked successfully", unblocked)
+	} else if rejected > 0 {
+		log.Printf("UNBLOCK SUMMARY: All %d domain(s) rejected - all are permanently blocked", rejected)
 	}
 
 	// Force enforcement to apply changes immediately
 	if unblocked > 0 {
 		enforcement.ForceEnforcement(cfg)
+	}
+
+	// Return error if all domains were rejected
+	if rejected > 0 && unblocked == 0 {
+		return fmt.Errorf("all domains rejected: %s (permanently blocked, not marked as unblockable)", strings.Join(rejectedDomains, ", "))
 	}
 
 	return nil

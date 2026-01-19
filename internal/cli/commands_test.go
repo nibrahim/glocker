@@ -136,8 +136,11 @@ func TestProcessUnblockRequest_RejectsPermanentDomains(t *testing.T) {
 	// Clear temp unblocks
 	state.SetTempUnblocks([]state.TempUnblock{})
 
-	// Try to unblock both domains
-	ProcessUnblockRequest(cfg, "permanent.com,unblockable.com", "work")
+	// Try to unblock both domains - should succeed for unblockable.com, reject permanent.com
+	err := ProcessUnblockRequest(cfg, "permanent.com,unblockable.com", "work")
+	if err != nil {
+		t.Errorf("Should not error when at least one domain is unblockable, got: %v", err)
+	}
 
 	// Check temp unblocks
 	unblocks := state.GetTempUnblocks()
@@ -156,6 +159,39 @@ func TestProcessUnblockRequest_RejectsPermanentDomains(t *testing.T) {
 		if unblock.Domain == "permanent.com" {
 			t.Error("permanent.com should not be in temp unblocks (not marked as unblockable)")
 		}
+	}
+}
+
+func TestProcessUnblockRequest_AllPermanentDomainsError(t *testing.T) {
+	cfg := &config.Config{
+		Domains: []config.Domain{
+			{Name: "permanent1.com"}, // Permanent by default
+			{Name: "permanent2.com"}, // Permanent by default
+		},
+		Unblocking: config.UnblockingConfig{
+			TempUnblockTime: 30,
+			Reasons:         []string{"work", "research"},
+		},
+	}
+
+	// Clear temp unblocks
+	state.SetTempUnblocks([]state.TempUnblock{})
+
+	// Try to unblock only permanent domains - should return error
+	err := ProcessUnblockRequest(cfg, "permanent1.com,permanent2.com", "work")
+	if err == nil {
+		t.Error("Expected error when all domains are permanently blocked")
+	}
+
+	// Verify error message mentions the domains
+	if err != nil && !strings.Contains(err.Error(), "permanent1.com") {
+		t.Errorf("Error should mention rejected domain, got: %v", err)
+	}
+
+	// Verify no domains were unblocked
+	unblocks := state.GetTempUnblocks()
+	if len(unblocks) != 0 {
+		t.Errorf("Expected 0 temp unblocks, got %d", len(unblocks))
 	}
 }
 

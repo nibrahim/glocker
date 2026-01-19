@@ -254,12 +254,6 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) error {
 			if domain.Name == host {
 				domainFound = true
 				canUnblock = domain.Unblockable
-
-				// For backward compatibility, also check old Absolute field
-				// If domain has Absolute: true (old config), it cannot be unblocked
-				if domain.Absolute {
-					canUnblock = false
-				}
 				break
 			}
 		}

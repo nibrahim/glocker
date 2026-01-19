@@ -169,9 +169,7 @@ func TestGetBlockingReason_AlwaysBlock(t *testing.T) {
 	cfg := &config.Config{
 		Domains: []config.Domain{
 			{
-				Name:        "example.com",
-				AlwaysBlock: true,
-				Absolute:    false,
+				Name: "example.com", // No time windows = permanent by default
 			},
 		},
 	}
@@ -181,23 +179,28 @@ func TestGetBlockingReason_AlwaysBlock(t *testing.T) {
 	if !strings.Contains(reason, "always blocked") {
 		t.Errorf("Expected 'always blocked', got '%s'", reason)
 	}
+	if !strings.Contains(reason, "permanent") {
+		t.Errorf("Expected 'permanent' in reason, got '%s'", reason)
+	}
 }
 
-func TestGetBlockingReason_Absolute(t *testing.T) {
+func TestGetBlockingReason_Unblockable(t *testing.T) {
 	cfg := &config.Config{
 		Domains: []config.Domain{
 			{
 				Name:        "example.com",
-				AlwaysBlock: true,
-				Absolute:    true,
+				Unblockable: true, // Can be temporarily unblocked
 			},
 		},
 	}
 
 	reason := GetBlockingReason(cfg, "example.com", time.Now())
 
-	if !strings.Contains(reason, "absolute") {
-		t.Errorf("Expected 'absolute' in reason, got '%s'", reason)
+	if !strings.Contains(reason, "always blocked") {
+		t.Errorf("Expected 'always blocked' in reason, got '%s'", reason)
+	}
+	if !strings.Contains(reason, "temporarily unblocked") {
+		t.Errorf("Expected 'temporarily unblocked' in reason, got '%s'", reason)
 	}
 }
 

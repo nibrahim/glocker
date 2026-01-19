@@ -126,7 +126,6 @@ func TestProcessUnblockRequest_RejectsPermanentDomains(t *testing.T) {
 		Domains: []config.Domain{
 			{Name: "permanent.com"},                          // Permanent by default
 			{Name: "unblockable.com", Unblockable: true},    // Can be unblocked
-			{Name: "oldabsolute.com", Absolute: true},       // Old config - backward compat
 		},
 		Unblocking: config.UnblockingConfig{
 			TempUnblockTime: 30,
@@ -137,8 +136,8 @@ func TestProcessUnblockRequest_RejectsPermanentDomains(t *testing.T) {
 	// Clear temp unblocks
 	state.SetTempUnblocks([]state.TempUnblock{})
 
-	// Try to unblock all three domains
-	ProcessUnblockRequest(cfg, "permanent.com,unblockable.com,oldabsolute.com", "work")
+	// Try to unblock both domains
+	ProcessUnblockRequest(cfg, "permanent.com,unblockable.com", "work")
 
 	// Check temp unblocks
 	unblocks := state.GetTempUnblocks()
@@ -152,13 +151,10 @@ func TestProcessUnblockRequest_RejectsPermanentDomains(t *testing.T) {
 		t.Errorf("Expected unblockable.com to be unblocked, got %s", unblocks[0].Domain)
 	}
 
-	// Verify permanent.com and oldabsolute.com are NOT in temp unblocks
+	// Verify permanent.com is NOT in temp unblocks
 	for _, unblock := range unblocks {
 		if unblock.Domain == "permanent.com" {
 			t.Error("permanent.com should not be in temp unblocks (not marked as unblockable)")
-		}
-		if unblock.Domain == "oldabsolute.com" {
-			t.Error("oldabsolute.com should not be in temp unblocks (old absolute flag)")
 		}
 	}
 }

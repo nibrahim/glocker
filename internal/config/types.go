@@ -28,8 +28,7 @@ type Domain struct {
 	AlwaysBlock bool         `yaml:"always_block"`        // Deprecated: use TimeWindows instead
 	TimeWindows []TimeWindow `yaml:"time_windows,omitempty"`
 	LogBlocking bool         `yaml:"log_blocking,omitempty"`
-	Absolute    bool         `yaml:"absolute,omitempty"`    // Deprecated: domains are absolute by default
-	Unblockable bool         `yaml:"unblockable,omitempty"` // Set to true to allow temporary unblocking (default: false)
+	Unblockable bool         `yaml:"unblockable,omitempty"` // Set to true to allow temporary unblocking (default: false = permanent)
 }
 
 // SudoersConfig controls sudo access restrictions.

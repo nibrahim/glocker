@@ -432,12 +432,12 @@ func GetBlockingReason(cfg *config.Config, domain string, now time.Time) string 
 		return "blocked by glocker"
 	}
 
-	// Determine blocking reason
-	if configDomain.AlwaysBlock {
-		if configDomain.Absolute {
-			return "always blocked (absolute - cannot be temporarily unblocked)"
+	// NEW BEHAVIOR: Domains without time windows are always blocked (permanent by default)
+	if len(configDomain.TimeWindows) == 0 {
+		if configDomain.Unblockable {
+			return "always blocked (can be temporarily unblocked)"
 		}
-		return "always blocked"
+		return "always blocked (permanent)"
 	}
 
 	// Check which time window is active

@@ -29,8 +29,7 @@ func main() {
 	topN := flag.Int("top", 5, "Number of top items to show")
 	fromDate := flag.String("from", "", "Start date (YYYY, YYYY-MM, or YYYY-MM-DD)")
 	toDate := flag.String("to", "", "End date (YYYY, YYYY-MM, or YYYY-MM-DD)")
-	dayDate := flag.String("day", "", "Show detailed logs for a specific day (YYYY-MM-DD)")
-	monthDate := flag.String("month", "", "Show detailed logs for a specific month (YYYY-MM)")
+	periodDate := flag.String("period", "", "Show detailed logs for a period (YYYY-MM for month, YYYY-MM-DD for day)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "glockpeek - peek at your glocker logs\n\n")
@@ -47,34 +46,27 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  glockpeek -from 2024-06-15         Show from specific date\n")
 		fmt.Fprintf(os.Stderr, "  glockpeek -from 2024 -to 2024      Show only 2024\n")
 		fmt.Fprintf(os.Stderr, "  glockpeek -from 2024-01 -to 2024-06 Show Jan-Jun 2024\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -day 2024-06-15          Show detailed logs for a day\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -month 2024-06           Show detailed logs for a month\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek -period 2024-06-15       Show detailed logs for a day\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek -period 2024-06          Show detailed logs for a month\n")
 	}
 
 	flag.Parse()
 
-	// Handle -day flag separately (detailed view)
-	if *dayDate != "" {
-		day, err := time.ParseInLocation("2006-01-02", *dayDate, time.Local)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid -day date %q\n", *dayDate)
-			fmt.Fprintf(os.Stderr, "Format must be YYYY-MM-DD (e.g., 2024-06-15)\n")
-			os.Exit(1)
+	// Handle -period flag (detailed view for day or month)
+	if *periodDate != "" {
+		// Try day format first (YYYY-MM-DD)
+		if day, err := time.ParseInLocation("2006-01-02", *periodDate, time.Local); err == nil {
+			printDayDetails(day)
+			return
 		}
-		printDayDetails(day)
-		return
-	}
-
-	// Handle -month flag separately (detailed view)
-	if *monthDate != "" {
-		month, err := time.ParseInLocation("2006-01", *monthDate, time.Local)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid -month date %q\n", *monthDate)
-			fmt.Fprintf(os.Stderr, "Format must be YYYY-MM (e.g., 2024-06)\n")
-			os.Exit(1)
+		// Try month format (YYYY-MM)
+		if month, err := time.ParseInLocation("2006-01", *periodDate, time.Local); err == nil {
+			printMonthDetails(month)
+			return
 		}
-		printMonthDetails(month)
-		return
+		fmt.Fprintf(os.Stderr, "Error: invalid -period date %q\n", *periodDate)
+		fmt.Fprintf(os.Stderr, "Format must be YYYY-MM (month) or YYYY-MM-DD (day)\n")
+		os.Exit(1)
 	}
 
 	// Parse and validate dates
@@ -104,12 +96,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Default to summary if no specific flag
+	// Default to summary (violations only) if no specific flag
 	if !*summaryFlag && !*unblocksFlag && !*violationsFlag {
 		*summaryFlag = true
 	}
 
-	showUnblocks := *summaryFlag || *unblocksFlag
+	showUnblocks := *unblocksFlag
 	showViolations := *summaryFlag || *violationsFlag
 
 	if showUnblocks {
@@ -466,12 +458,42 @@ func barLen(count, maxCount, maxLen int) int {
 	return (count * maxLen) / maxCount
 }
 
+// quantizedBarLen returns a quantized bar length:
+// 0 → 0, 1-3 → 1, 4-7 → 2, 8-11 → 3, etc.
+func quantizedBarLen(count, maxLen int) int {
+	if count == 0 {
+		return 0
+	}
+	if count <= 3 {
+		return 1
+	}
+	bars := (count-4)/4 + 2
+	if bars > maxLen {
+		return maxLen
+	}
+	return bars
+}
+
 // coloredBar returns a colored bar string based on whether count is above average
 func coloredBar(count, maxCount, avg, maxLen int) string {
 	length := barLen(count, maxCount, maxLen)
 	bar := strings.Repeat(barChar, length)
 
 	if count > avg {
+		return colorRed + bar + colorReset
+	}
+	return colorGreen + bar + colorReset
+}
+
+// coloredBarAbsolute returns a colored bar with absolute thresholds:
+// - 2 or less: green (accidental)
+// - More than 2: red (deliberate attempt)
+// Bar length is quantized: 0→0, 1-3→1, 4-7→2, 8-11→3, etc.
+func coloredBarAbsolute(count, maxLen int) string {
+	length := quantizedBarLen(count, maxLen)
+	bar := strings.Repeat(barChar, length)
+
+	if count > 2 {
 		return colorRed + bar + colorReset
 	}
 	return colorGreen + bar + colorReset
@@ -545,116 +567,124 @@ func getTopPeriodForKeyword(keywordPeriods map[string]map[string]int, keyword st
 	return topPeriod
 }
 
-// timelineEntry represents a single event for the detailed timeline view
-type timelineEntry struct {
-	Time    time.Time
-	Type    string // "unblock" or "violation"
-	Details string
+// hourlyStats holds aggregated data for one hour
+type hourlyStats struct {
+	violations int
+	keywords   map[string]int
+	domains    map[string]int
 }
 
-// printDayDetails prints detailed logs for a specific day
+// printDayDetails prints aggregated hourly logs for a specific day
 func printDayDetails(day time.Time) {
 	dayStart := day
 	dayEnd := day.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
 
 	fmt.Printf("╔════════════════════════════════════════════════╗\n")
-	fmt.Printf("║  DETAILED LOG: %-31s ║\n", day.Format("Monday, January 2, 2006"))
+	fmt.Printf("║  DAILY LOG: %-34s ║\n", day.Format("Monday, January 2, 2006"))
 	fmt.Printf("╚════════════════════════════════════════════════╝\n")
 
-	// Collect all events into a timeline
-	var timeline []timelineEntry
-
-	// Get unblocks for this day
-	unblocks, err := reports.ParseUnblocksLog("")
-	if err == nil {
-		unblocks = reports.FilterUnblocks(unblocks, reports.UnblockFilter{
-			StartTime: &dayStart,
-			EndTime:   &dayEnd,
-		})
-		for _, u := range unblocks {
-			duration := int(u.RestoreTime.Sub(u.UnblockTime).Minutes())
-			details := fmt.Sprintf("%s%s%s unblocked %s%s%s for %s%d min%s — %s\"%s\"%s",
-				colorYellow, "UNBLOCK", colorReset,
-				colorGreen, u.Domain, colorReset,
-				colorDim, duration, colorReset,
-				colorDim, u.Reason, colorReset)
-			timeline = append(timeline, timelineEntry{
-				Time:    u.UnblockTime,
-				Type:    "unblock",
-				Details: details,
-			})
-		}
-	}
-
 	// Get violations for this day
-	violations, err := reports.ParseReportsLog("")
-	if err == nil {
-		violations = reports.FilterReports(violations, reports.ReportFilter{
-			StartTime: &dayStart,
-			EndTime:   &dayEnd,
-		})
-		for _, v := range violations {
-			typeStr := "URL"
-			if v.Type == reports.ReportTypeContent {
-				typeStr = "CONTENT"
-			}
-			details := fmt.Sprintf("%s%s%s keyword %s%s%s on %s%s%s",
-				colorRed, typeStr, colorReset,
-				colorRed, v.Keyword, colorReset,
-				colorDim, truncateString(v.Domain, 40), colorReset)
-			timeline = append(timeline, timelineEntry{
-				Time:    v.Timestamp,
-				Type:    "violation",
-				Details: details,
-			})
-		}
-	}
+	violations, _ := reports.ParseReportsLog("")
+	violations = reports.FilterReports(violations, reports.ReportFilter{
+		StartTime: &dayStart,
+		EndTime:   &dayEnd,
+	})
 
-	if len(timeline) == 0 {
-		fmt.Println("\nNo events found for this day.")
+	if len(violations) == 0 {
+		fmt.Println("\nNo violations found for this day.")
 		return
 	}
 
-	// Sort by time
-	sortTimeline(timeline)
-
-	// Count violations per hour to find egregious hours
-	hourCounts := make(map[int]int)
-	for _, e := range timeline {
-		if e.Type == "violation" {
-			hourCounts[e.Time.Hour()]++
+	// Initialize hourly stats for all 24 hours
+	hourlyData := make(map[int]*hourlyStats)
+	for h := 0; h < 24; h++ {
+		hourlyData[h] = &hourlyStats{
+			keywords: make(map[string]int),
+			domains:  make(map[string]int),
 		}
 	}
-	avgHourViolations := 0
-	if len(hourCounts) > 0 {
-		total := 0
-		for _, c := range hourCounts {
-			total += c
-		}
-		avgHourViolations = total / len(hourCounts)
+
+	// Aggregate violations by hour
+	for _, v := range violations {
+		h := v.Timestamp.Hour()
+		hourlyData[h].violations++
+		hourlyData[h].keywords[v.Keyword]++
+		hourlyData[h].domains[v.Domain]++
 	}
 
-	// Print timeline
-	fmt.Printf("\n%d events:\n\n", len(timeline))
-	currentHour := -1
-	for _, e := range timeline {
-		hour := e.Time.Hour()
-		if hour != currentHour {
-			// Check if this hour is egregious
-			hourLabel := e.Time.Format("15:00")
-			if hourCounts[hour] > avgHourViolations && avgHourViolations > 0 {
-				fmt.Printf("── %s%s%s %s(%d violations)%s ──\n",
-					colorInverse, hourLabel, colorReset, colorRed, hourCounts[hour], colorReset)
+	// Determine last hour to show (current hour if today, else 23)
+	now := time.Now()
+	lastHour := 23
+	if day.Year() == now.Year() && day.YearDay() == now.YearDay() {
+		lastHour = now.Hour()
+	}
+
+	// Print hourly aggregation
+	fmt.Printf("\n%d violations:\n\n", len(violations))
+	cleanHours := 0
+	for hour := 0; hour <= lastHour; hour++ {
+		stats := hourlyData[hour]
+		hourLabel := fmt.Sprintf("%02d:00", hour)
+
+		if stats.violations == 0 {
+			// Clean hour - show dim indicator
+			fmt.Printf("── %s%s%s %s·%s\n", colorDim, hourLabel, colorReset, colorDim, colorReset)
+			cleanHours++
+		} else {
+			// Hour with violations - show aggregated data
+			isEgregious := stats.violations > 2
+
+			// Build the hour header
+			if isEgregious {
+				fmt.Printf("── %s%s%s", colorInverse, hourLabel, colorReset)
 			} else {
-				fmt.Printf("── %s ──\n", hourLabel)
+				fmt.Printf("── %s", hourLabel)
 			}
-			currentHour = hour
+
+			// Add bar visualization with absolute thresholds
+			bar := coloredBarAbsolute(stats.violations, 15)
+			fmt.Printf(" %s", bar)
+
+			// Add count
+			fmt.Printf(" V:%d", stats.violations)
+
+			// Add context (top keyword)
+			if topKw := getTopKey(stats.keywords); topKw != "" {
+				fmt.Printf(" %s(%s)%s", colorDim, topKw, colorReset)
+			}
+
+			fmt.Println()
 		}
-		fmt.Printf("  %s  %s\n", e.Time.Format("15:04:05"), e.Details)
 	}
 
 	// Print summary for the day
-	printDaySummary(timeline)
+	fmt.Println("\n── Day Summary ──")
+	fmt.Printf("  Violations: %d\n", len(violations))
+	fmt.Printf("  Hours:      %d (%s%d clean%s)\n", lastHour+1, colorGreen, cleanHours, colorReset)
+
+	// Top keywords across the day
+	dayKeywords := make(map[string]int)
+	for _, v := range violations {
+		dayKeywords[v.Keyword]++
+	}
+	if len(dayKeywords) > 0 {
+		topKw := getTopFromMap(dayKeywords, 3)
+		fmt.Print("  Top keywords: ")
+		fmt.Println(strings.Join(topKw, ", "))
+	}
+}
+
+// getTopKey returns the key with highest count from a map
+func getTopKey(m map[string]int) string {
+	topKey := ""
+	topCount := 0
+	for k, c := range m {
+		if c > topCount {
+			topKey = k
+			topCount = c
+		}
+	}
+	return topKey
 }
 
 // printMonthDetails prints aggregated daily logs for a specific month
@@ -666,13 +696,6 @@ func printMonthDetails(month time.Time) {
 	fmt.Printf("║  MONTHLY LOG: %-32s ║\n", month.Format("January 2006"))
 	fmt.Printf("╚════════════════════════════════════════════════╝\n")
 
-	// Get unblocks for this month
-	unblocks, _ := reports.ParseUnblocksLog("")
-	unblocks = reports.FilterUnblocks(unblocks, reports.UnblockFilter{
-		StartTime: &monthStart,
-		EndTime:   &monthEnd,
-	})
-
 	// Get violations for this month
 	violations, _ := reports.ParseReportsLog("")
 	violations = reports.FilterReports(violations, reports.ReportFilter{
@@ -680,8 +703,8 @@ func printMonthDetails(month time.Time) {
 		EndTime:   &monthEnd,
 	})
 
-	if len(unblocks) == 0 && len(violations) == 0 {
-		fmt.Println("\nNo events found for this month.")
+	if len(violations) == 0 {
+		fmt.Println("\nNo violations found for this month.")
 		return
 	}
 
@@ -689,19 +712,31 @@ func printMonthDetails(month time.Time) {
 	type dayStats struct {
 		date            time.Time
 		violations      int
-		unblocks        int
 		topKeyword      string
 		topKeywordCount int
 		topPeriod       string
 		topPeriodCount  int
-		topReason       string
-		topReasonCount  int
 		keywords        map[string]int
 		periods         map[string]int
-		reasons         map[string]int
 	}
 
 	days := make(map[string]*dayStats)
+
+	// Initialize all days of the month (up to today if current month)
+	now := time.Now()
+	lastDay := monthEnd
+	if month.Year() == now.Year() && month.Month() == now.Month() {
+		// For current month, only show up to today
+		lastDay = time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, time.Local)
+	}
+	for d := monthStart; !d.After(lastDay); d = d.AddDate(0, 0, 1) {
+		dayStr := d.Format("2006-01-02")
+		days[dayStr] = &dayStats{
+			date:     d,
+			keywords: make(map[string]int),
+			periods:  make(map[string]int),
+		}
+	}
 
 	// Process violations
 	for _, v := range violations {
@@ -711,29 +746,12 @@ func printMonthDetails(month time.Time) {
 				date:     v.Timestamp,
 				keywords: make(map[string]int),
 				periods:  make(map[string]int),
-				reasons:  make(map[string]int),
 			}
 		}
 		d := days[dayStr]
 		d.violations++
 		d.keywords[v.Keyword]++
 		d.periods[getTimePeriod(v.Timestamp.Hour())]++
-	}
-
-	// Process unblocks
-	for _, u := range unblocks {
-		dayStr := u.UnblockTime.Format("2006-01-02")
-		if days[dayStr] == nil {
-			days[dayStr] = &dayStats{
-				date:     u.UnblockTime,
-				keywords: make(map[string]int),
-				periods:  make(map[string]int),
-				reasons:  make(map[string]int),
-			}
-		}
-		d := days[dayStr]
-		d.unblocks++
-		d.reasons[u.Reason]++
 	}
 
 	// Calculate top items for each day
@@ -748,12 +766,6 @@ func printMonthDetails(month time.Time) {
 			if c > d.topPeriodCount {
 				d.topPeriod = p
 				d.topPeriodCount = c
-			}
-		}
-		for r, c := range d.reasons {
-			if c > d.topReasonCount {
-				d.topReason = r
-				d.topReasonCount = c
 			}
 		}
 	}
@@ -771,20 +783,15 @@ func printMonthDetails(month time.Time) {
 		}
 	}
 
-	// Calculate average violations per day (for days with violations)
-	totalV, totalU := 0, 0
+	// Calculate totals
+	totalV := 0
 	daysWithViolations := 0
 	for _, dayStr := range sortedDays {
 		d := days[dayStr]
 		totalV += d.violations
-		totalU += d.unblocks
 		if d.violations > 0 {
 			daysWithViolations++
 		}
-	}
-	avgViolations := 0
-	if daysWithViolations > 0 {
-		avgViolations = totalV / daysWithViolations
 	}
 
 	// Print compact daily summary
@@ -792,10 +799,10 @@ func printMonthDetails(month time.Time) {
 	for _, dayStr := range sortedDays {
 		d := days[dayStr]
 
-		// Highlight egregious days (above average)
-		isEgregious := d.violations > avgViolations && avgViolations > 0
+		// Highlight deliberate days (more than 2 violations)
+		isEgregious := d.violations > 2
 
-		// Format: "Jan 02 Mon | V:12 (afternoon, porn) | U:2 (work)"
+		// Format: "Jan 02 Mon │ ████ V:12 (afternoon, porn)"
 		datePart := fmt.Sprintf("%s %s", d.date.Format("Jan 02"), d.date.Format("Mon")[:3])
 		if isEgregious {
 			datePart = fmt.Sprintf("%s%s%s", colorInverse, datePart, colorReset)
@@ -803,12 +810,11 @@ func printMonthDetails(month time.Time) {
 		line := datePart + " │"
 
 		if d.violations > 0 {
-			vColor := colorRed
-			if isEgregious {
-				// Inverse + red for egregious
-				vColor = colorInverse + colorRed
-			}
-			line += fmt.Sprintf(" %sV:%d%s", vColor, d.violations, colorReset)
+			// Add bar with absolute thresholds
+			bar := coloredBarAbsolute(d.violations, 10)
+			line += fmt.Sprintf(" %s", bar)
+
+			line += fmt.Sprintf(" V:%d", d.violations)
 			if d.topPeriod != "" || d.topKeyword != "" {
 				parts := []string{}
 				if d.topPeriod != "" {
@@ -819,26 +825,20 @@ func printMonthDetails(month time.Time) {
 				}
 				line += fmt.Sprintf(" %s(%s)%s", colorDim, strings.Join(parts, ", "), colorReset)
 			}
-		}
-
-		if d.unblocks > 0 {
-			if d.violations > 0 {
-				line += " │"
-			}
-			line += fmt.Sprintf(" %sU:%d%s", colorYellow, d.unblocks, colorReset)
-			if d.topReason != "" {
-				line += fmt.Sprintf(" %s(%s)%s", colorDim, truncateString(d.topReason, 20), colorReset)
-			}
+		} else {
+			// Show clean indicator for days with no violations
+			line += fmt.Sprintf(" %s·%s", colorDim, colorReset)
 		}
 
 		fmt.Println(line)
 	}
 
 	// Month totals
-	fmt.Printf("\n── Totals: %sV:%d%s %sU:%d%s over %d days ──\n",
+	cleanDays := len(days) - daysWithViolations
+	fmt.Printf("\n── Totals: %sV:%d%s │ %d days (%s%d clean%s) ──\n",
 		colorRed, totalV, colorReset,
-		colorYellow, totalU, colorReset,
-		len(days))
+		len(days),
+		colorGreen, cleanDays, colorReset)
 }
 
 // getTimePeriod returns the time period name for an hour
@@ -855,61 +855,12 @@ func getTimePeriod(hour int) string {
 	}
 }
 
-// sortTimeline sorts timeline entries by time
-func sortTimeline(timeline []timelineEntry) {
-	for i := 0; i < len(timeline)-1; i++ {
-		for j := i + 1; j < len(timeline); j++ {
-			if timeline[j].Time.Before(timeline[i].Time) {
-				timeline[i], timeline[j] = timeline[j], timeline[i]
-			}
-		}
-	}
-}
-
 // truncateString truncates a string to maxLen characters
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
 	return s[:maxLen-3] + "..."
-}
-
-// printDaySummary prints a summary at the end of day details
-func printDaySummary(timeline []timelineEntry) {
-	unblockCount := 0
-	violationCount := 0
-	keywords := make(map[string]int)
-	domains := make(map[string]int)
-
-	for _, e := range timeline {
-		if e.Type == "unblock" {
-			unblockCount++
-		} else {
-			violationCount++
-		}
-	}
-
-	// Get keyword counts from violations
-	violations, _ := reports.ParseReportsLog("")
-	for _, v := range violations {
-		for _, e := range timeline {
-			if e.Type == "violation" && e.Time.Equal(v.Timestamp) {
-				keywords[v.Keyword]++
-				domains[v.Domain]++
-				break
-			}
-		}
-	}
-
-	fmt.Println("\n── Day Summary ──")
-	fmt.Printf("  Unblocks:   %d\n", unblockCount)
-	fmt.Printf("  Violations: %d\n", violationCount)
-
-	if len(keywords) > 0 {
-		fmt.Print("  Top keywords: ")
-		topKw := getTopFromMap(keywords, 3)
-		fmt.Println(strings.Join(topKw, ", "))
-	}
 }
 
 // getTopFromMap returns top N keys from a map sorted by value

@@ -574,6 +574,92 @@ type hourlyStats struct {
 	domains    map[string]int
 }
 
+// unmanagedPeriod represents a time range when glocker was not running
+type unmanagedPeriod struct {
+	start time.Time
+	end   time.Time // zero time means still unmanaged
+}
+
+// getUnmanagedPeriods parses the lifecycle log and returns periods when glocker was uninstalled
+func getUnmanagedPeriods() []unmanagedPeriod {
+	entries, err := reports.ParseLifecycleLog("")
+	if err != nil {
+		return nil
+	}
+
+	var periods []unmanagedPeriod
+	var currentUninstall *time.Time
+
+	for _, e := range entries {
+		if e.Type == "uninstall" {
+			currentUninstall = &e.Timestamp
+		} else if e.Type == "install" && currentUninstall != nil {
+			periods = append(periods, unmanagedPeriod{
+				start: *currentUninstall,
+				end:   e.Timestamp,
+			})
+			currentUninstall = nil
+		}
+	}
+
+	// If currently unmanaged (uninstall without subsequent install)
+	if currentUninstall != nil {
+		periods = append(periods, unmanagedPeriod{
+			start: *currentUninstall,
+			end:   time.Time{}, // zero time = still unmanaged
+		})
+	}
+
+	return periods
+}
+
+// isHourUnmanaged checks if a specific hour on a day overlaps with any unmanaged period
+func isHourUnmanaged(day time.Time, hour int, periods []unmanagedPeriod) bool {
+	hourStart := time.Date(day.Year(), day.Month(), day.Day(), hour, 0, 0, 0, time.Local)
+	hourEnd := hourStart.Add(time.Hour)
+
+	for _, p := range periods {
+		pEnd := p.end
+		if pEnd.IsZero() {
+			pEnd = time.Now()
+		}
+		// Check if hour overlaps with unmanaged period
+		if hourStart.Before(pEnd) && hourEnd.After(p.start) {
+			return true
+		}
+	}
+	return false
+}
+
+// isDayUnmanaged checks if any part of a day overlaps with any unmanaged period
+func isDayUnmanaged(day time.Time, periods []unmanagedPeriod) bool {
+	dayStart := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.Local)
+	dayEnd := dayStart.Add(24 * time.Hour)
+
+	for _, p := range periods {
+		pEnd := p.end
+		if pEnd.IsZero() {
+			pEnd = time.Now()
+		}
+		// Check if day overlaps with unmanaged period
+		if dayStart.Before(pEnd) && dayEnd.After(p.start) {
+			return true
+		}
+	}
+	return false
+}
+
+// getUnmanagedHoursInDay returns the number of unmanaged hours in a day
+func getUnmanagedHoursInDay(day time.Time, periods []unmanagedPeriod) int {
+	count := 0
+	for hour := 0; hour < 24; hour++ {
+		if isHourUnmanaged(day, hour, periods) {
+			count++
+		}
+	}
+	return count
+}
+
 // printDayDetails prints aggregated hourly logs for a specific day
 func printDayDetails(day time.Time) {
 	dayStart := day
@@ -583,17 +669,15 @@ func printDayDetails(day time.Time) {
 	fmt.Printf("║  DAILY LOG: %-34s ║\n", day.Format("Monday, January 2, 2006"))
 	fmt.Printf("╚════════════════════════════════════════════════╝\n")
 
+	// Get unmanaged periods
+	unmanagedPeriods := getUnmanagedPeriods()
+
 	// Get violations for this day
 	violations, _ := reports.ParseReportsLog("")
 	violations = reports.FilterReports(violations, reports.ReportFilter{
 		StartTime: &dayStart,
 		EndTime:   &dayEnd,
 	})
-
-	if len(violations) == 0 {
-		fmt.Println("\nNo violations found for this day.")
-		return
-	}
 
 	// Initialize hourly stats for all 24 hours
 	hourlyData := make(map[int]*hourlyStats)
@@ -622,11 +706,17 @@ func printDayDetails(day time.Time) {
 	// Print hourly aggregation
 	fmt.Printf("\n%d violations:\n\n", len(violations))
 	cleanHours := 0
+	unmanagedHours := 0
 	for hour := 0; hour <= lastHour; hour++ {
 		stats := hourlyData[hour]
 		hourLabel := fmt.Sprintf("%02d:00", hour)
+		isUnmanaged := isHourUnmanaged(day, hour, unmanagedPeriods)
 
-		if stats.violations == 0 {
+		if isUnmanaged {
+			// Unmanaged hour - show red block
+			fmt.Printf("── %s%s%s %s████ UNMANAGED%s\n", colorRed, hourLabel, colorReset, colorRed, colorReset)
+			unmanagedHours++
+		} else if stats.violations == 0 {
 			// Clean hour - show dim indicator
 			fmt.Printf("── %s%s%s %s·%s\n", colorDim, hourLabel, colorReset, colorDim, colorReset)
 			cleanHours++
@@ -660,7 +750,12 @@ func printDayDetails(day time.Time) {
 	// Print summary for the day
 	fmt.Println("\n── Day Summary ──")
 	fmt.Printf("  Violations: %d\n", len(violations))
-	fmt.Printf("  Hours:      %d (%s%d clean%s)\n", lastHour+1, colorGreen, cleanHours, colorReset)
+	if unmanagedHours > 0 {
+		fmt.Printf("  Hours:      %d (%s%d clean%s, %s%d unmanaged%s)\n",
+			lastHour+1, colorGreen, cleanHours, colorReset, colorRed, unmanagedHours, colorReset)
+	} else {
+		fmt.Printf("  Hours:      %d (%s%d clean%s)\n", lastHour+1, colorGreen, cleanHours, colorReset)
+	}
 
 	// Top keywords across the day
 	dayKeywords := make(map[string]int)
@@ -696,17 +791,15 @@ func printMonthDetails(month time.Time) {
 	fmt.Printf("║  MONTHLY LOG: %-32s ║\n", month.Format("January 2006"))
 	fmt.Printf("╚════════════════════════════════════════════════╝\n")
 
+	// Get unmanaged periods
+	unmanagedPeriods := getUnmanagedPeriods()
+
 	// Get violations for this month
 	violations, _ := reports.ParseReportsLog("")
 	violations = reports.FilterReports(violations, reports.ReportFilter{
 		StartTime: &monthStart,
 		EndTime:   &monthEnd,
 	})
-
-	if len(violations) == 0 {
-		fmt.Println("\nNo violations found for this month.")
-		return
-	}
 
 	// Aggregate by day
 	type dayStats struct {
@@ -718,6 +811,8 @@ func printMonthDetails(month time.Time) {
 		topPeriodCount  int
 		keywords        map[string]int
 		periods         map[string]int
+		isUnmanaged     bool
+		unmanagedHours  int
 	}
 
 	days := make(map[string]*dayStats)
@@ -732,9 +827,11 @@ func printMonthDetails(month time.Time) {
 	for d := monthStart; !d.After(lastDay); d = d.AddDate(0, 0, 1) {
 		dayStr := d.Format("2006-01-02")
 		days[dayStr] = &dayStats{
-			date:     d,
-			keywords: make(map[string]int),
-			periods:  make(map[string]int),
+			date:           d,
+			keywords:       make(map[string]int),
+			periods:        make(map[string]int),
+			isUnmanaged:    isDayUnmanaged(d, unmanagedPeriods),
+			unmanagedHours: getUnmanagedHoursInDay(d, unmanagedPeriods),
 		}
 	}
 
@@ -786,11 +883,15 @@ func printMonthDetails(month time.Time) {
 	// Calculate totals
 	totalV := 0
 	daysWithViolations := 0
+	unmanagedDays := 0
 	for _, dayStr := range sortedDays {
 		d := days[dayStr]
 		totalV += d.violations
 		if d.violations > 0 {
 			daysWithViolations++
+		}
+		if d.isUnmanaged {
+			unmanagedDays++
 		}
 	}
 
@@ -799,17 +900,33 @@ func printMonthDetails(month time.Time) {
 	for _, dayStr := range sortedDays {
 		d := days[dayStr]
 
-		// Highlight deliberate days (more than 2 violations)
-		isEgregious := d.violations > 2
-
 		// Format: "Jan 02 Mon │ ████ V:12 (afternoon, porn)"
 		datePart := fmt.Sprintf("%s %s", d.date.Format("Jan 02"), d.date.Format("Mon")[:3])
+
+		// Check for unmanaged day first
+		if d.isUnmanaged && d.unmanagedHours == 24 {
+			// Fully unmanaged day
+			datePart = fmt.Sprintf("%s%s%s", colorRed, datePart, colorReset)
+			line := datePart + " │"
+			line += fmt.Sprintf(" %s████ UNMANAGED%s", colorRed, colorReset)
+			fmt.Println(line)
+			continue
+		}
+
+		// Highlight deliberate days (more than 2 violations)
+		isEgregious := d.violations > 2
 		if isEgregious {
 			datePart = fmt.Sprintf("%s%s%s", colorInverse, datePart, colorReset)
 		}
 		line := datePart + " │"
 
-		if d.violations > 0 {
+		if d.isUnmanaged {
+			// Partially unmanaged day - show hours
+			line += fmt.Sprintf(" %s██%s %dh unmanaged", colorRed, colorReset, d.unmanagedHours)
+			if d.violations > 0 {
+				line += fmt.Sprintf(" V:%d", d.violations)
+			}
+		} else if d.violations > 0 {
 			// Add bar with absolute thresholds
 			bar := coloredBarAbsolute(d.violations, 10)
 			line += fmt.Sprintf(" %s", bar)
@@ -834,11 +951,19 @@ func printMonthDetails(month time.Time) {
 	}
 
 	// Month totals
-	cleanDays := len(days) - daysWithViolations
-	fmt.Printf("\n── Totals: %sV:%d%s │ %d days (%s%d clean%s) ──\n",
-		colorRed, totalV, colorReset,
-		len(days),
-		colorGreen, cleanDays, colorReset)
+	cleanDays := len(days) - daysWithViolations - unmanagedDays
+	if unmanagedDays > 0 {
+		fmt.Printf("\n── Totals: %sV:%d%s │ %d days (%s%d clean%s, %s%d unmanaged%s) ──\n",
+			colorRed, totalV, colorReset,
+			len(days),
+			colorGreen, cleanDays, colorReset,
+			colorRed, unmanagedDays, colorReset)
+	} else {
+		fmt.Printf("\n── Totals: %sV:%d%s │ %d days (%s%d clean%s) ──\n",
+			colorRed, totalV, colorReset,
+			len(days),
+			colorGreen, cleanDays, colorReset)
+	}
 }
 
 // getTimePeriod returns the time period name for an hour

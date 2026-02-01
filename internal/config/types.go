@@ -95,6 +95,11 @@ type UnblockingConfig struct {
 	TempUnblockTime int      `yaml:"temp_unblock_time"` // Minutes
 }
 
+// UninstallConfig controls uninstall logging behavior.
+type UninstallConfig struct {
+	LogFile string `yaml:"log_file"`
+}
+
 // ForbiddenProgram represents a program to be killed during blocking periods.
 type ForbiddenProgram struct {
 	Name        string       `yaml:"name"`
@@ -126,6 +131,7 @@ type Config struct {
 	ExtensionKeywords       ExtensionKeywordsConfig `yaml:"extension_keywords"`
 	ViolationTracking       ViolationTrackingConfig `yaml:"violation_tracking"`
 	Unblocking              UnblockingConfig        `yaml:"unblocking"`
+	Uninstall               UninstallConfig         `yaml:"uninstall"`
 	MindfulDelay            int                     `yaml:"mindful_delay"` // Seconds
 	NotificationCommand     string                  `yaml:"notification_command"`
 	PanicCommand            string                  `yaml:"panic_command"`

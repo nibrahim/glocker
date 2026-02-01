@@ -15,6 +15,7 @@ import (
 	"glocker/internal/config"
 	"glocker/internal/enforcement"
 	"glocker/internal/install"
+	"glocker/internal/web"
 )
 
 const SocketPath = "/tmp/glocker.sock"
@@ -230,6 +231,11 @@ func processAddKeywordRequest(cfg *config.Config, keywordsStr string) {
 // processUninstallRequest handles the uninstallation process.
 func processUninstallRequest(cfg *config.Config, reason string, conn net.Conn) {
 	log.Printf("Uninstall requested: %s", reason)
+
+	// Log the uninstall request
+	if err := web.LogUninstallEntry(cfg, reason); err != nil {
+		log.Printf("Warning: Failed to log uninstall entry: %v", err)
+	}
 
 	// Restore system changes
 	if err := install.RestoreSystemChanges(cfg); err != nil {

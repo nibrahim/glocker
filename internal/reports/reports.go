@@ -12,8 +12,9 @@ import (
 
 // Default log file paths
 const (
-	DefaultUnblocksLogPath = "/var/log/glocker-unblocks.log"
-	DefaultReportsLogPath  = "/var/log/glocker-reports.log"
+	DefaultUnblocksLogPath   = "/var/log/glocker-unblocks.log"
+	DefaultReportsLogPath    = "/var/log/glocker-reports.log"
+	DefaultUninstallsLogPath = "/var/log/glocker-uninstalls.log"
 )
 
 // UnblockEntry represents a single unblock log entry.
@@ -196,6 +197,75 @@ func FilterReports(entries []ReportEntry, filter ReportFilter) []ReportEntry {
 			continue
 		}
 		if filter.URL != "" && !strings.Contains(e.URL, filter.URL) {
+			continue
+		}
+		if filter.StartTime != nil && e.Timestamp.Before(*filter.StartTime) {
+			continue
+		}
+		if filter.EndTime != nil && e.Timestamp.After(*filter.EndTime) {
+			continue
+		}
+		result = append(result, e)
+	}
+
+	return result
+}
+
+// UninstallEntry represents a single uninstall log entry.
+type UninstallEntry struct {
+	Timestamp time.Time `json:"timestamp"`
+	Reason    string    `json:"reason"`
+}
+
+// ParseUninstallsLog reads and parses the uninstalls log file.
+func ParseUninstallsLog(path string) ([]UninstallEntry, error) {
+	if path == "" {
+		path = DefaultUninstallsLogPath
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var entries []UninstallEntry
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		var entry UninstallEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			// Skip malformed lines
+			continue
+		}
+		entries = append(entries, entry)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return entries, err
+	}
+
+	return entries, nil
+}
+
+// UninstallFilter filters uninstall entries based on criteria.
+type UninstallFilter struct {
+	Reason    string     // Filter by reason (substring match)
+	StartTime *time.Time // Filter entries after this time
+	EndTime   *time.Time // Filter entries before this time
+}
+
+// FilterUninstalls returns entries matching the filter criteria.
+func FilterUninstalls(entries []UninstallEntry, filter UninstallFilter) []UninstallEntry {
+	var result []UninstallEntry
+
+	for _, e := range entries {
+		if filter.Reason != "" && !strings.Contains(e.Reason, filter.Reason) {
 			continue
 		}
 		if filter.StartTime != nil && e.Timestamp.Before(*filter.StartTime) {

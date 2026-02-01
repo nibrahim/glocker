@@ -155,3 +155,38 @@ func IsValidUnblockReason(cfg *config.Config, reason string) bool {
 
 	return false
 }
+
+// LogUninstallEntry logs an uninstall request with details.
+func LogUninstallEntry(cfg *config.Config, reason string) error {
+	logFile := cfg.Uninstall.LogFile
+	if logFile == "" {
+		logFile = "/var/log/glocker-uninstalls.log"
+	}
+
+	entry := state.UninstallLogEntry{
+		Timestamp: time.Now(),
+		Reason:    reason,
+	}
+
+	// Convert to JSON
+	jsonData, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("failed to marshal uninstall entry: %w", err)
+	}
+
+	// Append to log file
+	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open uninstall log file: %w", err)
+	}
+	defer file.Close()
+
+	// Write JSON entry with newline
+	_, err = file.WriteString(string(jsonData) + "\n")
+	if err != nil {
+		return fmt.Errorf("failed to write to uninstall log file: %w", err)
+	}
+
+	slog.Debug("Logged uninstall entry", "reason", reason, "log_file", logFile)
+	return nil
+}

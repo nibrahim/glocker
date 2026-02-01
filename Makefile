@@ -1,4 +1,4 @@
-.PHONY: build-all reinstall update-blocklists test
+.PHONY: build-all install full-install update-blocklists test
 
 # Build all binaries
 build-all:
@@ -7,7 +7,12 @@ build-all:
 	go build -o glockpeek ./cmd/glockpeek
 
 # Rebuild and reinstall
-reinstall: build-all update-blocklists
+install: build-all
+	sudo ./glocker -uninstall "reinstall" || true
+	sudo ./glocker -install
+
+# Rebuild, update blocklists, and reinstall
+full-install: build-all update-blocklists
 	sudo ./glocker -uninstall "reinstall" || true
 	sudo ./glocker -install
 

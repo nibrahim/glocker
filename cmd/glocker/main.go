@@ -411,6 +411,10 @@ func main() {
 		go monitoring.MonitorPanicMode(cfg)
 	}
 
+	if cfg.Accountability.DailyReportEnabled {
+		go monitoring.MonitorDailyReport(cfg)
+	}
+
 	// Start web tracking server
 	if cfg.WebTracking.Enabled || cfg.ContentMonitoring.Enabled {
 		go web.StartWebTrackingServer(cfg)

@@ -30,6 +30,7 @@ func main() {
 	fromDate := flag.String("from", "", "Start date (YYYY, YYYY-MM, or YYYY-MM-DD)")
 	toDate := flag.String("to", "", "End date (YYYY, YYYY-MM, or YYYY-MM-DD)")
 	periodDate := flag.String("period", "", "Show detailed logs for a period (YYYY-MM for month, YYYY-MM-DD for day)")
+	dailyDate := flag.String("daily", "", "Show daily email report format (YYYY-MM-DD, or 'yesterday')")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "glockpeek - peek at your glocker logs\n\n")
@@ -48,9 +49,27 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  glockpeek -from 2024-01 -to 2024-06 Show Jan-Jun 2024\n")
 		fmt.Fprintf(os.Stderr, "  glockpeek -period 2024-06-15       Show detailed logs for a day\n")
 		fmt.Fprintf(os.Stderr, "  glockpeek -period 2024-06          Show detailed logs for a month\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek -daily yesterday         Show daily report for yesterday\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek -daily 2024-06-15        Show daily report for specific date\n")
 	}
 
 	flag.Parse()
+
+	// Handle -daily flag (email report format preview)
+	if *dailyDate != "" {
+		var date time.Time
+		if *dailyDate == "yesterday" {
+			date = time.Now().AddDate(0, 0, -1)
+		} else if d, err := time.ParseInLocation("2006-01-02", *dailyDate, time.Local); err == nil {
+			date = d
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: invalid -daily date %q\n", *dailyDate)
+			fmt.Fprintf(os.Stderr, "Format must be YYYY-MM-DD or 'yesterday'\n")
+			os.Exit(1)
+		}
+		printDailyReport(date)
+		return
+	}
 
 	// Handle -period flag (detailed view for day or month)
 	if *periodDate != "" {
@@ -1020,4 +1039,174 @@ func getTopFromMap(m map[string]int, n int) []string {
 		result = append(result, sorted[i].k)
 	}
 	return result
+}
+
+// printDailyReport prints the daily report in the same format as the email.
+func printDailyReport(date time.Time) {
+	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.Local)
+	dayEnd := dayStart.Add(24*time.Hour - time.Second)
+
+	// Gather violations
+	violations, _ := reports.ParseReportsLog("")
+	violations = reports.FilterReports(violations, reports.ReportFilter{
+		StartTime: &dayStart,
+		EndTime:   &dayEnd,
+	})
+
+	// Gather unblocks
+	unblocks, _ := reports.ParseUnblocksLog("")
+	unblocks = reports.FilterUnblocks(unblocks, reports.UnblockFilter{
+		StartTime: &dayStart,
+		EndTime:   &dayEnd,
+	})
+
+	// Gather lifecycle events
+	lifecycle, _ := reports.ParseLifecycleLog("")
+	lifecycle = reports.FilterLifecycle(lifecycle, reports.LifecycleFilter{
+		StartTime: &dayStart,
+		EndTime:   &dayEnd,
+	})
+
+	// Calculate unmanaged time
+	unmanagedMinutes := calculateUnmanagedMinutesForDay(date)
+
+	// Print header
+	fmt.Printf("╔════════════════════════════════════════════════╗\n")
+	fmt.Printf("║  DAILY REPORT: %-31s ║\n", date.Format("Monday, January 2, 2006"))
+	fmt.Printf("╚════════════════════════════════════════════════╝\n")
+
+	// Summary section
+	fmt.Println("\n── Summary ──")
+	fmt.Printf("  Violations:     %s%d%s\n", colorForCount(len(violations)), len(violations), colorReset)
+	fmt.Printf("  Unblocks:       %s%d%s\n", colorYellow, len(unblocks), colorReset)
+	if unmanagedMinutes > 0 {
+		fmt.Printf("  Unmanaged time: %s%d minutes%s\n", colorRed, unmanagedMinutes, colorReset)
+	} else {
+		fmt.Printf("  Unmanaged time: %s0%s\n", colorGreen, colorReset)
+	}
+
+	// Violations details
+	if len(violations) > 0 {
+		fmt.Println("\n── Violations ──")
+		keywords := make(map[string]int)
+		for _, v := range violations {
+			keywords[v.Keyword]++
+		}
+		for kw, count := range keywords {
+			fmt.Printf("  %s: %d\n", kw, count)
+		}
+	}
+
+	// Unblocks details
+	if len(unblocks) > 0 {
+		fmt.Println("\n── Unblocks ──")
+		for _, u := range unblocks {
+			duration := int(u.RestoreTime.Sub(u.UnblockTime).Minutes())
+			fmt.Printf("  %s%s%s %s%s%s (%d min) - %s\"%s\"%s\n",
+				colorDim, u.UnblockTime.Format("15:04"), colorReset,
+				colorYellow, u.Domain, colorReset,
+				duration,
+				colorDim, u.Reason, colorReset)
+		}
+	}
+
+	// Lifecycle events
+	if len(lifecycle) > 0 {
+		fmt.Println("\n── Lifecycle Events ──")
+		for _, e := range lifecycle {
+			color := colorGreen
+			if e.Type == "uninstall" {
+				color = colorRed
+			}
+			if e.Reason != "" {
+				fmt.Printf("  %s%s%s %s%s%s (%s)\n",
+					colorDim, e.Timestamp.Format("15:04"), colorReset,
+					color, e.Type, colorReset,
+					e.Reason)
+			} else {
+				fmt.Printf("  %s%s%s %s%s%s\n",
+					colorDim, e.Timestamp.Format("15:04"), colorReset,
+					color, e.Type, colorReset)
+			}
+		}
+	}
+
+	// Footer with attention flag
+	fmt.Println()
+	if len(violations) > 10 || unmanagedMinutes > 30 {
+		fmt.Printf("%s[ATTENTION] This day had significant activity%s\n", colorRed, colorReset)
+	}
+}
+
+// colorForCount returns red for high counts, green for zero, dim for low counts.
+func colorForCount(count int) string {
+	if count == 0 {
+		return colorGreen
+	}
+	if count > 10 {
+		return colorRed
+	}
+	return colorYellow
+}
+
+// calculateUnmanagedMinutesForDay calculates total unmanaged minutes for a day.
+func calculateUnmanagedMinutesForDay(date time.Time) int {
+	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.Local)
+	dayEnd := dayStart.Add(24 * time.Hour)
+
+	entries, err := reports.ParseLifecycleLog("")
+	if err != nil {
+		return 0
+	}
+
+	totalMinutes := 0
+	var currentUninstall *time.Time
+
+	for _, e := range entries {
+		if e.Type == "uninstall" {
+			currentUninstall = &e.Timestamp
+		} else if e.Type == "install" && currentUninstall != nil {
+			// Skip very short periods (upgrades)
+			if e.Timestamp.Sub(*currentUninstall) < 2*time.Minute {
+				currentUninstall = nil
+				continue
+			}
+
+			// Calculate overlap with the target day
+			start := *currentUninstall
+			end := e.Timestamp
+
+			// Clamp to day boundaries
+			if start.Before(dayStart) {
+				start = dayStart
+			}
+			if end.After(dayEnd) {
+				end = dayEnd
+			}
+
+			// Only count if there's overlap
+			if start.Before(end) {
+				totalMinutes += int(end.Sub(start).Minutes())
+			}
+
+			currentUninstall = nil
+		}
+	}
+
+	// Handle ongoing unmanaged period
+	if currentUninstall != nil {
+		start := *currentUninstall
+		end := time.Now()
+		if end.After(dayEnd) {
+			end = dayEnd
+		}
+		if start.Before(dayStart) {
+			start = dayStart
+		}
+		if start.Before(end) {
+			totalMinutes += int(end.Sub(start).Minutes())
+		}
+	}
+
+	return totalMinutes
 }

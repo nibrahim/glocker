@@ -580,7 +580,12 @@ type unmanagedPeriod struct {
 	end   time.Time // zero time means still unmanaged
 }
 
-// getUnmanagedPeriods parses the lifecycle log and returns periods when glocker was uninstalled
+// minUnmanagedDuration is the minimum duration to consider as a real unmanaged period.
+// Shorter periods (e.g., during upgrades) are ignored.
+const minUnmanagedDuration = 2 * time.Minute
+
+// getUnmanagedPeriods parses the lifecycle log and returns periods when glocker was uninstalled.
+// Short periods (< 2 minutes) are filtered out as they're likely just upgrades.
 func getUnmanagedPeriods() []unmanagedPeriod {
 	entries, err := reports.ParseLifecycleLog("")
 	if err != nil {
@@ -594,10 +599,14 @@ func getUnmanagedPeriods() []unmanagedPeriod {
 		if e.Type == "uninstall" {
 			currentUninstall = &e.Timestamp
 		} else if e.Type == "install" && currentUninstall != nil {
-			periods = append(periods, unmanagedPeriod{
-				start: *currentUninstall,
-				end:   e.Timestamp,
-			})
+			duration := e.Timestamp.Sub(*currentUninstall)
+			// Only include periods longer than the minimum (skip quick upgrades)
+			if duration >= minUnmanagedDuration {
+				periods = append(periods, unmanagedPeriod{
+					start: *currentUninstall,
+					end:   e.Timestamp,
+				})
+			}
 			currentUninstall = nil
 		}
 	}

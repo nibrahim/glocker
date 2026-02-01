@@ -11,6 +11,7 @@ import (
 
 	"glocker/internal/config"
 	"glocker/internal/utils"
+	"glocker/internal/web"
 )
 
 const (
@@ -180,6 +181,12 @@ func InstallGlocker() error {
 	exec.Command("chattr", "+i", servicePath).Run()
 
 	log.Println("✓ Systemd service installed and started")
+
+	// Log the installation event
+	if err := web.LogInstallEntry(); err != nil {
+		log.Printf("Warning: Failed to log install entry: %v", err)
+	}
+
 	log.Println()
 	log.Println("🎉 Installation complete!")
 	log.Println("   Run 'glocker -status' to check the current status")

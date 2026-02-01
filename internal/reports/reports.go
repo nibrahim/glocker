@@ -14,7 +14,7 @@ import (
 const (
 	DefaultUnblocksLogPath   = "/var/log/glocker-unblocks.log"
 	DefaultReportsLogPath    = "/var/log/glocker-reports.log"
-	DefaultUninstallsLogPath = "/var/log/glocker-uninstalls.log"
+	DefaultLifecycleLogPath  = "/var/log/glocker-lifecycle.log"
 )
 
 // UnblockEntry represents a single unblock log entry.
@@ -211,16 +211,17 @@ func FilterReports(entries []ReportEntry, filter ReportFilter) []ReportEntry {
 	return result
 }
 
-// UninstallEntry represents a single uninstall log entry.
-type UninstallEntry struct {
+// LifecycleEntry represents a single install/uninstall log entry.
+type LifecycleEntry struct {
 	Timestamp time.Time `json:"timestamp"`
-	Reason    string    `json:"reason"`
+	Type      string    `json:"type"`             // "install" or "uninstall"
+	Reason    string    `json:"reason,omitempty"` // Only for uninstalls
 }
 
-// ParseUninstallsLog reads and parses the uninstalls log file.
-func ParseUninstallsLog(path string) ([]UninstallEntry, error) {
+// ParseLifecycleLog reads and parses the lifecycle log file.
+func ParseLifecycleLog(path string) ([]LifecycleEntry, error) {
 	if path == "" {
-		path = DefaultUninstallsLogPath
+		path = DefaultLifecycleLogPath
 	}
 
 	file, err := os.Open(path)
@@ -229,7 +230,7 @@ func ParseUninstallsLog(path string) ([]UninstallEntry, error) {
 	}
 	defer file.Close()
 
-	var entries []UninstallEntry
+	var entries []LifecycleEntry
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
@@ -238,7 +239,7 @@ func ParseUninstallsLog(path string) ([]UninstallEntry, error) {
 			continue
 		}
 
-		var entry UninstallEntry
+		var entry LifecycleEntry
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			// Skip malformed lines
 			continue
@@ -253,18 +254,22 @@ func ParseUninstallsLog(path string) ([]UninstallEntry, error) {
 	return entries, nil
 }
 
-// UninstallFilter filters uninstall entries based on criteria.
-type UninstallFilter struct {
+// LifecycleFilter filters lifecycle entries based on criteria.
+type LifecycleFilter struct {
+	Type      string     // Filter by type ("install" or "uninstall")
 	Reason    string     // Filter by reason (substring match)
 	StartTime *time.Time // Filter entries after this time
 	EndTime   *time.Time // Filter entries before this time
 }
 
-// FilterUninstalls returns entries matching the filter criteria.
-func FilterUninstalls(entries []UninstallEntry, filter UninstallFilter) []UninstallEntry {
-	var result []UninstallEntry
+// FilterLifecycle returns entries matching the filter criteria.
+func FilterLifecycle(entries []LifecycleEntry, filter LifecycleFilter) []LifecycleEntry {
+	var result []LifecycleEntry
 
 	for _, e := range entries {
+		if filter.Type != "" && e.Type != filter.Type {
+			continue
+		}
 		if filter.Reason != "" && !strings.Contains(e.Reason, filter.Reason) {
 			continue
 		}

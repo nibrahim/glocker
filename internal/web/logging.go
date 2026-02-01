@@ -156,37 +156,74 @@ func IsValidUnblockReason(cfg *config.Config, reason string) bool {
 	return false
 }
 
-// LogUninstallEntry logs an uninstall request with details.
-func LogUninstallEntry(cfg *config.Config, reason string) error {
-	logFile := cfg.Uninstall.LogFile
+// DefaultLifecycleLogFile is the default path for install/uninstall logs.
+const DefaultLifecycleLogFile = "/var/log/glocker-lifecycle.log"
+
+// logLifecycleEntry logs an install or uninstall event.
+func logLifecycleEntry(cfg *config.Config, entryType, reason string) error {
+	logFile := cfg.Lifecycle.LogFile
 	if logFile == "" {
-		logFile = "/var/log/glocker-uninstalls.log"
+		logFile = DefaultLifecycleLogFile
 	}
 
-	entry := state.UninstallLogEntry{
+	entry := state.LifecycleLogEntry{
 		Timestamp: time.Now(),
+		Type:      entryType,
 		Reason:    reason,
 	}
 
 	// Convert to JSON
 	jsonData, err := json.Marshal(entry)
 	if err != nil {
-		return fmt.Errorf("failed to marshal uninstall entry: %w", err)
+		return fmt.Errorf("failed to marshal lifecycle entry: %w", err)
 	}
 
 	// Append to log file
 	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to open uninstall log file: %w", err)
+		return fmt.Errorf("failed to open lifecycle log file: %w", err)
 	}
 	defer file.Close()
 
 	// Write JSON entry with newline
 	_, err = file.WriteString(string(jsonData) + "\n")
 	if err != nil {
-		return fmt.Errorf("failed to write to uninstall log file: %w", err)
+		return fmt.Errorf("failed to write to lifecycle log file: %w", err)
 	}
 
-	slog.Debug("Logged uninstall entry", "reason", reason, "log_file", logFile)
+	slog.Debug("Logged lifecycle entry", "type", entryType, "reason", reason, "log_file", logFile)
+	return nil
+}
+
+// LogUninstallEntry logs an uninstall request with details.
+func LogUninstallEntry(cfg *config.Config, reason string) error {
+	return logLifecycleEntry(cfg, "uninstall", reason)
+}
+
+// LogInstallEntry logs an installation event.
+func LogInstallEntry() error {
+	// Use default log file since config may not be loaded yet during install
+	entry := state.LifecycleLogEntry{
+		Timestamp: time.Now(),
+		Type:      "install",
+	}
+
+	jsonData, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("failed to marshal install entry: %w", err)
+	}
+
+	file, err := os.OpenFile(DefaultLifecycleLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open lifecycle log file: %w", err)
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(string(jsonData) + "\n")
+	if err != nil {
+		return fmt.Errorf("failed to write to lifecycle log file: %w", err)
+	}
+
+	slog.Debug("Logged install entry", "log_file", DefaultLifecycleLogFile)
 	return nil
 }

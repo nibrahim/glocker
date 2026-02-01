@@ -50,10 +50,11 @@ type UnblockStats struct {
 	DomainCounts map[string]int    `json:"domain_counts"`
 }
 
-// UninstallLogEntry represents a logged uninstall event.
-type UninstallLogEntry struct {
+// LifecycleLogEntry represents a logged install/uninstall event.
+type LifecycleLogEntry struct {
 	Timestamp time.Time `json:"timestamp"`
-	Reason    string    `json:"reason"`
+	Type      string    `json:"type"`   // "install" or "uninstall"
+	Reason    string    `json:"reason,omitempty"`
 }
 
 // ProcessInfo contains information about a running process.

@@ -150,6 +150,14 @@ func GetInfoResponse(cfg *config.Config) string {
 		response.WriteString("\n")
 	}
 
+	// Show sudoers restrictions
+	if cfg.Sudoers.Enabled && len(cfg.Sudoers.TimeAllowed) > 0 {
+		response.WriteString("Sudoers Restrictions:\n")
+		response.WriteString(fmt.Sprintf("  User: %s\n", cfg.Sudoers.User))
+		response.WriteString(fmt.Sprintf("  Sudo allowed during: %s\n", formatTimeWindows(cfg.Sudoers.TimeAllowed)))
+		response.WriteString("  Sudo is disallowed outside these windows\n\n")
+	}
+
 	// Show extension keywords
 	if len(cfg.ExtensionKeywords.URLKeywords) > 0 || len(cfg.ExtensionKeywords.ContentKeywords) > 0 {
 		response.WriteString("Extension Keywords:\n")

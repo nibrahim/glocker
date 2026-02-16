@@ -316,49 +316,56 @@ def parse_hagezi(domain: str) -> str:
     return f'  - {{\"name\": \"{domain}\"}}'
 
 
-## Source-Specific Functions: UnblockStop Proxy Bypass
+## Source-Specific Functions: ShadowWhisperer Tunnels (VPNs & Proxies)
 
-def fetch_unblockstop() -> Tuple[List[str], str, Dict]:
+def fetch_shadowwhisperer() -> Tuple[List[str], str, Dict]:
     """
-    Fetch UnblockStop proxy and filter-bypass sites blocklist.
+    Fetch ShadowWhisperer Tunnels blocklist (VPNs & Proxies).
     Returns: (domains_list, timestamp, metadata_dict)
     """
-    BLOCKLIST_URL = "https://raw.githubusercontent.com/tachnoraki/unblockstop/main/unblockstop.txt"
+    BLOCKLIST_URL = "https://raw.githubusercontent.com/ShadowWhisperer/BlockLists/master/Lists/Tunnels"
 
     # Download blocklist
     print("  Fetching blocklist...")
     content = fetch_url(BLOCKLIST_URL)
 
-    # Parse file (Adblock Plus format)
+    # Parse file (plain text, one domain per line, # comments for headers)
     lines = content.decode('utf-8').splitlines()
     timestamp = None
-    version = None
+    domain_count_header = None
     domains = []
 
     for line in lines:
         line = line.strip()
 
-        # Extract metadata from header
-        if line.startswith('! Version:'):
-            version = line.replace('! Version:', '').strip()
-            # Version format: 202506091445 (YYYYMMDDHHmm)
+        # Extract metadata from header comments
+        # Format: # Updated: 2/2/2026  09:11 (9:11 AM CST)
+        if line.startswith('# Updated:'):
+            date_str = line.replace('# Updated:', '').strip()
             try:
                 from datetime import datetime
-                dt = datetime.strptime(version, '%Y%m%d%H%M')
+                # Remove the parenthetical timezone note
+                date_str_clean = re.sub(r'\s*\(.*\)\s*$', '', date_str)
+                # Normalize multiple spaces
+                date_str_clean = re.sub(r'\s+', ' ', date_str_clean).strip()
+                dt = datetime.strptime(date_str_clean, '%m/%d/%Y %H:%M')
                 timestamp = dt.strftime('%Y-%m-%dT%H:%M:%SZ')
-            except Exception:
-                # If parsing fails, use version as-is
-                timestamp = version
+            except Exception as e:
+                print(f"  Warning: Could not parse date: {e}", file=sys.stderr)
+                timestamp = date_str
 
-        # Parse domain entries (Adblock format: ||domain.com^)
-        elif line.startswith('||') and line.endswith('^'):
-            # Extract domain from ||domain.com^
-            domain = line[2:-1]  # Remove || prefix and ^ suffix
-            if domain:  # Skip empty entries
-                domains.append(domain)
+        # Format: # Domains: 1,008
+        elif line.startswith('# Domains:'):
+            match = re.search(r'# Domains:\s*([\d,]+)', line)
+            if match:
+                domain_count_header = int(match.group(1).replace(',', ''))
+
+        # Parse domain entries (non-comment, non-empty lines)
+        elif line and not line.startswith('#'):
+            domains.append(line)
 
     if not timestamp:
-        print("  Error: Could not extract timestamp/version from blocklist", file=sys.stderr)
+        print("  Error: Could not extract timestamp from blocklist", file=sys.stderr)
         sys.exit(1)
 
     if not domains:
@@ -369,13 +376,13 @@ def fetch_unblockstop() -> Tuple[List[str], str, Dict]:
 
     metadata = {
         'count': len(domains),
-        'version': version
+        'header_count': domain_count_header or len(domains)
     }
 
     return domains, timestamp, metadata
 
 
-def parse_unblockstop(domain: str) -> str:
+def parse_shadowwhisperer(domain: str) -> str:
     """Format domain in compact JSON YAML format."""
     return f'  - {{\"name\": \"{domain}\"}}'
 
@@ -408,11 +415,11 @@ SOURCES = [
     },
     {
         'id': 4,
-        'name': 'UnblockStop Proxy Bypass',
-        'description': 'Blocks proxy and filter-bypass sites like CroxyProxy',
-        'marker': '# Domains from https://github.com/tachnoraki/unblockstop',
-        'fetch_func': fetch_unblockstop,
-        'parse_func': parse_unblockstop,
+        'name': 'ShadowWhisperer Tunnels (VPNs & Proxies)',
+        'description': 'Blocks VPN services and web proxy/unblocker sites',
+        'marker': '# Domains from https://github.com/ShadowWhisperer/BlockLists (Tunnels)',
+        'fetch_func': fetch_shadowwhisperer,
+        'parse_func': parse_shadowwhisperer,
     },
     # Add more sources here following the same pattern
 ]

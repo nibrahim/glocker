@@ -12,6 +12,9 @@ let isCleanedUp = false;
 // Content hash tracking to prevent redundant analysis
 let lastContentHash = '';
 
+// Debounce timer reference for cleanup
+let contentDebounceTimer = null;
+
 // Compile content keywords into regex patterns for performance
 function compileContentKeywordRegexes() {
   contentKeywordRegexes = contentKeywords.map(keyword => {
@@ -122,12 +125,18 @@ function cleanup() {
   console.log('Cleaning up glocker extension resources');
   isCleanedUp = true;
   
+  // Cancel any pending debounced analysis
+  if (contentDebounceTimer) {
+    clearTimeout(contentDebounceTimer);
+    contentDebounceTimer = null;
+  }
+
   // Disconnect and clear observer
   if (window.glockerObserver) {
     window.glockerObserver.disconnect();
     window.glockerObserver = null;
   }
-  
+
   // Clear keyword arrays to free memory
   contentKeywords = null;
   
@@ -298,19 +307,25 @@ function setupContentMonitoring() {
   // Initial content analysis
   analyzeContent();
   
-  // Watch for text content changes
+  const DEBOUNCE_MS = 1000;
+
+  // Watch for text content changes (debounced to avoid excessive CPU usage)
   const observer = new MutationObserver((mutations) => {
     // Skip if cleaned up
     if (isCleanedUp) return;
-    
-    console.log('MutationObserver triggered, mutations count:', mutations.length);
-    
-    // Only analyze if there are actual text changes
+
+    // Only schedule analysis if there are actual text changes
     if (hasTextChanges(mutations)) {
-      console.log('Text changes detected, analyzing immediately');
-      analyzeContent();
-    } else {
-      console.log('No relevant text changes detected, skipping analysis');
+      if (contentDebounceTimer) {
+        clearTimeout(contentDebounceTimer);
+      }
+      contentDebounceTimer = setTimeout(() => {
+        contentDebounceTimer = null;
+        if (!isCleanedUp) {
+          console.log('Debounced content analysis triggered');
+          analyzeContent();
+        }
+      }, DEBOUNCE_MS);
     }
   });
   

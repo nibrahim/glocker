@@ -169,24 +169,3 @@ func TestRecordViolation_Disabled(t *testing.T) {
 	}
 }
 
-func TestExtractProcessName(t *testing.T) {
-	// Test with a typical ps aux line
-	psLine := "user     12345  0.0  0.1  12345  6789 ?        S    10:00   0:00 /usr/bin/firefox"
-
-	name := extractProcessName(psLine)
-
-	if name != "/usr/bin/firefox" {
-		t.Errorf("Expected /usr/bin/firefox, got %s", name)
-	}
-}
-
-func TestExtractProcessName_Short(t *testing.T) {
-	// Test with insufficient fields
-	psLine := "user 12345"
-
-	name := extractProcessName(psLine)
-
-	if name != "unknown" {
-		t.Errorf("Expected 'unknown' for short line, got %s", name)
-	}
-}

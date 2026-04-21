@@ -5,7 +5,6 @@ import (
 	"log"
 	"log/slog"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -76,8 +75,10 @@ func MonitorForbiddenPrograms(cfg *config.Config) {
 
 // killMatchingProcesses finds and kills processes matching the given program name.
 func killMatchingProcesses(cfg *config.Config, programName string) {
-	// Get list of running processes
-	cmd := exec.Command("ps", "aux")
+	// Use `comm` (kernel task name) for matching — it's the binary basename,
+	// never contains spaces, so paths like "/home/noufal/GOG Games/.../FTL.amd64"
+	// don't trip up whitespace-based field parsing the way `ps aux` does.
+	cmd := exec.Command("ps", "-eo", "pid=,comm=,args=")
 	output, err := cmd.Output()
 	if err != nil {
 		slog.Debug("Failed to get process list", "error", err)
@@ -90,43 +91,38 @@ func killMatchingProcesses(cfg *config.Config, programName string) {
 
 	slog.Debug("Starting process matching", "program_filter", programName, "total_lines", len(lines))
 
-	// Collect all matching processes
 	for _, line := range lines {
-		// Skip header line and empty lines
-		if strings.Contains(line, "USER") || strings.TrimSpace(line) == "" {
+		line = strings.TrimSpace(line)
+		if line == "" {
 			continue
 		}
 
-		// Extract PID and process name first
 		fields := strings.Fields(line)
-		if len(fields) < 11 {
+		if len(fields) < 2 {
 			continue
 		}
 
-		pid := fields[1]
-		processName := extractProcessName(line)
+		pid := fields[0]
+		comm := fields[1]
 
-		// Match against the binary name only (not the full command line with arguments)
-		// Use filepath.Base to handle full paths like /usr/bin/chromium
-		binaryName := filepath.Base(processName)
-		if !strings.Contains(strings.ToLower(binaryName), strings.ToLower(programName)) {
+		if !strings.Contains(strings.ToLower(comm), strings.ToLower(programName)) {
 			continue
 		}
 
-		slog.Debug("Extracted process info", "pid", pid, "extracted_name", processName)
+		slog.Debug("Extracted process info", "pid", pid, "comm", comm)
 
 		// Don't kill our own process or system processes
-		if strings.Contains(strings.ToLower(processName), "glocker") ||
-			strings.Contains(strings.ToLower(processName), "systemd") ||
-			strings.Contains(strings.ToLower(processName), "kernel") ||
+		if strings.Contains(strings.ToLower(comm), "glocker") ||
+			strings.Contains(strings.ToLower(comm), "systemd") ||
+			strings.Contains(strings.ToLower(comm), "kernel") ||
 			pid == "1" {
-			slog.Debug("Skipping protected process", "pid", pid, "name", processName)
+			slog.Debug("Skipping protected process", "pid", pid, "comm", comm)
 			continue
 		}
 
 		processInfo := state.ProcessInfo{
 			PID:         pid,
-			Name:        processName,
+			Name:        comm,
 			CommandLine: line,
 		}
 
@@ -180,12 +176,3 @@ func killMatchingProcesses(cfg *config.Config, programName string) {
 	}
 }
 
-// extractProcessName extracts the process name from a ps aux output line.
-func extractProcessName(psLine string) string {
-	fields := strings.Fields(psLine)
-	if len(fields) >= 11 {
-		// Return the command (11th field in ps aux)
-		return fields[10]
-	}
-	return "unknown"
-}

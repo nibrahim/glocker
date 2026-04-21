@@ -313,23 +313,41 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) error {
 	return nil
 }
 
-// ProcessBlockRequest adds domains to the block list.
+// ProcessBlockRequest adds domains to the block list and persists them to the config file.
 func ProcessBlockRequest(cfg *config.Config, hostsStr string) {
 	slog.Debug("Processing block request", "hosts", hostsStr)
 
+	var validDomains []string
 	hosts := strings.Split(hostsStr, ",")
 	for _, host := range hosts {
 		host = strings.TrimSpace(host)
 		if host == "" {
 			continue
 		}
+		if err := config.ValidateDomainName(host); err != nil {
+			log.Printf("ERROR: Rejecting domain %q: %v", host, err)
+			continue
+		}
+		validDomains = append(validDomains, host)
+	}
 
-		// Add to config domains (no time windows = always blocked by default)
-		cfg.Domains = append(cfg.Domains, config.Domain{
-			Name: host,
-		})
+	if len(validDomains) == 0 {
+		log.Printf("No valid domains to block")
+		return
+	}
 
-		log.Printf("BLOCKED: %s", host)
+	// Persist to config file so ForceEnforcement picks them up on reload
+	if err := config.SaveDomainsToConfig(validDomains); err != nil {
+		log.Printf("ERROR: Failed to save domains to config: %v", err)
+		// Still add to in-memory config as fallback
+		for _, host := range validDomains {
+			cfg.Domains = append(cfg.Domains, config.Domain{Name: host})
+			log.Printf("BLOCKED (in-memory only): %s", host)
+		}
+	} else {
+		for _, host := range validDomains {
+			log.Printf("BLOCKED: %s", host)
+		}
 	}
 
 	// Force enforcement to apply changes immediately

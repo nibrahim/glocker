@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"glocker/internal/reports"
+
+	"github.com/tj/go-naturaldate"
 )
 
 // ANSI color codes
@@ -23,14 +25,10 @@ const (
 )
 
 func main() {
-	summaryFlag := flag.Bool("summary", false, "Print summary statistics")
 	unblocksFlag := flag.Bool("unblocks", false, "Show unblocks summary")
-	violationsFlag := flag.Bool("violations", false, "Show violations summary")
-	topN := flag.Int("top", 5, "Number of top items to show")
 	fromDate := flag.String("from", "", "Start date (YYYY, YYYY-MM, or YYYY-MM-DD)")
 	toDate := flag.String("to", "", "End date (YYYY, YYYY-MM, or YYYY-MM-DD)")
-	periodDate := flag.String("period", "", "Show detailed logs for a period (YYYY-MM for month, YYYY-MM-DD for day)")
-	dailyDate := flag.String("daily", "", "Show daily email report format (YYYY-MM-DD, or 'yesterday')")
+	detailDate := flag.String("detail", "", "Show detailed logs for a period (date, 'last week', 'last month', etc.)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "glockpeek - peek at your glocker logs\n\n")
@@ -38,54 +36,25 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -summary                 Show all summaries\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -unblocks                Show unblocks summary only\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -violations              Show violations summary only\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -summary -top 10         Show top 10 items\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek                          Show violations summary\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek -unblocks                Show unblocks summary\n")
 		fmt.Fprintf(os.Stderr, "  glockpeek -from 2024               Show all of 2024 onwards\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -from 2024-06            Show from June 2024 onwards\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -from 2024-06-15         Show from specific date\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -from 2024 -to 2024      Show only 2024\n")
 		fmt.Fprintf(os.Stderr, "  glockpeek -from 2024-01 -to 2024-06 Show Jan-Jun 2024\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -period 2024-06-15       Show detailed logs for a day\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -period 2024-06          Show detailed logs for a month\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -daily yesterday         Show daily report for yesterday\n")
-		fmt.Fprintf(os.Stderr, "  glockpeek -daily 2024-06-15        Show daily report for specific date\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek -detail yesterday        Show detailed day view for yesterday\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek -detail 'last week'      Show detailed day view for each day last week\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek -detail 'last month'     Show detailed month view for last month\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek -detail 2024             Show monthly view for 2024\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek -detail 'last year'      Show monthly view for last year\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek -detail 2024-06          Show detailed logs for June 2024\n")
+		fmt.Fprintf(os.Stderr, "  glockpeek -detail 2024-06-15       Show detailed logs for a specific day\n")
 	}
 
 	flag.Parse()
 
-	// Handle -daily flag (email report format preview)
-	if *dailyDate != "" {
-		var date time.Time
-		if *dailyDate == "yesterday" {
-			date = time.Now().AddDate(0, 0, -1)
-		} else if d, err := time.ParseInLocation("2006-01-02", *dailyDate, time.Local); err == nil {
-			date = d
-		} else {
-			fmt.Fprintf(os.Stderr, "Error: invalid -daily date %q\n", *dailyDate)
-			fmt.Fprintf(os.Stderr, "Format must be YYYY-MM-DD or 'yesterday'\n")
-			os.Exit(1)
-		}
-		printDailyReport(date)
+	// Handle -detail flag (detailed view with natural date support)
+	if *detailDate != "" {
+		handleDetail(*detailDate)
 		return
-	}
-
-	// Handle -period flag (detailed view for day or month)
-	if *periodDate != "" {
-		// Try day format first (YYYY-MM-DD)
-		if day, err := time.ParseInLocation("2006-01-02", *periodDate, time.Local); err == nil {
-			printDayDetails(day)
-			return
-		}
-		// Try month format (YYYY-MM)
-		if month, err := time.ParseInLocation("2006-01", *periodDate, time.Local); err == nil {
-			printMonthDetails(month)
-			return
-		}
-		fmt.Fprintf(os.Stderr, "Error: invalid -period date %q\n", *periodDate)
-		fmt.Fprintf(os.Stderr, "Format must be YYYY-MM (month) or YYYY-MM-DD (day)\n")
-		os.Exit(1)
 	}
 
 	// Parse and validate dates
@@ -115,23 +84,57 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Default to summary (violations only) if no specific flag
-	if !*summaryFlag && !*unblocksFlag && !*violationsFlag {
-		*summaryFlag = true
+	if *unblocksFlag {
+		printUnblocksSummary(5, from, to)
+	} else {
+		printViolationsSummary(5, from, to)
+	}
+}
+
+// handleDetail processes the -detail flag value.
+// It supports: YYYY-MM-DD, YYYY-MM, and natural language dates
+// like "yesterday", "last week", "last month", "3 days ago".
+func handleDetail(input string) {
+	// Try exact day format (YYYY-MM-DD)
+	if day, err := time.ParseInLocation("2006-01-02", input, time.Local); err == nil {
+		printDayDetails(day)
+		return
+	}
+	// Try exact month format (YYYY-MM)
+	if month, err := time.ParseInLocation("2006-01", input, time.Local); err == nil {
+		printMonthDetails(month)
+		return
+	}
+	// Try exact year format (YYYY)
+	if year, err := time.ParseInLocation("2006", input, time.Local); err == nil {
+		printYearDetails(year)
+		return
 	}
 
-	showUnblocks := *unblocksFlag
-	showViolations := *summaryFlag || *violationsFlag
-
-	if showUnblocks {
-		printUnblocksSummary(*topN, from, to)
+	// Try natural language date
+	now := time.Now()
+	parsed, err := naturaldate.Parse(input, now)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: could not parse -detail date %q\n", input)
+		fmt.Fprintf(os.Stderr, "Try: YYYY-MM-DD, YYYY-MM, YYYY, 'yesterday', 'last week', 'last month', 'last year', etc.\n")
+		os.Exit(1)
 	}
 
-	if showViolations {
-		if showUnblocks {
-			fmt.Println()
-		}
-		printViolationsSummary(*topN, from, to)
+	// Determine whether to show a day, week, month, or year view based on the input
+	lower := strings.ToLower(input)
+	switch {
+	case strings.Contains(lower, "year"):
+		// Show the year containing the parsed date
+		printYearDetails(parsed)
+	case strings.Contains(lower, "month"):
+		// Show the month containing the parsed date
+		printMonthDetails(parsed)
+	case strings.Contains(lower, "week"):
+		// Show each day of the week containing the parsed date
+		printWeekDetails(parsed)
+	default:
+		// Default to day view
+		printDayDetails(parsed)
 	}
 }
 
@@ -595,8 +598,9 @@ type hourlyStats struct {
 
 // unmanagedPeriod represents a time range when glocker was not running
 type unmanagedPeriod struct {
-	start time.Time
-	end   time.Time // zero time means still unmanaged
+	start  time.Time
+	end    time.Time // zero time means still unmanaged
+	reason string
 }
 
 // minUnmanagedDuration is the minimum duration to consider as a real unmanaged period.
@@ -613,32 +617,54 @@ func getUnmanagedPeriods() []unmanagedPeriod {
 
 	var periods []unmanagedPeriod
 	var currentUninstall *time.Time
+	var currentReason string
 
 	for _, e := range entries {
 		if e.Type == "uninstall" {
 			currentUninstall = &e.Timestamp
+			currentReason = e.Reason
 		} else if e.Type == "install" && currentUninstall != nil {
 			duration := e.Timestamp.Sub(*currentUninstall)
 			// Only include periods longer than the minimum (skip quick upgrades)
 			if duration >= minUnmanagedDuration {
 				periods = append(periods, unmanagedPeriod{
-					start: *currentUninstall,
-					end:   e.Timestamp,
+					start:  *currentUninstall,
+					end:    e.Timestamp,
+					reason: currentReason,
 				})
 			}
 			currentUninstall = nil
+			currentReason = ""
 		}
 	}
 
 	// If currently unmanaged (uninstall without subsequent install)
 	if currentUninstall != nil {
 		periods = append(periods, unmanagedPeriod{
-			start: *currentUninstall,
-			end:   time.Time{}, // zero time = still unmanaged
+			start:  *currentUninstall,
+			end:    time.Time{}, // zero time = still unmanaged
+			reason: currentReason,
 		})
 	}
 
 	return periods
+}
+
+// unmanagedReasonsForRange returns unique reasons from unmanaged periods overlapping [start, end).
+func unmanagedReasonsForRange(start, end time.Time, periods []unmanagedPeriod) []string {
+	seen := make(map[string]bool)
+	var reasons []string
+	for _, p := range periods {
+		pEnd := p.end
+		if pEnd.IsZero() {
+			pEnd = time.Now()
+		}
+		if start.Before(pEnd) && end.After(p.start) && p.reason != "" && !seen[p.reason] {
+			seen[p.reason] = true
+			reasons = append(reasons, p.reason)
+		}
+	}
+	return reasons
 }
 
 // isHourUnmanaged checks if a specific hour on a day overlaps with any unmanaged period
@@ -707,6 +733,13 @@ func printDayDetails(day time.Time) {
 		EndTime:   &dayEnd,
 	})
 
+	// Get lifecycle events for this day
+	lifecycle, _ := reports.ParseLifecycleLog("")
+	lifecycle = reports.FilterLifecycle(lifecycle, reports.LifecycleFilter{
+		StartTime: &dayStart,
+		EndTime:   &dayEnd,
+	})
+
 	// Initialize hourly stats for all 24 hours
 	hourlyData := make(map[int]*hourlyStats)
 	for h := 0; h < 24; h++ {
@@ -741,8 +774,15 @@ func printDayDetails(day time.Time) {
 		isUnmanaged := isHourUnmanaged(day, hour, unmanagedPeriods)
 
 		if isUnmanaged {
-			// Unmanaged hour - show red block
-			fmt.Printf("── %s%s%s %s████ UNMANAGED%s\n", colorRed, hourLabel, colorReset, colorRed, colorReset)
+			// Unmanaged hour - show red block with reason
+			hourStart := time.Date(day.Year(), day.Month(), day.Day(), hour, 0, 0, 0, time.Local)
+			hourEnd := hourStart.Add(time.Hour)
+			reasons := unmanagedReasonsForRange(hourStart, hourEnd, unmanagedPeriods)
+			reasonStr := ""
+			if len(reasons) > 0 {
+				reasonStr = fmt.Sprintf(" %s(%s)%s", colorDim, strings.Join(reasons, ", "), colorReset)
+			}
+			fmt.Printf("── %s%s%s %s████ UNMANAGED%s%s\n", colorRed, hourLabel, colorReset, colorRed, colorReset, reasonStr)
 			unmanagedHours++
 		} else if stats.violations == 0 {
 			// Clean hour - show dim indicator
@@ -775,12 +815,35 @@ func printDayDetails(day time.Time) {
 		}
 	}
 
+	// Print lifecycle events
+	if len(lifecycle) > 0 {
+		fmt.Println("\n── Lifecycle Events ──")
+		for _, e := range lifecycle {
+			color := colorGreen
+			if e.Type == "uninstall" {
+				color = colorRed
+			}
+			if e.Reason != "" {
+				fmt.Printf("  %s%s%s %s%s%s (%s)\n",
+					colorDim, e.Timestamp.Format("15:04"), colorReset,
+					color, e.Type, colorReset,
+					e.Reason)
+			} else {
+				fmt.Printf("  %s%s%s %s%s%s\n",
+					colorDim, e.Timestamp.Format("15:04"), colorReset,
+					color, e.Type, colorReset)
+			}
+		}
+	}
+
 	// Print summary for the day
 	fmt.Println("\n── Day Summary ──")
 	fmt.Printf("  Violations: %d\n", len(violations))
 	if unmanagedHours > 0 {
+		unmanagedMin := calculateUnmanagedMinutesForDay(day)
 		fmt.Printf("  Hours:      %d (%s%d clean%s, %s%d unmanaged%s)\n",
 			lastHour+1, colorGreen, cleanHours, colorReset, colorRed, unmanagedHours, colorReset)
+		fmt.Printf("  Unmanaged:  %s%d minutes%s\n", colorRed, unmanagedMin, colorReset)
 	} else {
 		fmt.Printf("  Hours:      %d (%s%d clean%s)\n", lastHour+1, colorGreen, cleanHours, colorReset)
 	}
@@ -931,12 +994,21 @@ func printMonthDetails(month time.Time) {
 		// Format: "Jan 02 Mon │ ████ V:12 (afternoon, porn)"
 		datePart := fmt.Sprintf("%s %s", d.date.Format("Jan 02"), d.date.Format("Mon")[:3])
 
+		// Get unmanaged reasons for this day
+		dayStart := time.Date(d.date.Year(), d.date.Month(), d.date.Day(), 0, 0, 0, 0, time.Local)
+		dayEnd := dayStart.Add(24 * time.Hour)
+		reasons := unmanagedReasonsForRange(dayStart, dayEnd, unmanagedPeriods)
+		reasonStr := ""
+		if len(reasons) > 0 {
+			reasonStr = fmt.Sprintf(" %s(%s)%s", colorDim, strings.Join(reasons, ", "), colorReset)
+		}
+
 		// Check for unmanaged day first
 		if d.isUnmanaged && d.unmanagedHours == 24 {
 			// Fully unmanaged day
 			datePart = fmt.Sprintf("%s%s%s", colorRed, datePart, colorReset)
 			line := datePart + " │"
-			line += fmt.Sprintf(" %s████ UNMANAGED%s", colorRed, colorReset)
+			line += fmt.Sprintf(" %s████ UNMANAGED%s%s", colorRed, colorReset, reasonStr)
 			fmt.Println(line)
 			continue
 		}
@@ -954,6 +1026,7 @@ func printMonthDetails(month time.Time) {
 			if d.violations > 0 {
 				line += fmt.Sprintf(" V:%d", d.violations)
 			}
+			line += reasonStr
 		} else if d.violations > 0 {
 			// Add bar with absolute thresholds
 			bar := coloredBarAbsolute(d.violations, 10)
@@ -994,6 +1067,258 @@ func printMonthDetails(month time.Time) {
 	}
 }
 
+// printYearDetails prints aggregated monthly logs for a specific year.
+func printYearDetails(year time.Time) {
+	yearStart := time.Date(year.Year(), 1, 1, 0, 0, 0, 0, time.Local)
+	yearEnd := yearStart.AddDate(1, 0, 0).Add(-time.Second)
+
+	fmt.Printf("╔════════════════════════════════════════════════╗\n")
+	fmt.Printf("║  YEARLY LOG: %-33s ║\n", year.Format("2006"))
+	fmt.Printf("╚════════════════════════════════════════════════╝\n")
+
+	// Get unmanaged periods
+	unmanagedPeriods := getUnmanagedPeriods()
+
+	// Get violations for this year
+	violations, _ := reports.ParseReportsLog("")
+	violations = reports.FilterReports(violations, reports.ReportFilter{
+		StartTime: &yearStart,
+		EndTime:   &yearEnd,
+	})
+
+	// Aggregate by month
+	type monthStats struct {
+		month           time.Time
+		violations      int
+		topKeyword      string
+		topKeywordCount int
+		keywords        map[string]int
+		unmanagedDays   int
+		unmanagedReasons []string
+	}
+
+	now := time.Now()
+	lastMonth := 12
+	if year.Year() == now.Year() {
+		lastMonth = int(now.Month())
+	}
+
+	months := make([]*monthStats, lastMonth)
+	for i := 0; i < lastMonth; i++ {
+		m := time.Date(year.Year(), time.Month(i+1), 1, 0, 0, 0, 0, time.Local)
+		ms := &monthStats{
+			month:    m,
+			keywords: make(map[string]int),
+		}
+
+		// Count unmanaged days and collect reasons for this month
+		mEnd := m.AddDate(0, 1, 0)
+		daysInMonth := int(mEnd.Sub(m).Hours() / 24)
+		for d := 0; d < daysInMonth; d++ {
+			day := m.AddDate(0, 0, d)
+			if day.After(now) {
+				break
+			}
+			if isDayUnmanaged(day, unmanagedPeriods) {
+				ms.unmanagedDays++
+			}
+		}
+
+		ms.unmanagedReasons = unmanagedReasonsForRange(m, mEnd, unmanagedPeriods)
+
+		months[i] = ms
+	}
+
+	// Process violations
+	for _, v := range violations {
+		mIdx := int(v.Timestamp.Month()) - 1
+		if mIdx < len(months) {
+			months[mIdx].violations++
+			months[mIdx].keywords[v.Keyword]++
+		}
+	}
+
+	// Calculate top keyword per month
+	for _, ms := range months {
+		for k, c := range ms.keywords {
+			if c > ms.topKeywordCount {
+				ms.topKeyword = k
+				ms.topKeywordCount = c
+			}
+		}
+	}
+
+	// Print monthly summary
+	fmt.Println()
+	totalV := 0
+	cleanMonths := 0
+	unmanagedMonths := 0
+
+	for _, ms := range months {
+		totalV += ms.violations
+		datePart := ms.month.Format("January")
+
+		// Check for fully unmanaged month
+		mEnd := ms.month.AddDate(0, 1, 0)
+		daysInMonth := int(mEnd.Sub(ms.month).Hours() / 24)
+		padded := fmt.Sprintf("%-9s", datePart)
+		reasonStr := ""
+		if len(ms.unmanagedReasons) > 0 {
+			reasonStr = fmt.Sprintf(" %s(%s)%s", colorDim, strings.Join(ms.unmanagedReasons, ", "), colorReset)
+		}
+
+		if ms.unmanagedDays == daysInMonth {
+			fmt.Printf("  %s%s%s │ %s████ UNMANAGED%s%s\n", colorRed, padded, colorReset, colorRed, colorReset, reasonStr)
+			unmanagedMonths++
+			continue
+		}
+
+		isEgregious := ms.violations > 2
+		if isEgregious {
+			padded = fmt.Sprintf("%s%s%s", colorInverse, padded, colorReset)
+		}
+		line := fmt.Sprintf("  %s │", padded)
+
+		if ms.unmanagedDays > 0 {
+			line += fmt.Sprintf(" %s██%s %dd unmanaged", colorRed, colorReset, ms.unmanagedDays)
+			if ms.violations > 0 {
+				line += fmt.Sprintf(" V:%d", ms.violations)
+			}
+			line += reasonStr
+			unmanagedMonths++
+		} else if ms.violations > 0 {
+			bar := coloredBarAbsolute(ms.violations, 10)
+			line += fmt.Sprintf(" %s V:%d", bar, ms.violations)
+			if ms.topKeyword != "" {
+				line += fmt.Sprintf(" %s(%s)%s", colorDim, ms.topKeyword, colorReset)
+			}
+		} else {
+			line += fmt.Sprintf(" %s·%s", colorDim, colorReset)
+			cleanMonths++
+		}
+
+		fmt.Println(line)
+	}
+
+	// Year totals
+	fmt.Printf("\n── Totals: %sV:%d%s │ %d months (%s%d clean%s",
+		colorRed, totalV, colorReset,
+		lastMonth,
+		colorGreen, cleanMonths, colorReset)
+	if unmanagedMonths > 0 {
+		fmt.Printf(", %s%d unmanaged%s", colorRed, unmanagedMonths, colorReset)
+	}
+	fmt.Println(") ──")
+}
+
+// printWeekDetails prints day-by-day details for the week containing the given date.
+// The week runs Monday through Sunday.
+func printWeekDetails(ref time.Time) {
+	// Find Monday of the week containing ref
+	weekday := ref.Weekday()
+	if weekday == time.Sunday {
+		weekday = 7
+	}
+	monday := time.Date(ref.Year(), ref.Month(), ref.Day()-int(weekday-time.Monday), 0, 0, 0, 0, time.Local)
+	sunday := monday.AddDate(0, 0, 6)
+
+	fmt.Printf("╔════════════════════════════════════════════════╗\n")
+	fmt.Printf("║  WEEKLY LOG: %s to %s  ║\n",
+		monday.Format("Jan 02"), sunday.Format("Jan 02, 2006"))
+	fmt.Printf("╚════════════════════════════════════════════════╝\n")
+
+	// Get unmanaged periods
+	unmanagedPeriods := getUnmanagedPeriods()
+
+	// Get violations for the whole week
+	weekStart := monday
+	weekEnd := sunday.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+	violations, _ := reports.ParseReportsLog("")
+	violations = reports.FilterReports(violations, reports.ReportFilter{
+		StartTime: &weekStart,
+		EndTime:   &weekEnd,
+	})
+
+	// Group violations by day
+	dayViolations := make(map[string][]reports.ReportEntry)
+	for _, v := range violations {
+		dayStr := v.Timestamp.Format("2006-01-02")
+		dayViolations[dayStr] = append(dayViolations[dayStr], v)
+	}
+
+	now := time.Now()
+	totalV := 0
+	cleanDays := 0
+	unmanagedDays := 0
+
+	fmt.Println()
+	for i := 0; i < 7; i++ {
+		day := monday.AddDate(0, 0, i)
+		if day.After(now) {
+			break
+		}
+		dayStr := day.Format("2006-01-02")
+		vForDay := dayViolations[dayStr]
+		totalV += len(vForDay)
+
+		datePart := fmt.Sprintf("%s %s", day.Format("Jan 02"), day.Format("Mon")[:3])
+		isUnmanaged := isDayUnmanaged(day, unmanagedPeriods)
+
+		// Get unmanaged reasons for this day
+		dayStart := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.Local)
+		dayEnd := dayStart.Add(24 * time.Hour)
+		reasons := unmanagedReasonsForRange(dayStart, dayEnd, unmanagedPeriods)
+		reasonStr := ""
+		if len(reasons) > 0 {
+			reasonStr = fmt.Sprintf(" %s(%s)%s", colorDim, strings.Join(reasons, ", "), colorReset)
+		}
+
+		if isUnmanaged && getUnmanagedHoursInDay(day, unmanagedPeriods) == 24 {
+			datePart = fmt.Sprintf("%s%s%s", colorRed, datePart, colorReset)
+			fmt.Printf("%s │ %s████ UNMANAGED%s%s\n", datePart, colorRed, colorReset, reasonStr)
+			unmanagedDays++
+			continue
+		}
+
+		if len(vForDay) > 2 {
+			datePart = fmt.Sprintf("%s%s%s", colorInverse, datePart, colorReset)
+		}
+
+		if isUnmanaged {
+			unmanagedHours := getUnmanagedHoursInDay(day, unmanagedPeriods)
+			fmt.Printf("%s │ %s██%s %dh unmanaged", datePart, colorRed, colorReset, unmanagedHours)
+			if len(vForDay) > 0 {
+				fmt.Printf(" V:%d", len(vForDay))
+			}
+			fmt.Printf("%s\n", reasonStr)
+			unmanagedDays++
+		} else if len(vForDay) == 0 {
+			fmt.Printf("%s │ %s·%s\n", datePart, colorDim, colorReset)
+			cleanDays++
+		} else {
+			bar := coloredBarAbsolute(len(vForDay), 10)
+			keywords := make(map[string]int)
+			for _, v := range vForDay {
+				keywords[v.Keyword]++
+			}
+			topKw := getTopFromMap(keywords, 1)
+			kwStr := ""
+			if len(topKw) > 0 {
+				kwStr = fmt.Sprintf(" %s(%s)%s", colorDim, topKw[0], colorReset)
+			}
+			fmt.Printf("%s │ %s V:%d%s\n", datePart, bar, len(vForDay), kwStr)
+		}
+	}
+
+	fmt.Printf("\n── Totals: %sV:%d%s │ %s%d clean%s",
+		colorRed, totalV, colorReset,
+		colorGreen, cleanDays, colorReset)
+	if unmanagedDays > 0 {
+		fmt.Printf(", %s%d unmanaged%s", colorRed, unmanagedDays, colorReset)
+	}
+	fmt.Println(" ──")
+}
+
 // getTimePeriod returns the time period name for an hour
 func getTimePeriod(hour int) string {
 	switch {
@@ -1006,14 +1331,6 @@ func getTimePeriod(hour int) string {
 	default:
 		return "evening"
 	}
-}
-
-// truncateString truncates a string to maxLen characters
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
 }
 
 // getTopFromMap returns top N keys from a map sorted by value
@@ -1041,113 +1358,6 @@ func getTopFromMap(m map[string]int, n int) []string {
 	return result
 }
 
-// printDailyReport prints the daily report in the same format as the email.
-func printDailyReport(date time.Time) {
-	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.Local)
-	dayEnd := dayStart.Add(24*time.Hour - time.Second)
-
-	// Gather violations
-	violations, _ := reports.ParseReportsLog("")
-	violations = reports.FilterReports(violations, reports.ReportFilter{
-		StartTime: &dayStart,
-		EndTime:   &dayEnd,
-	})
-
-	// Gather unblocks
-	unblocks, _ := reports.ParseUnblocksLog("")
-	unblocks = reports.FilterUnblocks(unblocks, reports.UnblockFilter{
-		StartTime: &dayStart,
-		EndTime:   &dayEnd,
-	})
-
-	// Gather lifecycle events
-	lifecycle, _ := reports.ParseLifecycleLog("")
-	lifecycle = reports.FilterLifecycle(lifecycle, reports.LifecycleFilter{
-		StartTime: &dayStart,
-		EndTime:   &dayEnd,
-	})
-
-	// Calculate unmanaged time
-	unmanagedMinutes := calculateUnmanagedMinutesForDay(date)
-
-	// Print header
-	fmt.Printf("╔════════════════════════════════════════════════╗\n")
-	fmt.Printf("║  DAILY REPORT: %-31s ║\n", date.Format("Monday, January 2, 2006"))
-	fmt.Printf("╚════════════════════════════════════════════════╝\n")
-
-	// Summary section
-	fmt.Println("\n── Summary ──")
-	fmt.Printf("  Violations:     %s%d%s\n", colorForCount(len(violations)), len(violations), colorReset)
-	fmt.Printf("  Unblocks:       %s%d%s\n", colorYellow, len(unblocks), colorReset)
-	if unmanagedMinutes > 0 {
-		fmt.Printf("  Unmanaged time: %s%d minutes%s\n", colorRed, unmanagedMinutes, colorReset)
-	} else {
-		fmt.Printf("  Unmanaged time: %s0%s\n", colorGreen, colorReset)
-	}
-
-	// Violations details
-	if len(violations) > 0 {
-		fmt.Println("\n── Violations ──")
-		keywords := make(map[string]int)
-		for _, v := range violations {
-			keywords[v.Keyword]++
-		}
-		for kw, count := range keywords {
-			fmt.Printf("  %s: %d\n", kw, count)
-		}
-	}
-
-	// Unblocks details
-	if len(unblocks) > 0 {
-		fmt.Println("\n── Unblocks ──")
-		for _, u := range unblocks {
-			duration := int(u.RestoreTime.Sub(u.UnblockTime).Minutes())
-			fmt.Printf("  %s%s%s %s%s%s (%d min) - %s\"%s\"%s\n",
-				colorDim, u.UnblockTime.Format("15:04"), colorReset,
-				colorYellow, u.Domain, colorReset,
-				duration,
-				colorDim, u.Reason, colorReset)
-		}
-	}
-
-	// Lifecycle events
-	if len(lifecycle) > 0 {
-		fmt.Println("\n── Lifecycle Events ──")
-		for _, e := range lifecycle {
-			color := colorGreen
-			if e.Type == "uninstall" {
-				color = colorRed
-			}
-			if e.Reason != "" {
-				fmt.Printf("  %s%s%s %s%s%s (%s)\n",
-					colorDim, e.Timestamp.Format("15:04"), colorReset,
-					color, e.Type, colorReset,
-					e.Reason)
-			} else {
-				fmt.Printf("  %s%s%s %s%s%s\n",
-					colorDim, e.Timestamp.Format("15:04"), colorReset,
-					color, e.Type, colorReset)
-			}
-		}
-	}
-
-	// Footer with attention flag
-	fmt.Println()
-	if len(violations) > 10 || unmanagedMinutes > 30 {
-		fmt.Printf("%s[ATTENTION] This day had significant activity%s\n", colorRed, colorReset)
-	}
-}
-
-// colorForCount returns red for high counts, green for zero, dim for low counts.
-func colorForCount(count int) string {
-	if count == 0 {
-		return colorGreen
-	}
-	if count > 10 {
-		return colorRed
-	}
-	return colorYellow
-}
 
 // calculateUnmanagedMinutesForDay calculates total unmanaged minutes for a day.
 func calculateUnmanagedMinutesForDay(date time.Time) int {

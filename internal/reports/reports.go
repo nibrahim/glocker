@@ -216,6 +216,7 @@ type LifecycleEntry struct {
 	Timestamp time.Time `json:"timestamp"`
 	Type      string    `json:"type"`             // "install" or "uninstall"
 	Reason    string    `json:"reason,omitempty"` // Only for uninstalls
+	Note      string    `json:"note,omitempty"`   // Free-form context for uninstalls
 }
 
 // ParseLifecycleLog reads and parses the lifecycle log file.

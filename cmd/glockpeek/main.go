@@ -601,6 +601,7 @@ type unmanagedPeriod struct {
 	start  time.Time
 	end    time.Time // zero time means still unmanaged
 	reason string
+	note   string
 }
 
 // minUnmanagedDuration is the minimum duration to consider as a real unmanaged period.
@@ -618,11 +619,13 @@ func getUnmanagedPeriods() []unmanagedPeriod {
 	var periods []unmanagedPeriod
 	var currentUninstall *time.Time
 	var currentReason string
+	var currentNote string
 
 	for _, e := range entries {
 		if e.Type == "uninstall" {
 			currentUninstall = &e.Timestamp
 			currentReason = e.Reason
+			currentNote = e.Note
 		} else if e.Type == "install" && currentUninstall != nil {
 			duration := e.Timestamp.Sub(*currentUninstall)
 			// Only include periods longer than the minimum (skip quick upgrades)
@@ -631,10 +634,12 @@ func getUnmanagedPeriods() []unmanagedPeriod {
 					start:  *currentUninstall,
 					end:    e.Timestamp,
 					reason: currentReason,
+					note:   currentNote,
 				})
 			}
 			currentUninstall = nil
 			currentReason = ""
+			currentNote = ""
 		}
 	}
 
@@ -644,13 +649,16 @@ func getUnmanagedPeriods() []unmanagedPeriod {
 			start:  *currentUninstall,
 			end:    time.Time{}, // zero time = still unmanaged
 			reason: currentReason,
+			note:   currentNote,
 		})
 	}
 
 	return periods
 }
 
-// unmanagedReasonsForRange returns unique reasons from unmanaged periods overlapping [start, end).
+// unmanagedReasonsForRange returns unique reason labels from unmanaged periods
+// overlapping [start, end). When a period has a note, it is appended after the
+// reason as "reason — note".
 func unmanagedReasonsForRange(start, end time.Time, periods []unmanagedPeriod) []string {
 	seen := make(map[string]bool)
 	var reasons []string
@@ -659,10 +667,18 @@ func unmanagedReasonsForRange(start, end time.Time, periods []unmanagedPeriod) [
 		if pEnd.IsZero() {
 			pEnd = time.Now()
 		}
-		if start.Before(pEnd) && end.After(p.start) && p.reason != "" && !seen[p.reason] {
-			seen[p.reason] = true
-			reasons = append(reasons, p.reason)
+		if !(start.Before(pEnd) && end.After(p.start)) || p.reason == "" {
+			continue
 		}
+		label := p.reason
+		if p.note != "" {
+			label = p.reason + " — " + p.note
+		}
+		if seen[label] {
+			continue
+		}
+		seen[label] = true
+		reasons = append(reasons, label)
 	}
 	return reasons
 }
@@ -823,11 +839,19 @@ func printDayDetails(day time.Time) {
 			if e.Type == "uninstall" {
 				color = colorRed
 			}
-			if e.Reason != "" {
+			detail := e.Reason
+			if e.Note != "" {
+				if detail != "" {
+					detail += " — " + e.Note
+				} else {
+					detail = e.Note
+				}
+			}
+			if detail != "" {
 				fmt.Printf("  %s%s%s %s%s%s (%s)\n",
 					colorDim, e.Timestamp.Format("15:04"), colorReset,
 					color, e.Type, colorReset,
-					e.Reason)
+					detail)
 			} else {
 				fmt.Printf("  %s%s%s %s%s%s\n",
 					colorDim, e.Timestamp.Format("15:04"), colorReset,

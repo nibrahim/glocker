@@ -8,12 +8,12 @@ build-all:
 
 # Rebuild and reinstall
 install: build-all
-	sudo ./glocker -uninstall "reinstall" || true
+	sudo ./glocker -uninstall "maintenance" -note "upgrade via Make" || true
 	sudo ./glocker -install
 
 # Rebuild, update blocklists, and reinstall
 full-install: build-all update-blocklists
-	sudo ./glocker -uninstall "reinstall" || true
+	sudo ./glocker -uninstall "maintenance" -note "upgrade via Make" || true
 	sudo ./glocker -install
 
 # Update blocklists

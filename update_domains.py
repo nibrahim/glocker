@@ -22,6 +22,13 @@ from typing import Optional, Tuple, List, Dict, Callable
 # Constants
 CONFIG_FILE = "conf/conf.yaml"
 
+# Domains containing any of these substrings (case-insensitive) will be excluded
+# from all sources during processing.
+EXCLUDED_DOMAIN_SUBSTRINGS = [
+    "mullvad",
+    "customeriomail.com",
+]
+
 
 ## Utility Functions
 
@@ -284,9 +291,7 @@ def fetch_hagezi() -> Tuple[List[str], str, Dict]:
 
         # Parse domain entries (non-comment, non-empty lines)
         elif line and not line.startswith('#'):
-            # Filter out Mullvad VPN domains (legitimate VPN service)
-            if 'mullvad' not in line.lower():
-                domains.append(line)
+            domains.append(line)
 
     if not timestamp:
         print("  Error: Could not extract timestamp from blocklist", file=sys.stderr)
@@ -297,10 +302,6 @@ def fetch_hagezi() -> Tuple[List[str], str, Dict]:
         sys.exit(1)
 
     print(f"  Last updated: {timestamp} ({len(domains)} domains)")
-    if entry_count:
-        filtered_count = entry_count - len(domains)
-        if filtered_count > 0:
-            print(f"  Filtered out {filtered_count} Mullvad VPN domains")
 
     metadata = {
         'count': len(domains),
@@ -408,7 +409,7 @@ SOURCES = [
     {
         'id': 3,
         'name': 'HaGeZi DoH/VPN/TOR/Proxy Bypass',
-        'description': 'Blocks encrypted DNS, VPN, TOR, and proxy bypass methods (excludes Mullvad)',
+        'description': 'Blocks encrypted DNS, VPN, TOR, and proxy bypass methods',
         'marker': '# Domains from https://github.com/hagezi/dns-blocklists (DoH/VPN/TOR/Proxy Bypass)',
         'fetch_func': fetch_hagezi,
         'parse_func': parse_hagezi,
@@ -540,7 +541,7 @@ def update_source(source_id: int) -> str:
             print("  Error: 'domains:' section not found in config file", file=sys.stderr)
             sys.exit(1)
 
-    # Step 7: Strip www prefix and remove duplicates
+    # Step 7: Strip www prefix, apply exclusions, and remove duplicates
     print(f"  Processing {len(domains)} domains...")
     original_count = len(domains)
 
@@ -552,15 +553,27 @@ def update_source(source_id: int) -> str:
         else:
             stripped_domains.append(domain)
 
+    # Apply exclusion list
+    excluded_count = 0
+    filtered_domains = []
+    for domain in stripped_domains:
+        domain_lower = domain.lower()
+        if any(substr in domain_lower for substr in EXCLUDED_DOMAIN_SUBSTRINGS):
+            excluded_count += 1
+        else:
+            filtered_domains.append(domain)
+    if excluded_count > 0:
+        print(f"  Excluded {excluded_count} domains matching exclusion list")
+
     # Remove duplicates while preserving order
     seen = set()
     unique_domains = []
-    for domain in stripped_domains:
+    for domain in filtered_domains:
         if domain not in seen:
             seen.add(domain)
             unique_domains.append(domain)
 
-    removed_count = original_count - len(unique_domains)
+    removed_count = original_count - len(unique_domains) - excluded_count
     if removed_count > 0:
         print(f"  Removed {removed_count} duplicate/www-prefixed domains")
 

@@ -142,16 +142,38 @@ func HandleConnection(cfg *config.Config, conn net.Conn) {
 			go processAddKeywordRequest(cfg, keywords)
 		case "uninstall":
 			if len(parts) != 2 {
-				conn.Write([]byte("ERROR: Invalid format. Use 'uninstall:reason'\n"))
+				conn.Write([]byte("ERROR: Invalid format. Use 'uninstall:reason[:note]'\n"))
 				continue
 			}
-			reason := strings.TrimSpace(parts[1])
+			payload := strings.TrimSpace(parts[1])
+			payloadParts := strings.SplitN(payload, ":", 2)
+			reason := strings.TrimSpace(payloadParts[0])
+			note := ""
+			if len(payloadParts) == 2 {
+				note = strings.TrimSpace(payloadParts[1])
+			}
 			if reason == "" {
 				conn.Write([]byte("ERROR: Reason cannot be empty\n"))
 				continue
 			}
+			// Validate reason against configured valid reasons
+			if len(cfg.Lifecycle.Reasons) > 0 {
+				validReason := false
+				for _, validR := range cfg.Lifecycle.Reasons {
+					if strings.EqualFold(reason, validR) {
+						validReason = true
+						break
+					}
+				}
+				if !validReason {
+					errMsg := fmt.Sprintf("ERROR: Invalid reason '%s'. Valid reasons: %s\n",
+						reason, strings.Join(cfg.Lifecycle.Reasons, ", "))
+					conn.Write([]byte(errMsg))
+					continue
+				}
+			}
 			conn.Write([]byte("OK: Uninstall request received\n"))
-			go processUninstallRequest(cfg, reason, conn)
+			go processUninstallRequest(cfg, reason, note, conn)
 		default:
 			conn.Write([]byte("ERROR: Unknown action\n"))
 		}
@@ -229,11 +251,15 @@ func processAddKeywordRequest(cfg *config.Config, keywordsStr string) {
 }
 
 // processUninstallRequest handles the uninstallation process.
-func processUninstallRequest(cfg *config.Config, reason string, conn net.Conn) {
-	log.Printf("Uninstall requested: %s", reason)
+func processUninstallRequest(cfg *config.Config, reason, note string, conn net.Conn) {
+	if note != "" {
+		log.Printf("Uninstall requested: %s (note: %s)", reason, note)
+	} else {
+		log.Printf("Uninstall requested: %s", reason)
+	}
 
 	// Log the uninstall request
-	if err := web.LogUninstallEntry(cfg, reason); err != nil {
+	if err := web.LogUninstallEntry(cfg, reason, note); err != nil {
 		log.Printf("Warning: Failed to log uninstall entry: %v", err)
 	}
 

@@ -103,7 +103,8 @@ type UnblockingConfig struct {
 
 // LifecycleConfig controls install/uninstall logging behavior.
 type LifecycleConfig struct {
-	LogFile string `yaml:"log_file"`
+	LogFile string   `yaml:"log_file"`
+	Reasons []string `yaml:"reasons"`
 }
 
 // ForbiddenProgram represents a program to be killed during blocking periods.

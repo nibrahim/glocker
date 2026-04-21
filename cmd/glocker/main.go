@@ -27,6 +27,7 @@ func main() {
 	// Parse command-line flags
 	installFlag := flag.Bool("install", false, "Install glocker as a system service")
 	uninstallReason := flag.String("uninstall", "", "Uninstall Glocker and revert all changes (provide reason)")
+	uninstallNote := flag.String("note", "", "Optional free-form note to attach to -uninstall (e.g. context for the reason)")
 	daemonFlag := flag.Bool("daemon", false, "Run as daemon (for systemd service)")
 	statusFlag := flag.Bool("status", false, "Show runtime status (violations, temp unblocks, panic mode)")
 	infoFlag := flag.Bool("info", false, "Show configuration info (domains, programs, keywords)")
@@ -75,7 +76,11 @@ func main() {
 		}
 		defer conn.Close()
 
-		message := fmt.Sprintf("uninstall:%s\n", *uninstallReason)
+		message := fmt.Sprintf("uninstall:%s", *uninstallReason)
+		if *uninstallNote != "" {
+			message += ":" + *uninstallNote
+		}
+		message += "\n"
 		conn.Write([]byte(message))
 
 		// Read initial response
@@ -84,7 +89,12 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to read response: %v", err)
 		}
-		log.Printf("Response: %s", strings.TrimSpace(response))
+		trimmedResponse := strings.TrimSpace(response)
+		log.Printf("Response: %s", trimmedResponse)
+
+		if strings.HasPrefix(trimmedResponse, "ERROR:") {
+			os.Exit(1)
+		}
 
 		// Wait for completion signal
 		log.Println("Waiting for uninstall process to complete...")
@@ -121,6 +131,9 @@ func main() {
 		log.Println("🎉 Glocker system changes have been restored!")
 		log.Println("   All protections have been removed and original settings restored.")
 		log.Printf("   Uninstall reason: %s", *uninstallReason)
+		if *uninstallNote != "" {
+			log.Printf("   Note: %s", *uninstallNote)
+		}
 		log.Println()
 		log.Println("To complete the uninstall, manually run these commands:")
 		log.Printf("   rm -f %s", "/etc/systemd/system/glocker.service")

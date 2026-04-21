@@ -55,6 +55,7 @@ type LifecycleLogEntry struct {
 	Timestamp time.Time `json:"timestamp"`
 	Type      string    `json:"type"`   // "install" or "uninstall"
 	Reason    string    `json:"reason,omitempty"`
+	Note      string    `json:"note,omitempty"`
 }
 
 // ProcessInfo contains information about a running process.

@@ -160,7 +160,7 @@ func IsValidUnblockReason(cfg *config.Config, reason string) bool {
 const DefaultLifecycleLogFile = "/var/log/glocker-lifecycle.log"
 
 // logLifecycleEntry logs an install or uninstall event.
-func logLifecycleEntry(cfg *config.Config, entryType, reason string) error {
+func logLifecycleEntry(cfg *config.Config, entryType, reason, note string) error {
 	logFile := cfg.Lifecycle.LogFile
 	if logFile == "" {
 		logFile = DefaultLifecycleLogFile
@@ -170,6 +170,7 @@ func logLifecycleEntry(cfg *config.Config, entryType, reason string) error {
 		Timestamp: time.Now(),
 		Type:      entryType,
 		Reason:    reason,
+		Note:      note,
 	}
 
 	// Convert to JSON
@@ -191,13 +192,13 @@ func logLifecycleEntry(cfg *config.Config, entryType, reason string) error {
 		return fmt.Errorf("failed to write to lifecycle log file: %w", err)
 	}
 
-	slog.Debug("Logged lifecycle entry", "type", entryType, "reason", reason, "log_file", logFile)
+	slog.Debug("Logged lifecycle entry", "type", entryType, "reason", reason, "note", note, "log_file", logFile)
 	return nil
 }
 
 // LogUninstallEntry logs an uninstall request with details.
-func LogUninstallEntry(cfg *config.Config, reason string) error {
-	return logLifecycleEntry(cfg, "uninstall", reason)
+func LogUninstallEntry(cfg *config.Config, reason, note string) error {
+	return logLifecycleEntry(cfg, "uninstall", reason, note)
 }
 
 // LogInstallEntry logs an installation event.

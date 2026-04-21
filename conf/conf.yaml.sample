@@ -144,7 +144,7 @@ sudoers:
   # Example: Full passwordless sudo access
   allowed_sudoers_line: "yourusername  ALL=(ALL) NOPASSWD:ALL"
 
-  # Sudoers line when sudo is BLOCKED (during configured time_allowed windows)
+  # Sudoers line when sudo is BLOCKED (outside the configured allow_windows)
   # Choose one of these strategies:
   #
   # Option 1: Require password for all sudo commands (recommended for most users)
@@ -162,7 +162,7 @@ sudoers:
   # Format: HH:MM in 24-hour time
   # Days: Mon, Tue, Wed, Thu, Fri, Sat, Sun
   # Use case: Allow full sudo access during personal time, restrict during work
-  time_allowed:
+  allow_windows:
     # Weekday evenings: 5pm-11pm (after work)
     - start: "17:00"
       end: "23:00"
@@ -537,7 +537,7 @@ forbidden_programs:
   # List of programs to monitor and kill
   # Each entry requires:
   #   - name: Process name (as shown in ps/pgrep)
-  #   - time_windows: When to kill this program (optional)
+  #   - kill_windows: When to kill this program (optional)
   #
   # Process name matching:
   #   - Partial match supported: "chrom" matches "chrome", "chromium"
@@ -556,14 +556,14 @@ forbidden_programs:
   programs:
     # Example 1: Block gaming during work hours
     - name: "steam"
-      time_windows:
+      kill_windows:
         - start: "09:00"
           end: "17:00"
           days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
 
     # Example 2: Block chat apps during focus time
     - name: "discord"
-      time_windows:
+      kill_windows:
         - start: "09:00"
           end: "12:00"
           days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -574,7 +574,7 @@ forbidden_programs:
     # Example 3: Block alternative browser (always)
     # Chromium doesn't have extension enforcement, so block it completely
     - name: "chromium"
-      # No time_windows = blocked 24/7
+      # No kill_windows = killed 24/7
 
     # Example 4: Block privacy browsers (always)
     # These browsers might bypass your protections
@@ -584,7 +584,7 @@ forbidden_programs:
     # Example 5: Block games by partial name match
     # This will match any process containing "game" in its name
     - name: "game"
-      time_windows:
+      kill_windows:
         - start: "09:00"
           end: "18:00"
           days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -597,7 +597,7 @@ forbidden_programs:
 # NEW BEHAVIOR: Domains are PERMANENTLY BLOCKED by default
 # - No time windows = always blocked, cannot be temporarily unblocked
 # - Add 'unblockable: true' to allow temporary unblocking with: glocker -unblock
-# - Add time_windows to block only during specific times
+# - Add block_windows to block only during specific times
 #
 # Domains can be configured three ways:
 #
@@ -614,12 +614,12 @@ forbidden_programs:
 #    Example: - {name: "youtube.com", unblockable: true}
 #
 # 3. Time-based blocking:
-#    - Specify name and time_windows
+#    - Specify name and block_windows
 #    - Blocked only during specified times/days
 #    - Multiple time windows can be specified
 #    Example:
 #      - name: "twitter.com"
-#        time_windows:
+#        block_windows:
 #          - start: "09:00"
 #            end: "17:00"
 #            days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -682,11 +682,11 @@ domains:
   # Time-Based Blocking - Only Blocked During Specific Hours
   # -------------------------------------------------------------------------
   # Use case: Allow access outside work hours, block during focus time
-  # NOTE: When time_windows are specified, domain is ONLY blocked during those times
+  # NOTE: When block_windows are specified, domain is ONLY blocked during those times
 
   # YouTube - blocked during work hours
   - name: "youtube.com"
-    time_windows:
+    block_windows:
       # Weekday work hours: 9am-5pm
       - start: "09:00"
         end: "17:00"
@@ -699,7 +699,7 @@ domains:
 
   # Hacker News - blocked during deep work hours
   - name: "news.ycombinator.com"
-    time_windows:
+    block_windows:
       # Morning focus: 9am-12pm
       - start: "09:00"
         end: "12:00"
@@ -712,7 +712,7 @@ domains:
 
   # Netflix - blocked before 6 PM on weekdays
   - name: "netflix.com"
-    time_windows:
+    block_windows:
       # Block all day until 6 PM
       - start: "00:00"
         end: "18:00"
@@ -720,7 +720,7 @@ domains:
 
   # Gaming sites - blocked during work hours
   - name: "kongregate.com"
-    time_windows:
+    block_windows:
       - start: "09:00"
         end: "18:00"
         days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -731,13 +731,13 @@ domains:
   # Prevent news doom-scrolling during work hours
 
   - name: "news.google.com"
-    time_windows:
+    block_windows:
       - start: "09:00"
         end: "17:00"
         days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
 
   - name: "cnn.com"
-    time_windows:
+    block_windows:
       - start: "09:00"
         end: "17:00"
         days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -755,7 +755,7 @@ domains:
   #
   # Template for time-based blocking:
   # - name: "example.com"
-  #   time_windows:
+  #   block_windows:
   #     - start: "09:00"
   #       end: "17:00"
   #       days: ["Mon", "Tue", "Wed", "Thu", "Fri"]

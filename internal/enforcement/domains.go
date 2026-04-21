@@ -29,7 +29,7 @@ func GetDomainsToBlock(cfg *config.Config, now time.Time) []string {
 
 	for _, domain := range cfg.Domains {
 		if domain.LogBlocking {
-			slog.Debug("Evaluating domain", "domain", domain.Name, "unblockable", domain.Unblockable, "has_time_windows", len(domain.TimeWindows) > 0)
+			slog.Debug("Evaluating domain", "domain", domain.Name, "unblockable", domain.Unblockable, "has_block_windows", len(domain.BlockWindows) > 0)
 		}
 
 		// NEW BEHAVIOR: Domains are permanent (non-unblockable) by default
@@ -46,10 +46,10 @@ func GetDomainsToBlock(cfg *config.Config, now time.Time) []string {
 			}
 		}
 
-		// NEW BEHAVIOR: If no time windows are specified, always block (default)
-		// This makes time windows the primary control mechanism
-		if len(domain.TimeWindows) == 0 {
-			// No time windows means always block
+		// NEW BEHAVIOR: If no block windows are specified, always block (default)
+		// This makes block windows the primary control mechanism
+		if len(domain.BlockWindows) == 0 {
+			// No block windows means always block
 			alwaysBlockCount++
 			blocked = append(blocked, domain.Name)
 			if domain.LogBlocking {
@@ -64,12 +64,12 @@ func GetDomainsToBlock(cfg *config.Config, now time.Time) []string {
 			continue
 		}
 
-		// Check time windows - only reach here if time windows are defined
+		// Check block windows - only reach here if block windows are defined
 		domainBlocked := false
 		activeWindow := ""
-		for _, window := range domain.TimeWindows {
+		for _, window := range domain.BlockWindows {
 			if domain.LogBlocking {
-				slog.Debug("Checking time window", "domain", domain.Name, "window_days", window.Days, "window_start", window.Start, "window_end", window.End)
+				slog.Debug("Checking block window", "domain", domain.Name, "window_days", window.Days, "window_start", window.Start, "window_end", window.End)
 			}
 
 			// For midnight-crossing windows, check previous day for early morning times
@@ -102,9 +102,9 @@ func GetDomainsToBlock(cfg *config.Config, now time.Time) []string {
 			}
 		}
 
-		if !domainBlocked && len(domain.TimeWindows) > 0 && domain.LogBlocking {
-			slog.Debug("Domain not blocked by any time window", "domain", domain.Name)
-			log.Printf("DOMAIN STATUS: %s -> not blocked (outside time windows)", domain.Name)
+		if !domainBlocked && len(domain.BlockWindows) > 0 && domain.LogBlocking {
+			slog.Debug("Domain not blocked by any block window", "domain", domain.Name)
+			log.Printf("DOMAIN STATUS: %s -> not blocked (outside block windows)", domain.Name)
 		}
 	}
 
@@ -167,17 +167,17 @@ func GetBlockingReason(cfg *config.Config, domain string, now time.Time) string 
 	// Find the domain in the config
 	for _, configDomain := range cfg.Domains {
 		if configDomain.Name == domain {
-			// NEW BEHAVIOR: Domains without time windows are always blocked by default
+			// NEW BEHAVIOR: Domains without block windows are always blocked by default
 			// Domains are permanent (non-unblockable) by default
-			if len(configDomain.TimeWindows) == 0 {
+			if len(configDomain.BlockWindows) == 0 {
 				if configDomain.Unblockable {
 					return "always blocked (can be temporarily unblocked)"
 				}
 				return "always blocked (permanent)"
 			}
 
-			// Check which time window is active
-			for _, window := range configDomain.TimeWindows {
+			// Check which block window is active
+			for _, window := range configDomain.BlockWindows {
 				if slices.Contains(window.Days, currentDay) && utils.IsInTimeWindow(currentTime, window.Start, window.End) {
 					return fmt.Sprintf("time-based block (active %s-%s on %s)", window.Start, window.End, strings.Join(window.Days, ","))
 				}

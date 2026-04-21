@@ -71,7 +71,7 @@ func InitialEnforcement(cfg *config.Config) {
 	configDomainNames := make(map[string]bool)
 	for _, domain := range cfg.Domains {
 		configDomainNames[domain.Name] = true
-		if len(domain.TimeWindows) > 0 {
+		if len(domain.BlockWindows) > 0 {
 			timeWindowDomains = append(timeWindowDomains, domain)
 		}
 		if domain.Unblockable {
@@ -316,7 +316,7 @@ func buildTimeWindowState(now time.Time) map[string]bool {
 
 	for _, domain := range domains {
 		blocked := false
-		for _, window := range domain.TimeWindows {
+		for _, window := range domain.BlockWindows {
 			// For midnight-crossing windows, check previous day for early morning times
 			dayToCheck := currentDay
 			if window.Start > window.End && currentTime <= window.End {
@@ -343,7 +343,7 @@ func isSudoersAllowed(cfg *config.Config, now time.Time) bool {
 	currentDay := now.Weekday().String()[:3]
 	currentTime := now.Format("15:04")
 
-	for _, window := range cfg.Sudoers.TimeAllowed {
+	for _, window := range cfg.Sudoers.AllowWindows {
 		if containsDay(window.Days, currentDay) && isInTimeWindow(currentTime, window.Start, window.End) {
 			return true
 		}

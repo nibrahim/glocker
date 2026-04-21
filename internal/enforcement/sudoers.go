@@ -114,8 +114,8 @@ func IsSudoAllowed(cfg *config.Config, now time.Time) bool {
 	currentDay := now.Weekday().String()[:3]
 	currentTime := now.Format("15:04")
 
-	// Check if current time falls within any allowed window
-	for _, window := range cfg.Sudoers.TimeAllowed {
+	// Check if current time falls within any allow window
+	for _, window := range cfg.Sudoers.AllowWindows {
 		// For midnight-crossing windows, check previous day for early morning times
 		dayToCheck := currentDay
 		if window.Start > window.End && currentTime <= window.End {

@@ -5,6 +5,7 @@ import (
 	"log"
 	"log/slog"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -39,13 +40,13 @@ func MonitorForbiddenPrograms(cfg *config.Config) {
 			// Check if any time window is active for this program
 			programForbidden := false
 
-			// If no time windows specified, block the program completely (always forbidden)
-			if len(program.TimeWindows) == 0 {
+			// If no kill windows specified, block the program completely (always forbidden)
+			if len(program.KillWindows) == 0 {
 				programForbidden = true
-				slog.Debug("Program has no time windows - blocking completely", "program", program.Name)
+				slog.Debug("Program has no kill windows - blocking completely", "program", program.Name)
 			} else {
-				// Check time windows
-				for _, window := range program.TimeWindows {
+				// Check kill windows
+				for _, window := range program.KillWindows {
 					dayToCheck := currentDay
 					if window.Start > window.End && currentTime <= window.End {
 						// We're in the early morning portion of a window that started yesterday
@@ -60,7 +61,7 @@ func MonitorForbiddenPrograms(cfg *config.Config) {
 
 					if utils.IsInTimeWindow(currentTime, window.Start, window.End) {
 						programForbidden = true
-						slog.Debug("Program is forbidden in current time window", "program", program.Name, "window", fmt.Sprintf("%s-%s", window.Start, window.End))
+						slog.Debug("Program is forbidden in current kill window", "program", program.Name, "window", fmt.Sprintf("%s-%s", window.Start, window.End))
 						break
 					}
 				}
@@ -96,36 +97,40 @@ func killMatchingProcesses(cfg *config.Config, programName string) {
 			continue
 		}
 
-		// Check if the process name contains our forbidden program name (case-insensitive)
-		if strings.Contains(strings.ToLower(line), strings.ToLower(programName)) {
-			// Extract PID (second column in ps aux output)
-			fields := strings.Fields(line)
-			if len(fields) < 2 {
-				continue
-			}
-
-			pid := fields[1]
-			processName := extractProcessName(line)
-
-			slog.Debug("Extracted process info", "pid", pid, "extracted_name", processName)
-
-			// Don't kill our own process or system processes
-			if strings.Contains(strings.ToLower(processName), "glocker") ||
-				strings.Contains(strings.ToLower(processName), "systemd") ||
-				strings.Contains(strings.ToLower(processName), "kernel") ||
-				pid == "1" {
-				slog.Debug("Skipping protected process", "pid", pid, "name", processName)
-				continue
-			}
-
-			processInfo := state.ProcessInfo{
-				PID:         pid,
-				Name:        processName,
-				CommandLine: line,
-			}
-
-			processGroups[pid] = append(processGroups[pid], processInfo)
+		// Extract PID and process name first
+		fields := strings.Fields(line)
+		if len(fields) < 11 {
+			continue
 		}
+
+		pid := fields[1]
+		processName := extractProcessName(line)
+
+		// Match against the binary name only (not the full command line with arguments)
+		// Use filepath.Base to handle full paths like /usr/bin/chromium
+		binaryName := filepath.Base(processName)
+		if !strings.Contains(strings.ToLower(binaryName), strings.ToLower(programName)) {
+			continue
+		}
+
+		slog.Debug("Extracted process info", "pid", pid, "extracted_name", processName)
+
+		// Don't kill our own process or system processes
+		if strings.Contains(strings.ToLower(processName), "glocker") ||
+			strings.Contains(strings.ToLower(processName), "systemd") ||
+			strings.Contains(strings.ToLower(processName), "kernel") ||
+			pid == "1" {
+			slog.Debug("Skipping protected process", "pid", pid, "name", processName)
+			continue
+		}
+
+		processInfo := state.ProcessInfo{
+			PID:         pid,
+			Name:        processName,
+			CommandLine: line,
+		}
+
+		processGroups[pid] = append(processGroups[pid], processInfo)
 	}
 
 	// Kill matching processes

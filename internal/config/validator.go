@@ -22,12 +22,12 @@ func ValidateConfig(config *Config) error {
 		if domain.Name == "" {
 			return ErrEmptyDomainName
 		}
-		for _, window := range domain.TimeWindows {
+		for _, window := range domain.BlockWindows {
 			if !isValidTime(window.Start) || !isValidTime(window.End) {
-				return fmt.Errorf("invalid time format for domain %s (use HH:MM): %w", domain.Name, ErrInvalidTimeWindow)
+				return fmt.Errorf("invalid time format for domain %s block_windows (use HH:MM): %w", domain.Name, ErrInvalidTimeWindow)
 			}
 			if len(window.Days) == 0 {
-				return fmt.Errorf("time window for %s: %w", domain.Name, ErrEmptyTimeWindowDay)
+				return fmt.Errorf("block window for %s: %w", domain.Name, ErrEmptyTimeWindowDay)
 			}
 		}
 	}
@@ -43,12 +43,12 @@ func ValidateConfig(config *Config) error {
 		if config.Sudoers.BlockedSudoersLine == "" {
 			return fmt.Errorf("sudoers.blocked_sudoers_line cannot be empty when sudoers is enabled")
 		}
-		for _, window := range config.Sudoers.TimeAllowed {
+		for _, window := range config.Sudoers.AllowWindows {
 			if !isValidTime(window.Start) || !isValidTime(window.End) {
-				return fmt.Errorf("invalid time format in sudoers time_allowed (use HH:MM): %w", ErrInvalidTimeWindow)
+				return fmt.Errorf("invalid time format in sudoers allow_windows (use HH:MM): %w", ErrInvalidTimeWindow)
 			}
 			if len(window.Days) == 0 {
-				return fmt.Errorf("sudoers time_allowed window: %w", ErrEmptyTimeWindowDay)
+				return fmt.Errorf("sudoers allow_windows entry: %w", ErrEmptyTimeWindowDay)
 			}
 		}
 	}
@@ -59,12 +59,12 @@ func ValidateConfig(config *Config) error {
 			if program.Name == "" {
 				return ErrEmptyProgramName
 			}
-			for _, window := range program.TimeWindows {
+			for _, window := range program.KillWindows {
 				if !isValidTime(window.Start) || !isValidTime(window.End) {
-					return fmt.Errorf("invalid time format for forbidden program %s (use HH:MM): %w", program.Name, ErrInvalidTimeWindow)
+					return fmt.Errorf("invalid time format for forbidden program %s kill_windows (use HH:MM): %w", program.Name, ErrInvalidTimeWindow)
 				}
 				if len(window.Days) == 0 {
-					return fmt.Errorf("time window for forbidden program %s: %w", program.Name, ErrEmptyTimeWindowDay)
+					return fmt.Errorf("kill window for forbidden program %s: %w", program.Name, ErrEmptyTimeWindowDay)
 				}
 			}
 		}

@@ -212,7 +212,7 @@ func TestGetBlockingReason_TimeWindow(t *testing.T) {
 		Domains: []config.Domain{
 			{
 				Name: "example.com",
-				TimeWindows: []config.TimeWindow{
+				BlockWindows: []config.TimeWindow{
 					{
 						Days:  []string{currentDay},
 						Start: "00:00",

@@ -168,12 +168,12 @@ func isHostBlocked(host string) (bool, string) {
 				// Domains without time windows are permanently blocked by default
 				isBlocked := false
 
-				if len(configDomain.TimeWindows) == 0 {
-					// No time windows = always blocked
+				if len(configDomain.BlockWindows) == 0 {
+					// No block windows = always blocked
 					isBlocked = true
 				} else {
-					// Check time windows
-					for _, window := range configDomain.TimeWindows {
+					// Check block windows
+					for _, window := range configDomain.BlockWindows {
 						if slices.Contains(window.Days, currentDay) && utils.IsInTimeWindow(currentTime, window.Start, window.End) {
 							isBlocked = true
 							break
@@ -434,16 +434,16 @@ func GetBlockingReason(cfg *config.Config, domain string, now time.Time) string 
 		return "blocked by glocker"
 	}
 
-	// NEW BEHAVIOR: Domains without time windows are always blocked (permanent by default)
-	if len(configDomain.TimeWindows) == 0 {
+	// NEW BEHAVIOR: Domains without block windows are always blocked (permanent by default)
+	if len(configDomain.BlockWindows) == 0 {
 		if configDomain.Unblockable {
 			return "always blocked (can be temporarily unblocked)"
 		}
 		return "always blocked (permanent)"
 	}
 
-	// Check which time window is active
-	for _, window := range configDomain.TimeWindows {
+	// Check which block window is active
+	for _, window := range configDomain.BlockWindows {
 		if slices.Contains(window.Days, currentDay) && utils.IsInTimeWindow(currentTime, window.Start, window.End) {
 			return fmt.Sprintf("time-based block (active %s-%s on %s)", window.Start, window.End, strings.Join(window.Days, ","))
 		}

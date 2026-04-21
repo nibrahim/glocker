@@ -25,7 +25,7 @@ func TestValidateConfig_InvalidTimeFormat(t *testing.T) {
 		Domains: []Domain{
 			{
 				Name: "example.com",
-				TimeWindows: []TimeWindow{
+				BlockWindows: []TimeWindow{
 					{
 						Start: "25:00", // Invalid hour
 						End:   "17:00",
@@ -47,7 +47,7 @@ func TestValidateConfig_EmptyDays(t *testing.T) {
 		Domains: []Domain{
 			{
 				Name: "example.com",
-				TimeWindows: []TimeWindow{
+				BlockWindows: []TimeWindow{
 					{
 						Start: "09:00",
 						End:   "17:00",
@@ -72,7 +72,7 @@ func TestValidateConfig_ValidConfig(t *testing.T) {
 			},
 			{
 				Name: "reddit.com",
-				TimeWindows: []TimeWindow{
+				BlockWindows: []TimeWindow{
 					{
 						Start: "09:00",
 						End:   "17:00",

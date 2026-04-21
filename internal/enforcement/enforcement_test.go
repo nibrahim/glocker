@@ -14,7 +14,7 @@ func TestGetDomainsToBlock_AlwaysBlock(t *testing.T) {
 	cfg := &config.Config{
 		Domains: []config.Domain{
 			{Name: "example.com"}, // No time windows = always blocked
-			{Name: "test.com", TimeWindows: []config.TimeWindow{
+			{Name: "test.com", BlockWindows: []config.TimeWindow{
 				{Start: "09:00", End: "17:00", Days: []string{"Sun"}}, // Wrong day, won't block
 			}},
 		},
@@ -40,7 +40,7 @@ func TestGetDomainsToBlock_TimeWindows(t *testing.T) {
 		Domains: []config.Domain{
 			{
 				Name: "worksite.com",
-				TimeWindows: []config.TimeWindow{
+				BlockWindows: []config.TimeWindow{
 					{
 						Start: "09:00",
 						End:   "17:00",
@@ -70,7 +70,7 @@ func TestGetDomainsToBlock_OutsideTimeWindow(t *testing.T) {
 		Domains: []config.Domain{
 			{
 				Name: "worksite.com",
-				TimeWindows: []config.TimeWindow{
+				BlockWindows: []config.TimeWindow{
 					{
 						Start: "09:00",
 						End:   "17:00",
@@ -96,7 +96,7 @@ func TestGetDomainsToBlock_WrongDay(t *testing.T) {
 		Domains: []config.Domain{
 			{
 				Name: "worksite.com",
-				TimeWindows: []config.TimeWindow{
+				BlockWindows: []config.TimeWindow{
 					{
 						Start: "09:00",
 						End:   "17:00",
@@ -269,7 +269,7 @@ func TestGetBlockingReason_TimeWindow(t *testing.T) {
 		Domains: []config.Domain{
 			{
 				Name: "worksite.com",
-				TimeWindows: []config.TimeWindow{
+				BlockWindows: []config.TimeWindow{
 					{
 						Start: "09:00",
 						End:   "17:00",
@@ -312,7 +312,7 @@ func TestIsSudoAllowed_Enabled(t *testing.T) {
 	cfg := &config.Config{
 		Sudoers: config.SudoersConfig{
 			Enabled: true,
-			TimeAllowed: []config.TimeWindow{
+			AllowWindows: []config.TimeWindow{
 				{
 					Start: "09:00",
 					End:   "17:00",
@@ -355,19 +355,19 @@ func TestGetDomainsToBlock_MultipleConditions(t *testing.T) {
 			{Name: "always.com"}, // No time windows = always blocked
 			{
 				Name: "timewindow.com",
-				TimeWindows: []config.TimeWindow{
+				BlockWindows: []config.TimeWindow{
 					{Start: "09:00", End: "17:00", Days: []string{currentDay}},
 				},
 			},
 			{
 				Name: "outside.com",
-				TimeWindows: []config.TimeWindow{
+				BlockWindows: []config.TimeWindow{
 					{Start: "18:00", End: "22:00", Days: []string{currentDay}}, // Outside current time
 				},
 			},
 			{
 				Name: "wrongday.com",
-				TimeWindows: []config.TimeWindow{
+				BlockWindows: []config.TimeWindow{
 					{Start: "09:00", End: "17:00", Days: []string{"Sun"}},
 				},
 			},

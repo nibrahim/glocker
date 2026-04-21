@@ -23,20 +23,26 @@ type TimeWindow struct {
 }
 
 // Domain represents a domain to be blocked with its blocking rules.
+// BlockWindows names the semantic explicitly: the domain is BLOCKED during
+// these windows (and accessible outside them). An empty list means always
+// blocked.
 type Domain struct {
-	Name        string       `yaml:"name"`
-	TimeWindows []TimeWindow `yaml:"time_windows,omitempty"`
-	LogBlocking bool         `yaml:"log_blocking,omitempty"`
-	Unblockable bool         `yaml:"unblockable,omitempty"` // Set to true to allow temporary unblocking (default: false = permanent)
+	Name         string       `yaml:"name"`
+	BlockWindows []TimeWindow `yaml:"block_windows,omitempty"`
+	LogBlocking  bool         `yaml:"log_blocking,omitempty"`
+	Unblockable  bool         `yaml:"unblockable,omitempty"` // Set to true to allow temporary unblocking (default: false = permanent)
 }
 
 // SudoersConfig controls sudo access restrictions.
+// AllowWindows names the semantic explicitly: sudo is ALLOWED during these
+// windows (and blocked outside them). An empty list means sudo is always
+// blocked while sudoers enforcement is enabled.
 type SudoersConfig struct {
 	Enabled            bool         `yaml:"enabled"`
 	User               string       `yaml:"user"`
 	AllowedSudoersLine string       `yaml:"allowed_sudoers_line"`
 	BlockedSudoersLine string       `yaml:"blocked_sudoers_line"`
-	TimeAllowed        []TimeWindow `yaml:"time_allowed"`
+	AllowWindows       []TimeWindow `yaml:"allow_windows"`
 }
 
 // AccountabilityConfig configures email notifications via Mailgun.
@@ -101,9 +107,11 @@ type LifecycleConfig struct {
 }
 
 // ForbiddenProgram represents a program to be killed during blocking periods.
+// KillWindows names the semantic explicitly: the program is KILLED during
+// these windows. An empty list means always killed.
 type ForbiddenProgram struct {
 	Name        string       `yaml:"name"`
-	TimeWindows []TimeWindow `yaml:"time_windows"`
+	KillWindows []TimeWindow `yaml:"kill_windows"`
 }
 
 // ForbiddenProgramsConfig controls process killing behavior.

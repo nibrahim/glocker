@@ -111,9 +111,9 @@ func GetInfoResponse(cfg *config.Config) string {
 
 	// Show time-based blocked domains (from cached data)
 	if timeBasedCount > 0 {
-		response.WriteString(fmt.Sprintf("Time-Based Domains (%d):\n", timeBasedCount))
+		response.WriteString(fmt.Sprintf("Time-Based Domains (%d) — blocked during the listed windows, accessible otherwise:\n", timeBasedCount))
 		for i, domain := range timeWindowDomains {
-			response.WriteString(fmt.Sprintf("  %s: %s\n", domain.Name, formatTimeWindows(domain.TimeWindows)))
+			response.WriteString(fmt.Sprintf("  %s: blocked %s\n", domain.Name, formatTimeWindows(domain.BlockWindows)))
 			if i >= 9 && len(timeWindowDomains) > 10 {
 				response.WriteString(fmt.Sprintf("  ... and %d more\n", timeBasedCount-10))
 				break
@@ -124,14 +124,14 @@ func GetInfoResponse(cfg *config.Config) string {
 
 	// Show forbidden programs with time windows
 	if cfg.EnableForbiddenPrograms && cfg.ForbiddenPrograms.Enabled && len(cfg.ForbiddenPrograms.Programs) > 0 {
-		response.WriteString(fmt.Sprintf("Forbidden Programs (%d):\n", len(cfg.ForbiddenPrograms.Programs)))
+		response.WriteString(fmt.Sprintf("Forbidden Programs (%d) — killed on sight during the listed windows:\n", len(cfg.ForbiddenPrograms.Programs)))
 
 		// Separate always-blocked and time-windowed programs
 		var alwaysBlocked []string
 		var timeWindowed []config.ForbiddenProgram
 
 		for _, program := range cfg.ForbiddenPrograms.Programs {
-			if len(program.TimeWindows) > 0 {
+			if len(program.KillWindows) > 0 {
 				timeWindowed = append(timeWindowed, program)
 			} else {
 				alwaysBlocked = append(alwaysBlocked, program.Name)
@@ -140,22 +140,21 @@ func GetInfoResponse(cfg *config.Config) string {
 
 		// Show always-blocked programs on one line
 		if len(alwaysBlocked) > 0 {
-			response.WriteString(fmt.Sprintf("  always: %s\n", strings.Join(alwaysBlocked, ", ")))
+			response.WriteString(fmt.Sprintf("  killed always: %s\n", strings.Join(alwaysBlocked, ", ")))
 		}
 
 		// Show time-windowed programs individually
 		for _, program := range timeWindowed {
-			response.WriteString(fmt.Sprintf("  %s: %s\n", program.Name, formatTimeWindows(program.TimeWindows)))
+			response.WriteString(fmt.Sprintf("  %s: killed %s\n", program.Name, formatTimeWindows(program.KillWindows)))
 		}
 		response.WriteString("\n")
 	}
 
 	// Show sudoers restrictions
-	if cfg.Sudoers.Enabled && len(cfg.Sudoers.TimeAllowed) > 0 {
-		response.WriteString("Sudoers Restrictions:\n")
+	if cfg.Sudoers.Enabled && len(cfg.Sudoers.AllowWindows) > 0 {
+		response.WriteString("Sudoers Restrictions — sudo is PERMITTED during the listed windows, blocked otherwise:\n")
 		response.WriteString(fmt.Sprintf("  User: %s\n", cfg.Sudoers.User))
-		response.WriteString(fmt.Sprintf("  Sudo allowed during: %s\n", formatTimeWindows(cfg.Sudoers.TimeAllowed)))
-		response.WriteString("  Sudo is disallowed outside these windows\n\n")
+		response.WriteString(fmt.Sprintf("  sudo allowed %s\n\n", formatTimeWindows(cfg.Sudoers.AllowWindows)))
 	}
 
 	// Show extension keywords

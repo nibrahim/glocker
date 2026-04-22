@@ -126,26 +126,38 @@ func GetInfoResponse(cfg *config.Config) string {
 	if cfg.EnableForbiddenPrograms && cfg.ForbiddenPrograms.Enabled && len(cfg.ForbiddenPrograms.Programs) > 0 {
 		response.WriteString(fmt.Sprintf("Forbidden Programs (%d) — killed on sight during the listed windows:\n", len(cfg.ForbiddenPrograms.Programs)))
 
-		// Separate always-blocked and time-windowed programs
+		// Bucket programs by which windows they set. "always killed" requires
+		// both lists empty; an allow-only program is forbidden outside those
+		// windows, not unconditionally.
 		var alwaysBlocked []string
-		var timeWindowed []config.ForbiddenProgram
+		var windowed []config.ForbiddenProgram
 
 		for _, program := range cfg.ForbiddenPrograms.Programs {
-			if len(program.KillWindows) > 0 {
-				timeWindowed = append(timeWindowed, program)
-			} else {
+			if len(program.KillWindows) == 0 && len(program.AllowWindows) == 0 {
 				alwaysBlocked = append(alwaysBlocked, program.Name)
+			} else {
+				windowed = append(windowed, program)
 			}
 		}
 
-		// Show always-blocked programs on one line
 		if len(alwaysBlocked) > 0 {
 			response.WriteString(fmt.Sprintf("  killed always: %s\n", strings.Join(alwaysBlocked, ", ")))
 		}
 
-		// Show time-windowed programs individually
-		for _, program := range timeWindowed {
-			response.WriteString(fmt.Sprintf("  %s: killed %s\n", program.Name, formatTimeWindows(program.KillWindows)))
+		for _, program := range windowed {
+			hasKill := len(program.KillWindows) > 0
+			hasAllow := len(program.AllowWindows) > 0
+			switch {
+			case hasKill && hasAllow:
+				response.WriteString(fmt.Sprintf("  %s: killed %s; otherwise allowed %s, killed outside\n",
+					program.Name, formatTimeWindows(program.KillWindows), formatTimeWindows(program.AllowWindows)))
+			case hasAllow:
+				response.WriteString(fmt.Sprintf("  %s: allowed %s, killed otherwise\n",
+					program.Name, formatTimeWindows(program.AllowWindows)))
+			default:
+				response.WriteString(fmt.Sprintf("  %s: killed %s\n",
+					program.Name, formatTimeWindows(program.KillWindows)))
+			}
 		}
 		response.WriteString("\n")
 	}

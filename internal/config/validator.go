@@ -67,6 +67,14 @@ func ValidateConfig(config *Config) error {
 					return fmt.Errorf("kill window for forbidden program %s: %w", program.Name, ErrEmptyTimeWindowDay)
 				}
 			}
+			for _, window := range program.AllowWindows {
+				if !isValidTime(window.Start) || !isValidTime(window.End) {
+					return fmt.Errorf("invalid time format for forbidden program %s allow_windows (use HH:MM): %w", program.Name, ErrInvalidTimeWindow)
+				}
+				if len(window.Days) == 0 {
+					return fmt.Errorf("allow window for forbidden program %s: %w", program.Name, ErrEmptyTimeWindowDay)
+				}
+			}
 		}
 	}
 

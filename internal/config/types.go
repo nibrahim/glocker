@@ -108,11 +108,16 @@ type LifecycleConfig struct {
 }
 
 // ForbiddenProgram represents a program to be killed during blocking periods.
-// KillWindows names the semantic explicitly: the program is KILLED during
-// these windows. An empty list means always killed.
+// KillWindows lists times when the program is KILLED; AllowWindows lists
+// times when it is permitted. Precedence at evaluation time:
+//   - In any KillWindow → killed.
+//   - Else AllowWindows non-empty → killed iff not in any AllowWindow.
+//   - Else both empty → always killed (legacy default).
+//   - Else (only KillWindows, no match) → allowed.
 type ForbiddenProgram struct {
-	Name        string       `yaml:"name"`
-	KillWindows []TimeWindow `yaml:"kill_windows"`
+	Name         string       `yaml:"name"`
+	KillWindows  []TimeWindow `yaml:"kill_windows"`
+	AllowWindows []TimeWindow `yaml:"allow_windows"`
 }
 
 // ForbiddenProgramsConfig controls process killing behavior.

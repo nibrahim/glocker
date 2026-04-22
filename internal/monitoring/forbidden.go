@@ -36,41 +36,58 @@ func MonitorForbiddenPrograms(cfg *config.Config) {
 		slog.Debug("Checking for forbidden programs", "current_day", currentDay, "current_time", currentTime)
 
 		for _, program := range cfg.ForbiddenPrograms.Programs {
-			// Check if any time window is active for this program
-			programForbidden := false
-
-			// If no kill windows specified, block the program completely (always forbidden)
-			if len(program.KillWindows) == 0 {
-				programForbidden = true
-				slog.Debug("Program has no kill windows - blocking completely", "program", program.Name)
-			} else {
-				// Check kill windows
-				for _, window := range program.KillWindows {
-					dayToCheck := currentDay
-					if window.Start > window.End && currentTime <= window.End {
-						// We're in the early morning portion of a window that started yesterday
-						yesterday := now.AddDate(0, 0, -1).Weekday().String()[:3]
-						dayToCheck = yesterday
-						slog.Debug("Checking previous day for wraparound window", "current_day", currentDay, "checking_day", dayToCheck)
-					}
-
-					if !slices.Contains(window.Days, dayToCheck) {
-						continue
-					}
-
-					if utils.IsInTimeWindow(currentTime, window.Start, window.End) {
-						programForbidden = true
-						slog.Debug("Program is forbidden in current kill window", "program", program.Name, "window", fmt.Sprintf("%s-%s", window.Start, window.End))
-						break
-					}
-				}
-			}
-
-			if programForbidden {
+			if isProgramForbidden(program, now, currentDay, currentTime) {
 				killMatchingProcesses(cfg, program.Name)
 			}
 		}
 	}
+}
+
+// isProgramForbidden decides whether a program should be killed right now.
+// Precedence: a matching kill window always wins. If only allow windows are
+// set, the program is forbidden outside them. If both lists are empty, the
+// program is always forbidden (legacy default).
+func isProgramForbidden(program config.ForbiddenProgram, now time.Time, currentDay, currentTime string) bool {
+	if inAnyWindow(program.KillWindows, now, currentDay, currentTime) {
+		slog.Debug("Program is forbidden in current kill window", "program", program.Name)
+		return true
+	}
+
+	if len(program.AllowWindows) > 0 {
+		if inAnyWindow(program.AllowWindows, now, currentDay, currentTime) {
+			return false
+		}
+		slog.Debug("Program is forbidden outside its allow windows", "program", program.Name)
+		return true
+	}
+
+	if len(program.KillWindows) == 0 {
+		slog.Debug("Program has no windows - blocking completely", "program", program.Name)
+		return true
+	}
+
+	return false
+}
+
+// inAnyWindow reports whether the current time falls inside any of the given
+// windows, honoring day-of-week membership and overnight wraparound.
+func inAnyWindow(windows []config.TimeWindow, now time.Time, currentDay, currentTime string) bool {
+	for _, window := range windows {
+		dayToCheck := currentDay
+		if window.Start > window.End && currentTime <= window.End {
+			// We're in the early-morning portion of a window that started yesterday.
+			dayToCheck = now.AddDate(0, 0, -1).Weekday().String()[:3]
+		}
+
+		if !slices.Contains(window.Days, dayToCheck) {
+			continue
+		}
+
+		if utils.IsInTimeWindow(currentTime, window.Start, window.End) {
+			return true
+		}
+	}
+	return false
 }
 
 // killMatchingProcesses finds and kills processes matching the given program name.

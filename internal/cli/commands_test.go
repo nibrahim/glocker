@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -387,6 +388,129 @@ func TestProcessExtendRequest_EnforcesCooldown(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "cooldown") {
 		t.Errorf("error should mention cooldown, got: %v", err)
+	}
+}
+
+func TestGetStatusResponse_ShowsActiveProgramExtension(t *testing.T) {
+	cfg := extendTestConfig(t)
+
+	if err := ProcessExtendRequest(cfg, "firefox-esr", "client call"); err != nil {
+		t.Fatalf("ProcessExtendRequest: %v", err)
+	}
+
+	resp := GetStatusResponse(cfg)
+	if !strings.Contains(resp, "Program Extensions: 1 active") {
+		t.Errorf("status missing extension count line:\n%s", resp)
+	}
+	if !strings.Contains(resp, "firefox-esr") {
+		t.Errorf("status missing extended program name:\n%s", resp)
+	}
+	if !strings.Contains(resp, "client call") {
+		t.Errorf("status missing extension reason:\n%s", resp)
+	}
+}
+
+func TestGetStatusResponse_ZeroExtensionsLineAlwaysPresent(t *testing.T) {
+	extendTestConfig(t) // resets state to zero extensions
+	cfg := &config.Config{}
+
+	resp := GetStatusResponse(cfg)
+	if !strings.Contains(resp, "Program Extensions: 0 active") {
+		t.Errorf("expected zero-count line in status, got:\n%s", resp)
+	}
+	if strings.Contains(resp, "Active program extensions:") {
+		t.Errorf("did not expect active-extensions subsection when none active:\n%s", resp)
+	}
+}
+
+func TestGetStatusResponse_ShowsRecentViolationDetails(t *testing.T) {
+	state.ClearViolations()
+	t.Cleanup(state.ClearViolations)
+
+	cfg := &config.Config{
+		ViolationTracking: config.ViolationTrackingConfig{
+			Enabled:           true,
+			MaxViolations:     5,
+			TimeWindowMinutes: 60,
+		},
+	}
+
+	state.AddViolation(state.Violation{
+		Timestamp: time.Now().Add(-5 * time.Minute),
+		Host:      "youtube.com",
+		URL:       "https://youtube.com/watch?v=abc",
+		Type:      "web_access",
+	})
+	state.AddViolation(state.Violation{
+		Timestamp: time.Now().Add(-1 * time.Minute),
+		Host:      "reddit.com",
+		Type:      "content_report",
+	})
+
+	resp := GetStatusResponse(cfg)
+	if !strings.Contains(resp, "Recent details:") {
+		t.Errorf("status missing Recent details section:\n%s", resp)
+	}
+	if !strings.Contains(resp, "youtube.com") || !strings.Contains(resp, "reddit.com") {
+		t.Errorf("status missing violation hosts:\n%s", resp)
+	}
+	if !strings.Contains(resp, "web_access") || !strings.Contains(resp, "content_report") {
+		t.Errorf("status missing violation types:\n%s", resp)
+	}
+}
+
+func TestGetStatusResponse_NoViolationDetailsWhenNoneRecent(t *testing.T) {
+	state.ClearViolations()
+	t.Cleanup(state.ClearViolations)
+
+	cfg := &config.Config{
+		ViolationTracking: config.ViolationTrackingConfig{
+			Enabled:           true,
+			MaxViolations:     5,
+			TimeWindowMinutes: 60,
+		},
+	}
+
+	// Stale violation outside the recent window should not appear in
+	// details, even though it inflates Total Violations.
+	state.AddViolation(state.Violation{
+		Timestamp: time.Now().Add(-2 * time.Hour),
+		Host:      "old.com",
+		Type:      "web_access",
+	})
+
+	resp := GetStatusResponse(cfg)
+	if strings.Contains(resp, "Recent details:") {
+		t.Errorf("status should not include Recent details when no recent violations:\n%s", resp)
+	}
+	if strings.Contains(resp, "old.com") {
+		t.Errorf("status should not list stale violation host:\n%s", resp)
+	}
+}
+
+func TestGetStatusResponse_TruncatesViolationDetails(t *testing.T) {
+	state.ClearViolations()
+	t.Cleanup(state.ClearViolations)
+
+	cfg := &config.Config{
+		ViolationTracking: config.ViolationTrackingConfig{
+			Enabled:           true,
+			MaxViolations:     20,
+			TimeWindowMinutes: 60,
+		},
+	}
+
+	for i := range 7 {
+		state.AddViolation(state.Violation{
+			Timestamp: time.Now().Add(-time.Duration(i+1) * time.Minute),
+			Host:      fmt.Sprintf("site%d.com", i),
+			Type:      "web_access",
+		})
+	}
+
+	resp := GetStatusResponse(cfg)
+	if !strings.Contains(resp, "... and 2 more") {
+		t.Errorf("expected truncation line for 7 violations (cap 5):\n%s", resp)
 	}
 }
 

@@ -57,6 +57,27 @@ func GetStatusResponse(cfg *config.Config) string {
 		}
 	}
 
+	// Show program extensions (one-hour runtime grants for extendible
+	// forbidden programs). Mirror the temp-unblock section's shape.
+	extensions := state.GetProgramExtensions()
+	activeExtensions := 0
+	for _, ext := range extensions {
+		if now.Before(ext.ExpiresAt) {
+			activeExtensions++
+		}
+	}
+	response.WriteString(fmt.Sprintf("Program Extensions: %d active\n", activeExtensions))
+	if activeExtensions > 0 {
+		response.WriteString("  Active program extensions:\n")
+		for _, ext := range extensions {
+			if now.Before(ext.ExpiresAt) {
+				remaining := ext.ExpiresAt.Sub(now)
+				response.WriteString(fmt.Sprintf("    - %s (expires in %v, reason: %s)\n",
+					ext.Program, remaining.Round(time.Minute), ext.Reason))
+			}
+		}
+	}
+
 	// Show violation tracking status
 	if cfg.ViolationTracking.Enabled {
 		violations := state.GetViolations()
@@ -73,6 +94,30 @@ func GetStatusResponse(cfg *config.Config) string {
 		response.WriteString(fmt.Sprintf("  Recent Violations: %d/%d (in last %d minutes)\n",
 			recentViolations, cfg.ViolationTracking.MaxViolations, cfg.ViolationTracking.TimeWindowMinutes))
 		response.WriteString(fmt.Sprintf("  Total Violations: %d\n", len(violations)))
+
+		// Show the most recent violations in the active window so the
+		// user can see *what* tripped the counter, not just *how many*.
+		if recentViolations > 0 {
+			const maxShown = 5
+			response.WriteString("  Recent details:\n")
+			shown := 0
+			for i := len(violations) - 1; i >= 0 && shown < maxShown; i-- {
+				v := violations[i]
+				if !v.Timestamp.After(cutoff) {
+					continue
+				}
+				target := v.Host
+				if target == "" {
+					target = v.URL
+				}
+				response.WriteString(fmt.Sprintf("    - [%s] %s: %s\n",
+					v.Timestamp.Format("15:04:05"), v.Type, target))
+				shown++
+			}
+			if recentViolations > maxShown {
+				response.WriteString(fmt.Sprintf("    ... and %d more\n", recentViolations-maxShown))
+			}
+		}
 	}
 
 	// Show panic mode status

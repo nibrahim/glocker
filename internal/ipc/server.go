@@ -129,6 +129,28 @@ func HandleConnection(cfg *config.Config, conn net.Conn) {
 			}
 			conn.Write([]byte(fmt.Sprintf("OK: Entering panic mode for %d minutes\n", minutes)))
 			go cli.ProcessPanicRequest(cfg, minutes)
+		case "extend":
+			if len(parts) != 2 {
+				conn.Write([]byte("ERROR: Invalid format. Use 'extend:program:reason'\n"))
+				continue
+			}
+			payload := strings.TrimSpace(parts[1])
+			payloadParts := strings.SplitN(payload, ":", 2)
+			if len(payloadParts) != 2 {
+				conn.Write([]byte("ERROR: Reason required. Use 'extend:program:reason'\n"))
+				continue
+			}
+			program := strings.TrimSpace(payloadParts[0])
+			reason := strings.TrimSpace(payloadParts[1])
+			if program == "" || reason == "" {
+				conn.Write([]byte("ERROR: Program and reason cannot be empty\n"))
+				continue
+			}
+			if err := cli.ProcessExtendRequest(cfg, program, reason); err != nil {
+				conn.Write([]byte(fmt.Sprintf("ERROR: %v\n", err)))
+				continue
+			}
+			conn.Write([]byte(fmt.Sprintf("OK: Extension granted for %s\n", program)))
 		case "lock":
 			conn.Write([]byte("OK: Lock request received\n"))
 			go processLockRequest(cfg)

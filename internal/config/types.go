@@ -118,6 +118,9 @@ type ForbiddenProgram struct {
 	Name         string       `yaml:"name"`
 	KillWindows  []TimeWindow `yaml:"kill_windows"`
 	AllowWindows []TimeWindow `yaml:"allow_windows"`
+	// Extendible permits a one-hour runtime grant via `glocker -extend`,
+	// limited to one grant per rolling 24 hours per program.
+	Extendible bool `yaml:"extendible,omitempty"`
 }
 
 // ForbiddenProgramsConfig controls process killing behavior.

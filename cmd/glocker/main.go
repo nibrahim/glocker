@@ -20,6 +20,7 @@ import (
 	"glocker/internal/install"
 	"glocker/internal/ipc"
 	"glocker/internal/monitoring"
+	"glocker/internal/state"
 	"glocker/internal/web"
 )
 
@@ -34,6 +35,7 @@ func main() {
 	reloadFlag := flag.Bool("reload", false, "Reload configuration from config file")
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
 	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock (format: 'domain1,domain2:reason')")
+	extendProgram := flag.String("extend", "", "Grant a one-hour run extension for a forbidden program (format: 'program:reason'). Program must be marked extendible in the config; one grant per 24h.")
 	addKeyword := flag.String("add-keyword", "", "Comma-separated list of keywords to add to both URL and content keyword lists")
 	panicMinutes := flag.Int("panic", 0, "Enter panic mode for N minutes (suspends system and re-suspends on early wake)")
 	lockFlag := flag.Bool("lock", false, "Immediately lock sudoers access (ignores time windows)")
@@ -222,6 +224,43 @@ func main() {
 		return
 	}
 
+	if *extendProgram != "" {
+		parts := strings.SplitN(*extendProgram, ":", 2)
+		if len(parts) != 2 {
+			log.Fatal("ERROR: Reason required. Use format: 'program:reason'")
+		}
+		program := strings.TrimSpace(parts[0])
+		reason := strings.TrimSpace(parts[1])
+		if program == "" {
+			log.Fatal("ERROR: Program name cannot be empty")
+		}
+		if reason == "" {
+			log.Fatal("ERROR: Reason cannot be empty")
+		}
+
+		conn, err := net.Dial("unix", ipc.SocketPath)
+		if err != nil {
+			log.Fatalf("Failed to connect to glocker service: %v", err)
+		}
+		defer conn.Close()
+
+		message := fmt.Sprintf("extend:%s:%s\n", program, reason)
+		conn.Write([]byte(message))
+
+		reader := bufio.NewReader(conn)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatalf("Failed to read response: %v", err)
+		}
+
+		trimmed := strings.TrimSpace(response)
+		log.Printf("Response: %s", trimmed)
+		if strings.HasPrefix(trimmed, "ERROR:") {
+			os.Exit(1)
+		}
+		return
+	}
+
 	if *addKeyword != "" {
 		conn, err := net.Dial("unix", ipc.SocketPath)
 		if err != nil {
@@ -399,6 +438,11 @@ func main() {
 	config.SetupLogging(cfg)
 
 	log.Println("Starting glocker daemon...")
+
+	// Restore program extensions so the rolling-24h cooldown survives restarts.
+	if err := state.LoadProgramExtensions(); err != nil {
+		log.Printf("Warning: failed to load program extensions: %v", err)
+	}
 
 	// Setup IPC socket
 	if err := ipc.SetupCommunication(cfg); err != nil {

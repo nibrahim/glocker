@@ -553,6 +553,14 @@ forbidden_programs:
   #   - If specified, program is only killed during these times
   #   - If omitted, program is killed 24/7
   #
+  # Extendible (optional, default false):
+  #   - When true, `glocker -extend <name> "<reason>"` grants a one-hour
+  #     reprieve from the kill loop for a legitimate edge case (e.g. an
+  #     unplanned business call after hours).
+  #   - Capped at one grant per rolling 24 hours per program.
+  #   - Logged to the unblock log and emailed via accountability config.
+  #   - Survives daemon restarts (cooldown persisted to /var/lib/glocker).
+  #
   programs:
     # Example 1: Block gaming during work hours
     - name: "steam"
@@ -588,6 +596,16 @@ forbidden_programs:
         - start: "09:00"
           end: "18:00"
           days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+
+    # Example 6: Extendible program — killed late at night, but the user
+    # can request a one-hour reprieve via `glocker -extend firefox "call"`
+    # for unplanned evening business calls. One grant per 24h.
+    - name: "firefox"
+      extendible: true
+      kill_windows:
+        - start: "22:00"
+          end: "05:00"
+          days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 # ----------------------------------------------------------------------------
 # Domain Blocking Rules

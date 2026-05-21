@@ -290,3 +290,103 @@ func TestProcessUnblockRequest_NoReasonValidationWhenListEmpty(t *testing.T) {
 		t.Errorf("Expected 1 unblock, got %d", len(unblocks))
 	}
 }
+
+// extendTestConfig returns a Config with one extendible program and one
+// non-extendible one, plus a temp extensions persistence path.
+func extendTestConfig(t *testing.T) *config.Config {
+	t.Helper()
+	dir := t.TempDir()
+	orig := state.ProgramExtensionsPath
+	state.ProgramExtensionsPath = dir + "/extensions.json"
+	state.ClearProgramExtensions()
+	t.Cleanup(func() {
+		state.ProgramExtensionsPath = orig
+		state.ClearProgramExtensions()
+	})
+
+	return &config.Config{
+		ForbiddenPrograms: config.ForbiddenProgramsConfig{
+			Enabled: true,
+			Programs: []config.ForbiddenProgram{
+				{Name: "firefox-esr", Extendible: true},
+				{Name: "chromium"}, // not extendible
+			},
+		},
+	}
+}
+
+func TestProcessExtendRequest_GrantsActiveExtension(t *testing.T) {
+	cfg := extendTestConfig(t)
+
+	if err := ProcessExtendRequest(cfg, "firefox-esr", "client call"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, ok := state.GetActiveExtension("firefox-esr")
+	if !ok {
+		t.Fatal("expected active extension after grant")
+	}
+	if got.Reason != "client call" {
+		t.Errorf("got reason %q, want %q", got.Reason, "client call")
+	}
+}
+
+func TestProcessExtendRequest_RejectsUnknownProgram(t *testing.T) {
+	cfg := extendTestConfig(t)
+
+	err := ProcessExtendRequest(cfg, "vim", "work")
+	if err == nil {
+		t.Fatal("expected error for unknown program")
+	}
+	if !strings.Contains(err.Error(), "no forbidden program") {
+		t.Errorf("error should mention unknown program, got: %v", err)
+	}
+}
+
+func TestProcessExtendRequest_RejectsNonExtendibleProgram(t *testing.T) {
+	cfg := extendTestConfig(t)
+
+	err := ProcessExtendRequest(cfg, "chromium", "client call")
+	if err == nil {
+		t.Fatal("expected error for non-extendible program")
+	}
+	if !strings.Contains(err.Error(), "extendible") {
+		t.Errorf("error should mention extendible, got: %v", err)
+	}
+}
+
+func TestProcessExtendRequest_RequiresExactNameMatch(t *testing.T) {
+	cfg := extendTestConfig(t)
+
+	// Case mismatch — should not match the `name:` field.
+	err := ProcessExtendRequest(cfg, "FIREFOX-ESR", "client call")
+	if err == nil {
+		t.Fatal("expected error for case-mismatched program name")
+	}
+}
+
+func TestProcessExtendRequest_RequiresReason(t *testing.T) {
+	cfg := extendTestConfig(t)
+
+	err := ProcessExtendRequest(cfg, "firefox-esr", "   ")
+	if err == nil {
+		t.Fatal("expected error for empty reason")
+	}
+}
+
+func TestProcessExtendRequest_EnforcesCooldown(t *testing.T) {
+	cfg := extendTestConfig(t)
+
+	if err := ProcessExtendRequest(cfg, "firefox-esr", "first call"); err != nil {
+		t.Fatalf("first grant failed: %v", err)
+	}
+
+	err := ProcessExtendRequest(cfg, "firefox-esr", "second call")
+	if err == nil {
+		t.Fatal("expected cooldown error on second grant within 24h")
+	}
+	if !strings.Contains(err.Error(), "cooldown") {
+		t.Errorf("error should mention cooldown, got: %v", err)
+	}
+}
+

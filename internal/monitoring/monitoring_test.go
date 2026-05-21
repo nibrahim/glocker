@@ -149,6 +149,80 @@ func TestCountRecentViolations(t *testing.T) {
 	state.ClearViolations()
 }
 
+func TestShouldKill_ActiveExtensionKeepsExtendibleProgramAlive(t *testing.T) {
+	orig := state.ProgramExtensionsPath
+	state.ProgramExtensionsPath = t.TempDir() + "/extensions.json"
+	state.ClearProgramExtensions()
+	t.Cleanup(func() {
+		state.ProgramExtensionsPath = orig
+		state.ClearProgramExtensions()
+	})
+
+	// Window covers the whole week, so isProgramForbidden returns true
+	// regardless of when the test runs.
+	prog := config.ForbiddenProgram{
+		Name:       "firefox-esr",
+		Extendible: true,
+		KillWindows: []config.TimeWindow{
+			{Start: "00:00", End: "23:59", Days: []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}},
+		},
+	}
+
+	now := time.Now()
+	currentDay := now.Weekday().String()[:3]
+	currentTime := now.Format("15:04")
+
+	if !shouldKill(prog, now, currentDay, currentTime) {
+		t.Fatal("baseline: program should be killed without an active extension")
+	}
+
+	if err := state.AddProgramExtension(state.ProgramExtension{
+		Program:   "firefox-esr",
+		GrantedAt: now,
+		ExpiresAt: now.Add(state.ExtensionDuration),
+		Reason:    "client call",
+	}); err != nil {
+		t.Fatalf("AddProgramExtension: %v", err)
+	}
+
+	if shouldKill(prog, now, currentDay, currentTime) {
+		t.Error("active extension should suppress the kill")
+	}
+}
+
+func TestShouldKill_ActiveExtensionIgnoredWhenNotExtendible(t *testing.T) {
+	orig := state.ProgramExtensionsPath
+	state.ProgramExtensionsPath = t.TempDir() + "/extensions.json"
+	state.ClearProgramExtensions()
+	t.Cleanup(func() {
+		state.ProgramExtensionsPath = orig
+		state.ClearProgramExtensions()
+	})
+
+	prog := config.ForbiddenProgram{
+		Name:       "chromium",
+		Extendible: false,
+		KillWindows: []config.TimeWindow{
+			{Start: "00:00", End: "23:59", Days: []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}},
+		},
+	}
+
+	now := time.Now()
+	// Even with a grant on the books, a non-extendible program is still
+	// killed — the safety belt against config drift.
+	if err := state.AddProgramExtension(state.ProgramExtension{
+		Program:   "chromium",
+		GrantedAt: now,
+		ExpiresAt: now.Add(state.ExtensionDuration),
+	}); err != nil {
+		t.Fatalf("AddProgramExtension: %v", err)
+	}
+
+	if !shouldKill(prog, now, now.Weekday().String()[:3], now.Format("15:04")) {
+		t.Error("non-extendible program must be killed even with a stale grant")
+	}
+}
+
 func TestRecordViolation_Disabled(t *testing.T) {
 	// Clear violations
 	state.ClearViolations()

@@ -36,11 +36,26 @@ func MonitorForbiddenPrograms(cfg *config.Config) {
 		slog.Debug("Checking for forbidden programs", "current_day", currentDay, "current_time", currentTime)
 
 		for _, program := range cfg.ForbiddenPrograms.Programs {
-			if isProgramForbidden(program, now, currentDay, currentTime) {
+			if shouldKill(program, now, currentDay, currentTime) {
 				killMatchingProcesses(cfg, program.Name)
 			}
 		}
 	}
+}
+
+// shouldKill is the full kill decision for a single program: it consults
+// the configured windows and then defers to any active runtime extension.
+func shouldKill(program config.ForbiddenProgram, now time.Time, currentDay, currentTime string) bool {
+	if !isProgramForbidden(program, now, currentDay, currentTime) {
+		return false
+	}
+	if program.Extendible {
+		if _, active := state.GetActiveExtension(program.Name); active {
+			slog.Debug("Program kept alive by active extension", "program", program.Name)
+			return false
+		}
+	}
+	return true
 }
 
 // isProgramForbidden decides whether a program should be killed right now.

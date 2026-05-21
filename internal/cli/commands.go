@@ -9,6 +9,7 @@ import (
 
 	"glocker/internal/config"
 	"glocker/internal/enforcement"
+	"glocker/internal/notify"
 	"glocker/internal/state"
 	"glocker/internal/web"
 )
@@ -364,6 +365,85 @@ func ProcessBlockRequest(cfg *config.Config, hostsStr string) {
 
 	// Force enforcement to apply changes immediately
 	enforcement.ForceEnforcement(cfg)
+}
+
+// ProcessExtendRequest grants a one-hour runtime extension for a forbidden
+// program marked Extendible in the config. Enforces a rolling-24h cooldown
+// per program and logs/emails accountability before returning success.
+func ProcessExtendRequest(cfg *config.Config, programName, reason string) error {
+	slog.Debug("Processing extend request", "program", programName, "reason", reason)
+
+	programName = strings.TrimSpace(programName)
+	reason = strings.TrimSpace(reason)
+	if programName == "" {
+		return fmt.Errorf("program name cannot be empty")
+	}
+	if reason == "" {
+		return fmt.Errorf("reason cannot be empty")
+	}
+
+	// Match against the `name:` field of forbidden programs. Exact (case
+	// sensitive) match: the kill matcher itself uses a case-insensitive
+	// substring check on `comm`, but the extension is a deliberate grant —
+	// we want the user to name the program the same way the config does.
+	var matched *config.ForbiddenProgram
+	for i, p := range cfg.ForbiddenPrograms.Programs {
+		if p.Name == programName {
+			matched = &cfg.ForbiddenPrograms.Programs[i]
+			break
+		}
+	}
+	if matched == nil {
+		return fmt.Errorf("no forbidden program named %q in config", programName)
+	}
+	if !matched.Extendible {
+		return fmt.Errorf("program %q is not marked extendible", programName)
+	}
+
+	// Rolling 24h cooldown: any grant in the last 24h blocks a new one.
+	if last, ok := state.GetLastExtensionGrant(programName); ok {
+		nextAllowed := last.Add(state.ExtensionCooldown)
+		if time.Now().Before(nextAllowed) {
+			return fmt.Errorf("extension cooldown: next available at %s (last grant %s)",
+				nextAllowed.Format("2006-01-02 15:04:05"),
+				last.Format("2006-01-02 15:04:05"))
+		}
+	}
+
+	now := time.Now()
+	grant := state.ProgramExtension{
+		Program:   programName,
+		GrantedAt: now,
+		ExpiresAt: now.Add(state.ExtensionDuration),
+		Reason:    reason,
+	}
+	if err := state.AddProgramExtension(grant); err != nil {
+		return fmt.Errorf("persist extension: %w", err)
+	}
+
+	log.Printf("PROGRAM EXTENDED: %s for %s (reason: %s) until %s",
+		programName, state.ExtensionDuration, reason, grant.ExpiresAt.Format("15:04:05"))
+
+	// Reuse the unblock log so the daily report and stats already see this
+	// as a deliberate exception. Domain field carries "program:<name>" so
+	// it stays distinguishable from domain unblocks.
+	if err := web.LogUnblockEntry(cfg, "program:"+programName, reason, grant.GrantedAt, grant.ExpiresAt); err != nil {
+		log.Printf("WARN: failed to log program extension: %v", err)
+	}
+
+	if cfg.Accountability.Enabled {
+		subject := fmt.Sprintf("GLOCKER: program extension granted (%s)", programName)
+		body := fmt.Sprintf(
+			"A one-hour extension was granted at %s.\n\nProgram: %s\nReason: %s\nExpires: %s\n",
+			grant.GrantedAt.Format("2006-01-02 15:04:05"),
+			programName, reason, grant.ExpiresAt.Format("2006-01-02 15:04:05"),
+		)
+		if err := notify.SendEmail(cfg, subject, body); err != nil {
+			log.Printf("WARN: failed to send extension accountability email: %v", err)
+		}
+	}
+
+	return nil
 }
 
 // ProcessPanicRequest activates panic mode for the specified duration.

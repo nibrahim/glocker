@@ -512,6 +512,34 @@ unblocking:
   temp_unblock_time: 20
 
 # ----------------------------------------------------------------------------
+# Lifecycle Logging (install / uninstall accountability)
+# ----------------------------------------------------------------------------
+# Records install and uninstall events, and gates `glocker -uninstall` behind
+# a fixed set of reasons. Forces you to declare *why* you're tearing down the
+# protection — the same accountability pattern as unblocking.
+
+lifecycle:
+  # File where install/uninstall events are appended (JSON per line)
+  # Each entry records: timestamp, type (install/uninstall), reason, optional note
+  # Useful for:
+  #   - Accountability partner review (how often did you uninstall?)
+  #   - Catching impulsive removals during weak moments
+  # Make sure the directory exists and is writable
+  log_file: "/var/log/glocker-lifecycle.log"
+
+  # Valid reasons for uninstalling glocker
+  # User MUST provide one of these via: sudo glocker -uninstall "<reason>"
+  # If this list is empty, any reason is accepted (not recommended)
+  # Pick a small set that covers legitimate cases — anything else forces
+  # you to stop and edit this file before you can uninstall, which is the
+  # whole point.
+  # Common choices:
+  #   - "maintenance" — system rebuild, distro upgrade
+  #   - "hardware" — moving to a new machine
+  #   - "testing" — developer/iteration use only
+  reasons: ["maintenance", "hardware", "testing"]
+
+# ----------------------------------------------------------------------------
 # Forbidden Programs Monitoring
 # ----------------------------------------------------------------------------
 # Monitors and kills specified programs during configured time windows

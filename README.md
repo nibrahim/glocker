@@ -56,7 +56,10 @@ Each system can be independently enabled/disabled and configured with time windo
 
 - **Time-Based Blocking** - Block sites only during work hours
 - **Temporary Unblocking** - Unblock domains for short periods with logged reasons
-- **Accountability** - Email notifications to partner on violations
+- **Program Extensions** - Mark a forbidden program `extendible: true` to allow `glocker -extend` to grant a one-hour reprieve for legitimate edge cases (e.g. an unplanned evening business call); capped at one grant per rolling 24 hours, persisted across daemon restarts, logged and emailed
+- **Allow Windows for Programs** - In addition to `kill_windows`, programs can be configured with `allow_windows` (killed outside the listed times) for inverse semantics
+- **Accountability** - Email notifications to partner on violations, unblocks, and extension grants
+- **Lifecycle Logging** - Install and uninstall events are recorded with a required reason and optional note; valid reasons are gated by config
 - **Content Monitoring** - Firefox extension watches for keywords on any page
 - **Screen Locker** - Time-based or text-based mindful unlocking
 - **Log Analysis** - Visual summaries of violations and patterns with `glockpeek`
@@ -78,21 +81,43 @@ domains:
   # Always blocked, but can be temporarily unblocked
   - {name: "youtube.com", unblockable: true}
 
-  # Time-based blocking - only blocked during specified windows
+  # Time-based blocking - only blocked during the listed windows
   - name: "twitter.com"
-    time_windows:
+    block_windows:
       - start: "09:00"
         end: "17:00"
         days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
 
-# Kill programs during time windows
+# Kill programs during the listed windows
 forbidden_programs:
   programs:
+    # Killed during the window (use kill_windows for "blocked during these hours")
     - name: "chromium"
-      time_windows:
+      kill_windows:
         - start: "20:00"
           end: "05:00"
           days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+
+    # Allowed only during the window (use allow_windows for "permitted during these hours")
+    - name: "steam"
+      allow_windows:
+        - start: "19:00"
+          end: "22:00"
+          days: ["Fri", "Sat"]
+
+    # Extendible: `glocker -extend firefox "client call"` grants one hour,
+    # max once per rolling 24 hours.
+    - name: "firefox"
+      extendible: true
+      kill_windows:
+        - start: "22:00"
+          end: "05:00"
+          days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+# Lifecycle accountability: -uninstall must cite one of these reasons
+lifecycle:
+  log_file: "/var/log/glocker-lifecycle.log"
+  reasons: ["maintenance", "hardware", "testing"]
 
 # Lock screen after 5 violations in 60 minutes
 violation_tracking:
@@ -112,20 +137,34 @@ See [sample config](conf/conf.yaml) and [configuration guide](docs/config.md) fo
 ## Command Examples
 
 ```bash
+# Inspection
+glocker -status          # Runtime state: blocked count, temp unblocks,
+                         # active program extensions, recent violations,
+                         # panic mode
+glocker -info            # Static configuration: domains, programs,
+                         # time windows, keywords
+
 # Domain management
 glocker -unblock "youtube.com,reddit.com:work research"
 glocker -block "facebook.com,instagram.com"
 glocker -add-keyword "gambling,casino,poker"
+
+# Forbidden-program runtime grants (program must be extendible: true)
+glocker -extend "firefox:client call with X"   # one hour, max once per 24h
 
 # Control
 glocker -reload          # Reload config
 glocker -lock            # Lock sudo immediately
 glocker -panic 30        # Suspend for 30 minutes
 
+# Uninstall with accountability
+sudo glocker -uninstall "maintenance" -note "kernel upgrade"
+
 # Analysis
-glockpeek                # Show violation/unblock summaries
-glockpeek -day 2024-06-15   # Hour-by-hour timeline
-glockpeek -month 2024-06    # Calendar view
+glockpeek                          # Show violation/unblock summaries
+glockpeek -detail 2024-06-15       # Detail view for a date (also accepts
+                                   # "last week", "last month", etc.)
+glockpeek -from 2024-06 -to 2024-07  # Range view across months
 ```
 
 ## Architecture

@@ -115,10 +115,14 @@ func GetPanicUntil() time.Time {
 }
 
 // SetPanicUntil sets the time until which panic mode should be active.
+// Round(0) strips the monotonic clock reading so later Before/After comparisons
+// against `time.Now()` fall back to wall clock — important because the
+// monotonic clock pauses across system suspend on Linux, which is the exact
+// scenario panic mode lives in.
 func SetPanicUntil(t time.Time) {
 	panicMutex.Lock()
 	defer panicMutex.Unlock()
-	panicUntil = t
+	panicUntil = t.Round(0)
 }
 
 // GetLastSuspendTime returns the last time the system was suspended.
@@ -129,10 +133,12 @@ func GetLastSuspendTime() time.Time {
 }
 
 // SetLastSuspendTime sets the last time the system was suspended.
+// See SetPanicUntil for why we strip monotonic; this value is consumed by the
+// same suspend-aware grace-period logic.
 func SetLastSuspendTime(t time.Time) {
 	panicMutex.Lock()
 	defer panicMutex.Unlock()
-	lastSuspendTime = t
+	lastSuspendTime = t.Round(0)
 }
 
 // Email rate limiting functions
@@ -231,20 +237,26 @@ func GetTempUnblocks() []TempUnblock {
 	return result
 }
 
-// AddTempUnblock adds a temporary unblock entry.
+// AddTempUnblock adds a temporary unblock entry. The expiry is stored without
+// a monotonic clock reading so wall-clock comparison survives system suspend
+// (see SetPanicUntil for the full rationale).
 func AddTempUnblock(domain string, expiresAt time.Time) {
 	tempUnblocksMutex.Lock()
 	defer tempUnblocksMutex.Unlock()
 	tempUnblocks = append(tempUnblocks, TempUnblock{
 		Domain:    domain,
-		ExpiresAt: expiresAt,
+		ExpiresAt: expiresAt.Round(0),
 	})
 }
 
-// SetTempUnblocks replaces the temporary unblocks list.
+// SetTempUnblocks replaces the temporary unblocks list. Each entry's expiry
+// is normalised to wall-clock-only (Round(0)) so comparisons survive suspend.
 func SetTempUnblocks(unblocks []TempUnblock) {
 	tempUnblocksMutex.Lock()
 	defer tempUnblocksMutex.Unlock()
+	for i := range unblocks {
+		unblocks[i].ExpiresAt = unblocks[i].ExpiresAt.Round(0)
+	}
 	tempUnblocks = unblocks
 }
 
@@ -300,10 +312,14 @@ func GetViolations() []Violation {
 	return result
 }
 
-// AddViolation adds a new violation to the list.
+// AddViolation adds a new violation to the list. The timestamp is stored
+// without monotonic so the rolling-60-minute window check can't be tricked
+// by system suspend (the monotonic clock pauses across suspend on Linux, but
+// users expect "60 minutes" to mean wall-clock time).
 func AddViolation(v Violation) {
 	violationsMutex.Lock()
 	defer violationsMutex.Unlock()
+	v.Timestamp = v.Timestamp.Round(0)
 	violations = append(violations, v)
 }
 

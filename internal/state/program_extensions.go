@@ -64,7 +64,13 @@ func LoadProgramExtensions() error {
 
 // AddProgramExtension records a new grant and persists the updated list.
 // Caller is responsible for cooldown checking via GetLastExtensionGrant.
+// GrantedAt/ExpiresAt are stored without a monotonic clock reading so the
+// 1-hour active window and 24-hour cooldown are measured in wall-clock time
+// (the monotonic clock pauses across system suspend on Linux, which would
+// otherwise stretch both windows by the suspend duration).
 func AddProgramExtension(ext ProgramExtension) error {
+	ext.GrantedAt = ext.GrantedAt.Round(0)
+	ext.ExpiresAt = ext.ExpiresAt.Round(0)
 	programExtensionsMutex.Lock()
 	programExtensions = append(programExtensions, ext)
 	programExtensions = pruneExpiredForCooldown(programExtensions, time.Now())

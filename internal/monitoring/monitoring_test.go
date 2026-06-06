@@ -2,6 +2,8 @@ package monitoring
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -241,5 +243,56 @@ func TestRecordViolation_Disabled(t *testing.T) {
 	if len(violations) != 0 {
 		t.Errorf("Expected 0 violations when disabled, got %d", len(violations))
 	}
+}
+
+// TestKillOnBlock_TerminatesMatchingProcess spawns a uniquely-named, killable
+// process and verifies KillOnBlock terminates it. The unique name keeps the
+// substring match from touching any unrelated process on the host.
+func TestKillOnBlock_TerminatesMatchingProcess(t *testing.T) {
+	src := "/bin/sleep"
+	if _, err := os.Stat(src); err != nil {
+		src = "/usr/bin/sleep"
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Skipf("cannot read sleep binary: %v", err)
+	}
+
+	// `comm` is truncated to 15 chars; keep the name short and distinctive so
+	// it can't collide with "glocker"/"systemd"/etc. and only matches us.
+	const name = "glkkilltest"
+	dst := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(dst, data, 0o755); err != nil {
+		t.Fatalf("write test binary: %v", err)
+	}
+
+	cmd := exec.Command(dst, "300")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start test process: %v", err)
+	}
+	// Safety net in case the kill path fails.
+	defer func() { _ = cmd.Process.Kill() }()
+
+	// Give it a moment to show up in `ps`.
+	time.Sleep(300 * time.Millisecond)
+
+	cfg := &config.Config{KillOnBlock: []string{name}}
+	KillOnBlock(cfg)
+
+	// KillOnBlock sends TERM then KILL after a 2s grace period; wait for exit.
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-done:
+		// Process exited (killed) — success.
+	case <-time.After(5 * time.Second):
+		t.Fatalf("process %q was not terminated by KillOnBlock", name)
+	}
+}
+
+// TestKillOnBlock_EmptyListNoop ensures an unset kill_on_block is a harmless no-op.
+func TestKillOnBlock_EmptyListNoop(t *testing.T) {
+	KillOnBlock(&config.Config{})
+	KillOnBlock(&config.Config{KillOnBlock: []string{"", "   "}})
 }
 

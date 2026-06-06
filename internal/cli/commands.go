@@ -9,6 +9,7 @@ import (
 
 	"glocker/internal/config"
 	"glocker/internal/enforcement"
+	"glocker/internal/monitoring"
 	"glocker/internal/notify"
 	"glocker/internal/state"
 	"glocker/internal/web"
@@ -206,6 +207,13 @@ func GetInfoResponse(cfg *config.Config) string {
 			}
 		}
 		response.WriteString("\n")
+	}
+
+	// Show programs killed on block (browser DNS-cache flush)
+	if len(cfg.KillOnBlock) > 0 {
+		response.WriteString(fmt.Sprintf("Killed On Block (%d) — terminated on `glocker -block` to flush browser DNS caches:\n",
+			len(cfg.KillOnBlock)))
+		response.WriteString(fmt.Sprintf("  %s\n\n", strings.Join(cfg.KillOnBlock, ", ")))
 	}
 
 	// Show sudoers restrictions
@@ -408,8 +416,13 @@ func ProcessBlockRequest(cfg *config.Config, hostsStr string) {
 		}
 	}
 
-	// Force enforcement to apply changes immediately
+	// Force enforcement to apply changes immediately so /etc/hosts has the new
+	// entries before we kill browsers — they re-resolve against the updated file.
 	enforcement.ForceEnforcement(cfg)
+
+	// Kill configured programs (typically browsers) so their internal DNS caches
+	// are dropped and the freshly blocked domains take effect immediately.
+	monitoring.KillOnBlock(cfg)
 }
 
 // ProcessExtendRequest grants a one-hour runtime extension for a forbidden

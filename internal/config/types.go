@@ -137,6 +137,11 @@ type Config struct {
 	EnableForbiddenPrograms bool                    `yaml:"enable_forbidden_programs"`
 	Domains                 []Domain                `yaml:"domains"`
 	HostsPath               string                  `yaml:"hosts_path"`
+	// KillOnBlock lists process names (matched against `comm`, case-insensitive
+	// substring) to terminate whenever a domain is blocked. Browsers cache DNS
+	// internally, so a freshly blocked domain stays reachable until they restart;
+	// killing them on block forces a fresh resolution against the updated hosts file.
+	KillOnBlock             []string                `yaml:"kill_on_block,omitempty"`
 	SelfHeal                bool                    `yaml:"enable_self_healing"`
 	EnforceInterval         int                     `yaml:"enforce_interval_seconds"`
 	Sudoers                 SudoersConfig           `yaml:"sudoers"`

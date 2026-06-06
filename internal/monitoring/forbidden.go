@@ -105,8 +105,12 @@ func inAnyWindow(windows []config.TimeWindow, now time.Time, currentDay, current
 	return false
 }
 
-// killMatchingProcesses finds and kills processes matching the given program name.
-func killMatchingProcesses(cfg *config.Config, programName string) {
+// terminateMatching finds processes whose `comm` contains programName
+// (case-insensitive) and kills them (TERM, then KILL after a grace period),
+// skipping glocker/systemd/kernel/pid 1. It performs no violation tracking,
+// notification, or email — callers layer those on. Returns descriptions of the
+// processes killed and the number of distinct processes that matched.
+func terminateMatching(programName string) (killed []string, matched int) {
 	// Use `comm` (kernel task name) for matching — it's the binary basename,
 	// never contains spaces, so paths like "/home/noufal/GOG Games/.../FTL.amd64"
 	// don't trip up whitespace-based field parsing the way `ps aux` does.
@@ -114,11 +118,10 @@ func killMatchingProcesses(cfg *config.Config, programName string) {
 	output, err := cmd.Output()
 	if err != nil {
 		slog.Debug("Failed to get process list", "error", err)
-		return
+		return nil, 0
 	}
 
 	lines := strings.Split(string(output), "\n")
-	killedProcesses := []string{}
 	processGroups := make(map[string][]state.ProcessInfo)
 
 	slog.Debug("Starting process matching", "program_filter", programName, "total_lines", len(lines))
@@ -161,31 +164,38 @@ func killMatchingProcesses(cfg *config.Config, programName string) {
 		processGroups[pid] = append(processGroups[pid], processInfo)
 	}
 
-	// Kill matching processes
-	violationRecorded := false // Track if we've recorded a violation for this program
+	matched = len(processGroups)
 	for _, processes := range processGroups {
 		if len(processes) == 0 {
 			continue
 		}
 
 		proc := processes[0]
-		slog.Debug("Found forbidden process", "pid", proc.PID, "name", proc.Name)
-
-		// Record violation only once per program name (not per subprocess)
-		if !violationRecorded && cfg.ViolationTracking.Enabled {
-			RecordViolation(cfg, "forbidden_program", programName, fmt.Sprintf("Killed %d process(es)", len(processGroups)))
-			violationRecorded = true
-		}
+		slog.Debug("Found matching process", "pid", proc.PID, "name", proc.Name)
 
 		// Kill the process
 		if err := exec.Command("kill", proc.PID).Run(); err == nil {
-			killedProcesses = append(killedProcesses, fmt.Sprintf("%s (PID: %s)", proc.Name, proc.PID))
-			log.Printf("KILLED FORBIDDEN PROGRAM: %s (PID: %s) - matched filter: %s", proc.Name, proc.PID, programName)
+			killed = append(killed, fmt.Sprintf("%s (PID: %s)", proc.Name, proc.PID))
+			log.Printf("KILLED PROGRAM: %s (PID: %s) - matched filter: %s", proc.Name, proc.PID, programName)
 
 			// Wait then force kill if still running
 			time.Sleep(2 * time.Second)
 			exec.Command("kill", "-9", proc.PID).Run()
 		}
+	}
+
+	return killed, matched
+}
+
+// killMatchingProcesses finds and kills processes matching the given program
+// name, recording a violation and sending accountability notifications.
+func killMatchingProcesses(cfg *config.Config, programName string) {
+	// Record violation only once per program name (not per subprocess). The
+	// matched count is known before any kill is attempted, mirroring the
+	// original behavior of recording on detection rather than success.
+	killedProcesses, matched := terminateMatching(programName)
+	if matched > 0 && cfg.ViolationTracking.Enabled {
+		RecordViolation(cfg, "forbidden_program", programName, fmt.Sprintf("Killed %d process(es)", matched))
 	}
 
 	// Send desktop notification once for all killed processes
@@ -205,6 +215,34 @@ func killMatchingProcesses(cfg *config.Config, programName string) {
 		}
 
 		notify.SendEmail(cfg, subject, body)
+	}
+}
+
+// KillOnBlock terminates the processes listed in cfg.KillOnBlock. It is meant to
+// run right after a domain is blocked: browsers cache DNS internally, so a newly
+// blocked domain stays reachable until they restart. Unlike forbidden-program
+// kills this ignores time windows and is NOT recorded as a violation — closing a
+// browser so it re-reads /etc/hosts is expected behavior, not an infraction.
+func KillOnBlock(cfg *config.Config) {
+	if len(cfg.KillOnBlock) == 0 {
+		return
+	}
+
+	var allKilled []string
+	for _, name := range cfg.KillOnBlock {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		killed, _ := terminateMatching(name)
+		allKilled = append(allKilled, killed...)
+	}
+
+	if len(allKilled) > 0 {
+		log.Printf("KILLED ON BLOCK: terminated %d process(es) to flush DNS caches: %s",
+			len(allKilled), strings.Join(allKilled, ", "))
+		message := fmt.Sprintf("Closed %d process(es) so newly blocked domains take effect", len(allKilled))
+		notify.SendNotification(cfg, "Glocker", message, "normal", "dialog-information")
 	}
 }
 

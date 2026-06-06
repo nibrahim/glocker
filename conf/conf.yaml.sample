@@ -46,6 +46,19 @@ enable_hosts: true
 # Only change if you need to test with a different file or use custom DNS setup
 hosts_path: "/etc/hosts"
 
+# Programs to kill whenever a domain is blocked (via `glocker -block`).
+# Browsers cache DNS resolutions internally, so a freshly blocked domain stays
+# reachable in an already-running browser until it restarts. Killing them on
+# block forces a fresh lookup against the updated /etc/hosts. Matching is a
+# case-insensitive substring of the process name (`comm`), same as
+# forbidden_programs. Unlike forbidden_programs this ignores time windows and is
+# not counted as a violation. Leave empty/omit to disable.
+kill_on_block:
+  - firefox
+  - chrome
+  - chromium
+  - brave
+
 # Enable firewall blocking (iptables/ip6tables rules)
 # How it works:
 #   - Adds iptables DROP rules for specific IPs

@@ -37,11 +37,15 @@ glocker -uninstall
   - Daemon startup logic (lines 322-376)
 
 ### Configuration (`internal/config/`)
-- **`config.go`** - Configuration structs and YAML loading
+- **`types.go`** - Configuration structs and constants
   - `Config` struct with all settings
-  - `Domain`, `TimeWindow`, `SudoersConfig` structs
+  - `Domain`, `TimeWindow`, `SudoersConfig`, `ForbiddenProgram`, `LifecycleConfig` structs
+- **`loader.go`** - YAML loading
   - `LoadConfig()` - Loads from `/etc/glocker/config.yaml`
   - `SetupLogging()` - Configures log output
+- **`persist.go`** - Writes config changes back to disk (preserving comments/structure)
+  - `SaveDomainsToConfig()` / `SaveForbiddenProgramsToConfig()` - back `-block` / `-block-app`
+- **`validator.go`** - `ValidateConfig()` - validates time windows and required fields
 
 ### CLI Commands (`internal/cli/`)
 - **`commands.go`** - Command processors for socket requests
@@ -157,7 +161,7 @@ glocker -uninstall
 | Add socket command | `internal/ipc/server.go` | Add case in `HandleConnection()` |
 | Modify installation | `internal/install/install.go` | `InstallGlocker()` |
 | Add web endpoint | `internal/web/handlers.go` | Add handler function |
-| Change time windows | `internal/config/config.go` | `TimeWindow` struct |
+| Change time windows | `internal/config/types.go` | `TimeWindow` struct |
 | Add monitoring feature | `internal/monitoring/` | Create new file or extend existing |
 
 ## Common Development Workflows
@@ -202,7 +206,7 @@ The Firefox extension lives in `extensions/firefox/`. After making changes:
 
 ### Core Components
 
-**Main Service (`glocker.go`)**
+**Main Service (`cmd/glocker/main.go`)**
 - Single Go binary that handles all blocking logic
 - Runs as systemd service with setuid root permissions
 - Config loaded from `/etc/glocker/config.yaml` (sample in `conf/conf.yaml`)
@@ -221,7 +225,7 @@ The Firefox extension lives in `extensions/firefox/`. After making changes:
 
 ### Key Data Structures
 
-All configuration is in YAML with these main structs (internal/config/config.go):
+All configuration is in YAML with these main structs (internal/config/types.go):
 
 ```go
 type Config struct {
@@ -229,6 +233,7 @@ type Config struct {
     EnableFirewall          bool
     EnableForbiddenPrograms bool
     Domains                 []Domain
+    KillOnBlock             []string                // process names killed after `glocker -block` (DNS-cache flush)
     Sudoers                 SudoersConfig
     TamperDetection         TamperConfig
     Accountability          AccountabilityConfig
@@ -237,21 +242,41 @@ type Config struct {
     ExtensionKeywords       ExtensionKeywordsConfig
     ViolationTracking       ViolationTrackingConfig
     Unblocking              UnblockingConfig
+    Lifecycle               LifecycleConfig         // install/uninstall logging + valid -uninstall reasons
     // ... more fields
 }
 
 type Domain struct {
-    Name        string
-    AlwaysBlock bool         // Deprecated: use TimeWindows instead
-    TimeWindows []TimeWindow // If empty, domain is always blocked (default)
-    Absolute    bool         // Deprecated: domains are permanent by default
-    Unblockable bool         // Set to true to allow temporary unblocking (default: false)
+    Name         string
+    BlockWindows []TimeWindow // If empty, domain is always blocked (default); else blocked only during these windows
+    LogBlocking  bool         // Log each block hit for this domain
+    Unblockable  bool         // Set to true to allow temporary unblocking (default: false = permanent)
+}
+
+type SudoersConfig struct {
+    Enabled            bool
+    User               string
+    AllowedSudoersLine string
+    BlockedSudoersLine string
+    AllowWindows       []TimeWindow // sudo ALLOWED during these windows, blocked outside (empty = always blocked)
+}
+
+type ForbiddenProgram struct {
+    Name         string
+    KillWindows  []TimeWindow // killed DURING these windows
+    AllowWindows []TimeWindow // killed OUTSIDE these windows (only consulted when KillWindows is empty)
+    Extendible   bool         // allows a one-hour runtime grant via `glocker -extend`, max once per rolling 24h
 }
 
 // Domain blocking logic (internal/enforcement/domains.go):
-// - No time windows → Always blocked (permanent by default)
-// - Time windows specified → Blocked only during those windows
+// - No block windows → Always blocked (permanent by default)
+// - Block windows specified → Blocked only during those windows
 // - Unblockable flag → Allows temporary unblocking (default: permanent)
+
+// Forbidden program kill logic (internal/monitoring/forbidden.go):
+// - In any KillWindow → killed
+// - Else AllowWindows non-empty → killed unless inside an AllowWindow
+// - Else both empty → always killed (legacy default)
 ```
 
 ### Control Flow
@@ -262,7 +287,7 @@ type Domain struct {
 3. Installs systemd service from `extras/glocker.service`
 
 **Enforcement Loop** (main.go:322-376):
-1. Loads config from `/etc/glocker/config.yaml` (internal/config/config.go)
+1. Loads config from `/etc/glocker/config.yaml` (internal/config/loader.go)
 2. Starts Unix socket server for IPC (internal/ipc/server.go)
 3. Launches monitoring goroutines:
    - Tamper detection (internal/monitoring/tampering.go)
@@ -323,18 +348,19 @@ type Domain struct {
 
 ### Time Window Logic
 
-Time windows use HH:MM format and day-of-week arrays:
+All time windows share the same `TimeWindow` shape (HH:MM + day-of-week array);
+the YAML key name carries the semantics:
 ```yaml
-time_windows:
+block_windows:        # or allow_windows / kill_windows depending on the field
   - start: "09:00"
     end: "17:00"
     days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
 ```
 
-Applied to:
-- Domain blocking (internal/config/config.go: `Domain.TimeWindows`)
-- Sudoers restrictions (internal/config/config.go: `SudoersConfig.TimeAllowed`)
-- Forbidden programs (internal/config/config.go: `ForbiddenProgram.TimeWindows`)
+Applied to (all in internal/config/types.go):
+- Domain blocking — `Domain.BlockWindows` (yaml: `block_windows`), blocked during
+- Sudoers restrictions — `SudoersConfig.AllowWindows` (yaml: `allow_windows`), sudo allowed during
+- Forbidden programs — `ForbiddenProgram.KillWindows` (killed during) / `ForbiddenProgram.AllowWindows` (killed outside)
 - Evaluation logic in internal/enforcement/enforcement.go
 
 ### HTTP(s) Servers (port 80, 443)

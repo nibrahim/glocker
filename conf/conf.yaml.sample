@@ -602,6 +602,11 @@ forbidden_programs:
   #   - Logged to the unblock log and emailed via accountability config.
   #   - Survives daemon restarts (cooldown persisted to /var/lib/glocker).
   #
+  # Adding programs at runtime:
+  #   - `glocker -block-app "steam,chromium"` appends programs here (no
+  #     windows = killed 24/7), takes effect immediately, and persists to
+  #     this file across restarts.
+  #
   programs:
     # Example 1: Block gaming during work hours
     - name: "steam"

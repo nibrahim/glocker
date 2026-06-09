@@ -34,6 +34,7 @@ func main() {
 	infoFlag := flag.Bool("info", false, "Show configuration info (domains, programs, keywords)")
 	reloadFlag := flag.Bool("reload", false, "Reload configuration from config file")
 	blockHosts := flag.String("block", "", "Comma-separated list of hosts to add to always block list")
+	blockApps := flag.String("block-app", "", "Comma-separated list of programs to add to the forbidden-programs list (killed on sight, 24/7)")
 	unblockHosts := flag.String("unblock", "", "Comma-separated list of hosts to temporarily unblock (format: 'domain1,domain2:reason')")
 	extendProgram := flag.String("extend", "", "Grant a one-hour run extension for a forbidden program (format: 'program:reason'). Program must be marked extendible in the config; one grant per 24h.")
 	addKeyword := flag.String("add-keyword", "", "Comma-separated list of keywords to add to both URL and content keyword lists")
@@ -184,6 +185,27 @@ func main() {
 
 		log.Printf("Response: %s", strings.TrimSpace(response))
 		log.Println("Domains will be permanently blocked.")
+		return
+	}
+
+	if *blockApps != "" {
+		conn, err := net.Dial("unix", ipc.SocketPath)
+		if err != nil {
+			log.Fatalf("Failed to connect to glocker service: %v", err)
+		}
+		defer conn.Close()
+
+		message := fmt.Sprintf("block-app:%s\n", *blockApps)
+		conn.Write([]byte(message))
+
+		reader := bufio.NewReader(conn)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatalf("Failed to read response: %v", err)
+		}
+
+		log.Printf("Response: %s", strings.TrimSpace(response))
+		log.Println("Programs will be killed on sight (24/7).")
 		return
 	}
 

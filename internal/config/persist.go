@@ -28,6 +28,181 @@ func ValidateDomainName(name string) error {
 	return nil
 }
 
+// ValidateProgramName checks that a forbidden-program name is safe to embed in
+// the socket protocol (colon/comma are delimiters) and the YAML config. Program
+// names are matched as a case-insensitive substring against each process's
+// `comm`, so we only need to keep out control characters and our delimiters.
+func ValidateProgramName(name string) error {
+	if name == "" {
+		return fmt.Errorf("program name cannot be empty")
+	}
+	if len(name) > 64 {
+		return fmt.Errorf("program name too long: %d characters (max 64)", len(name))
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("invalid program name %q: contains a control character", name)
+		}
+		if r == ':' || r == ',' {
+			return fmt.Errorf("invalid program name %q: ':' and ',' are not allowed", name)
+		}
+	}
+	return nil
+}
+
+// SaveForbiddenProgramsToConfig appends new forbidden programs (by name, no
+// windows = killed always) to the config file on disk. Mirrors
+// SaveDomainsToConfig: uses the yaml.v3 Node API to preserve comments and
+// formatting, dedupes by name, and writes atomically around the chattr +i flag.
+func SaveForbiddenProgramsToConfig(names []string) error {
+	for _, n := range names {
+		if err := ValidateProgramName(n); err != nil {
+			return fmt.Errorf("refusing to save: %w", err)
+		}
+	}
+
+	data, err := os.ReadFile(GlockerConfigFile)
+	if err != nil {
+		return fmt.Errorf("reading config file: %w", err)
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("parsing config YAML: %w", err)
+	}
+
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return fmt.Errorf("unexpected YAML structure: expected document node")
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("unexpected YAML structure: expected mapping node at root")
+	}
+
+	// Find (or create) the "forbidden_programs" mapping.
+	fpMap := findMapValue(root, "forbidden_programs")
+	if fpMap == nil {
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: "forbidden_programs", Tag: "!!str"}
+		fpMap = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		root.Content = append(root.Content, keyNode, fpMap)
+	}
+	if fpMap.Kind != yaml.MappingNode {
+		return fmt.Errorf("unexpected YAML structure: forbidden_programs is not a mapping")
+	}
+
+	// Find (or create) the "programs" sequence inside forbidden_programs.
+	programsSeq := findMapValue(fpMap, "programs")
+	if programsSeq == nil {
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: "programs", Tag: "!!str"}
+		programsSeq = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		fpMap.Content = append(fpMap.Content, keyNode, programsSeq)
+	}
+	if programsSeq.Kind != yaml.SequenceNode {
+		return fmt.Errorf("unexpected YAML structure: programs is not a sequence")
+	}
+
+	// Build a set of existing program names to avoid duplicates.
+	existing := make(map[string]bool, len(programsSeq.Content))
+	for _, node := range programsSeq.Content {
+		if node.Kind == yaml.MappingNode {
+			if nameVal := findMapValue(node, "name"); nameVal != nil {
+				existing[nameVal.Value] = true
+			}
+		}
+	}
+
+	// Append new programs using flow style to match: {name: "steam"}
+	added := 0
+	for _, n := range names {
+		if existing[n] {
+			log.Printf("Forbidden program %s already in config, skipping", n)
+			continue
+		}
+
+		mapNode := &yaml.Node{
+			Kind:  yaml.MappingNode,
+			Tag:   "!!map",
+			Style: yaml.FlowStyle,
+			Content: []*yaml.Node{
+				{Kind: yaml.ScalarNode, Value: "name", Tag: "!!str"},
+				{Kind: yaml.ScalarNode, Value: n, Tag: "!!str"},
+			},
+		}
+		programsSeq.Content = append(programsSeq.Content, mapNode)
+		existing[n] = true
+		added++
+	}
+
+	if added == 0 {
+		log.Printf("No new forbidden programs to save (all already in config)")
+		return nil
+	}
+
+	if err := writeConfigAtomic(&doc); err != nil {
+		return err
+	}
+
+	log.Printf("Saved %d new forbidden program(s) to %s", added, GlockerConfigFile)
+	return nil
+}
+
+// findMapValue returns the value node for the given key in a mapping node, or
+// nil if the mapping doesn't contain it.
+func findMapValue(mapNode *yaml.Node, key string) *yaml.Node {
+	if mapNode.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i < len(mapNode.Content)-1; i += 2 {
+		if mapNode.Content[i].Value == key {
+			return mapNode.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// writeConfigAtomic marshals the YAML document and writes it to the config file
+// atomically, handling the chattr +i immutable flag around the rename.
+func writeConfigAtomic(doc *yaml.Node) error {
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("marshaling config YAML: %w", err)
+	}
+
+	dir := filepath.Dir(GlockerConfigFile)
+	tmp, err := os.CreateTemp(dir, "config-*.yaml.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := tmp.Write(out); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("writing temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("syncing temp file: %w", err)
+	}
+	tmp.Close()
+
+	if info, err := os.Stat(GlockerConfigFile); err == nil {
+		os.Chmod(tmpPath, info.Mode())
+	}
+
+	exec.Command("chattr", "-i", GlockerConfigFile).Run()
+
+	if err := os.Rename(tmpPath, GlockerConfigFile); err != nil {
+		os.Remove(tmpPath)
+		exec.Command("chattr", "+i", GlockerConfigFile).Run()
+		return fmt.Errorf("renaming temp file to config: %w", err)
+	}
+
+	exec.Command("chattr", "+i", GlockerConfigFile).Run()
+	return nil
+}
+
 // SaveDomainsToConfig appends new domains to the config file on disk.
 // Uses yaml.v3 Node API to preserve existing comments and formatting.
 // Handles chattr +i on the config file and writes atomically.
@@ -121,50 +296,9 @@ func SaveDomainsToConfig(domains []string) error {
 		return nil
 	}
 
-	// Marshal back to YAML
-	out, err := yaml.Marshal(&doc)
-	if err != nil {
-		return fmt.Errorf("marshaling config YAML: %w", err)
+	if err := writeConfigAtomic(&doc); err != nil {
+		return err
 	}
-
-	// Write atomically: temp file in same directory, then rename
-	dir := filepath.Dir(GlockerConfigFile)
-	tmp, err := os.CreateTemp(dir, "config-*.yaml.tmp")
-	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-
-	if _, err := tmp.Write(out); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("writing temp file: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("syncing temp file: %w", err)
-	}
-	tmp.Close()
-
-	// Match ownership and permissions of original file
-	if info, err := os.Stat(GlockerConfigFile); err == nil {
-		os.Chmod(tmpPath, info.Mode())
-	}
-
-	// Remove immutable flag from config file
-	exec.Command("chattr", "-i", GlockerConfigFile).Run()
-
-	// Atomic rename
-	if err := os.Rename(tmpPath, GlockerConfigFile); err != nil {
-		os.Remove(tmpPath)
-		// Re-set immutable flag even on failure
-		exec.Command("chattr", "+i", GlockerConfigFile).Run()
-		return fmt.Errorf("renaming temp file to config: %w", err)
-	}
-
-	// Re-set immutable flag
-	exec.Command("chattr", "+i", GlockerConfigFile).Run()
 
 	log.Printf("Saved %d new domains to %s", added, GlockerConfigFile)
 	return nil

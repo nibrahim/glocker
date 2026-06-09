@@ -45,6 +45,9 @@ glocker -block "facebook.com,instagram.com"
 
 # Add keywords to monitoring lists (URL and content)
 glocker -add-keyword "gambling,casino,poker"
+
+# Add programs to the forbidden list (killed on sight, 24/7)
+glocker -block-app "steam,chromium"
 ```
 
 ### Control Commands

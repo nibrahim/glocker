@@ -116,6 +116,14 @@ func HandleConnection(cfg *config.Config, conn net.Conn) {
 			domains := strings.TrimSpace(parts[1])
 			conn.Write([]byte("OK: Block request received\n"))
 			go cli.ProcessBlockRequest(cfg, domains)
+		case "block-app":
+			if len(parts) != 2 {
+				conn.Write([]byte("ERROR: Invalid format. Use 'block-app:programs'\n"))
+				continue
+			}
+			programs := strings.TrimSpace(parts[1])
+			conn.Write([]byte("OK: Block-app request received\n"))
+			go cli.ProcessBlockAppRequest(cfg, programs)
 		case "panic":
 			if len(parts) != 2 {
 				conn.Write([]byte("ERROR: Invalid format. Use 'panic:minutes'\n"))

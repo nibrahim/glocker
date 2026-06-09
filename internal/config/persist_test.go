@@ -200,3 +200,111 @@ func TestSaveDomainsToConfig_NoDomains(t *testing.T) {
 		t.Errorf("expected no error for empty domain list, got: %v", err)
 	}
 }
+
+func TestValidateProgramName(t *testing.T) {
+	tests := []struct {
+		name    string
+		program string
+		wantErr bool
+	}{
+		{"valid simple", "steam", false},
+		{"valid with dash", "mullvad-browser", false},
+		{"valid binary basename", "FTL.amd64", false},
+		{"empty", "", true},
+		{"too long", strings.Repeat("a", 65), true},
+		{"has colon", "fire:fox", true},
+		{"has comma", "firefox,steam", true},
+		{"has newline", "firefox\nevil: true", true},
+		{"has tab", "fire\tfox", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateProgramName(tt.program)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateProgramName(%q) error = %v, wantErr %v", tt.program, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSaveForbiddenProgramsToConfig_RejectsInvalid(t *testing.T) {
+	err := SaveForbiddenProgramsToConfig([]string{"steam", "bad,name"})
+	if err == nil {
+		t.Error("expected error for invalid program name, got nil")
+	}
+	if !strings.Contains(err.Error(), "refusing to save") {
+		t.Errorf("expected 'refusing to save' error, got: %v", err)
+	}
+}
+
+func TestSaveForbiddenProgramsToConfig_NoPrograms(t *testing.T) {
+	if err := SaveForbiddenProgramsToConfig([]string{}); err != nil {
+		t.Errorf("expected no error for empty program list, got: %v", err)
+	}
+}
+
+// TestForbiddenProgramsNodeNav exercises findMapValue against the nested
+// forbidden_programs.programs structure and verifies that appending a new
+// program preserves existing entries, sibling keys, and comments.
+func TestForbiddenProgramsNodeNav(t *testing.T) {
+	initialYAML := `# Test config
+enable_forbidden_programs: true
+forbidden_programs:
+  enabled: true
+  check_interval_seconds: 5
+  programs:
+    # Existing programs
+    - name: "steam"
+    - {name: "discord"}
+`
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(initialYAML), &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	root := doc.Content[0]
+	fpMap := findMapValue(root, "forbidden_programs")
+	if fpMap == nil {
+		t.Fatal("forbidden_programs key not found")
+	}
+	programsSeq := findMapValue(fpMap, "programs")
+	if programsSeq == nil {
+		t.Fatal("programs key not found")
+	}
+	if programsSeq.Kind != yaml.SequenceNode {
+		t.Fatalf("programs is not a sequence")
+	}
+	if len(programsSeq.Content) != 2 {
+		t.Fatalf("expected 2 programs, got %d", len(programsSeq.Content))
+	}
+
+	// Confirm dedup detection sees the existing names.
+	if findMapValue(programsSeq.Content[0], "name").Value != "steam" {
+		t.Error("expected first program to be steam")
+	}
+
+	// Append a new program and re-marshal.
+	programsSeq.Content = append(programsSeq.Content, &yaml.Node{
+		Kind:  yaml.MappingNode,
+		Tag:   "!!map",
+		Style: yaml.FlowStyle,
+		Content: []*yaml.Node{
+			{Kind: yaml.ScalarNode, Value: "name", Tag: "!!str"},
+			{Kind: yaml.ScalarNode, Value: "chromium", Tag: "!!str"},
+		},
+	})
+
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := string(out)
+
+	for _, want := range []string{"chromium", "steam", "discord",
+		"check_interval_seconds: 5", "# Test config", "# Existing programs"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("expected output to contain %q, got:\n%s", want, result)
+		}
+	}
+}

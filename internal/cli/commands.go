@@ -425,6 +425,67 @@ func ProcessBlockRequest(cfg *config.Config, hostsStr string) {
 	monitoring.KillOnBlock(cfg)
 }
 
+// ProcessBlockAppRequest adds programs to the forbidden-programs list so they
+// are killed on sight, persisting them to the config file and appending them to
+// the in-memory config so the running monitor picks them up on its next tick.
+// Programs added this way have no time windows, meaning they are killed 24/7.
+func ProcessBlockAppRequest(cfg *config.Config, programsStr string) {
+	slog.Debug("Processing block-app request", "programs", programsStr)
+
+	var validNames []string
+	for _, name := range strings.Split(programsStr, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if err := config.ValidateProgramName(name); err != nil {
+			log.Printf("ERROR: Rejecting program %q: %v", name, err)
+			continue
+		}
+		validNames = append(validNames, name)
+	}
+
+	if len(validNames) == 0 {
+		log.Printf("No valid programs to block")
+		return
+	}
+
+	// Skip names already present in the in-memory config so we don't create
+	// duplicate entries that the monitor would scan twice.
+	existing := make(map[string]bool, len(cfg.ForbiddenPrograms.Programs))
+	for _, p := range cfg.ForbiddenPrograms.Programs {
+		existing[p.Name] = true
+	}
+
+	// Persist to the config file so the block survives a restart.
+	if err := config.SaveForbiddenProgramsToConfig(validNames); err != nil {
+		log.Printf("ERROR: Failed to save forbidden programs to config: %v", err)
+	}
+
+	// Append to the in-memory config the running monitor goroutine reads. This
+	// is what makes newly blocked programs take effect immediately —
+	// ForceEnforcement reloads domains from disk but not forbidden programs.
+	for _, name := range validNames {
+		if existing[name] {
+			log.Printf("Program %s already blocked, skipping", name)
+			continue
+		}
+		cfg.ForbiddenPrograms.Programs = append(cfg.ForbiddenPrograms.Programs, config.ForbiddenProgram{Name: name})
+		existing[name] = true
+		log.Printf("APP BLOCKED: %s (killed on sight)", name)
+	}
+
+	// If the monitor goroutine was never started (feature disabled), the new
+	// entries won't actually be killed until the service restarts with it on.
+	if !cfg.ForbiddenPrograms.Enabled {
+		log.Printf("WARNING: forbidden_programs is disabled — added programs will not be killed until it is enabled and the service restarts")
+	}
+
+	// Kill any matching processes right away rather than waiting for the next
+	// monitor tick, so the block feels immediate.
+	monitoring.KillForbiddenNow(cfg, validNames)
+}
+
 // ProcessExtendRequest grants a one-hour runtime extension for a forbidden
 // program marked Extendible in the config. Enforces a rolling-24h cooldown
 // per program and logs/emails accountability before returning success.

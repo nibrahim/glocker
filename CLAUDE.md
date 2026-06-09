@@ -70,7 +70,8 @@ glocker -uninstall
     - `status` - Live status query (lines 75-77)
     - `reload` - Config reload (lines 78-80)
     - `unblock` - Temporary unblock (lines 81-99)
-    - `block` - Permanent block (lines 100-107)
+    - `block` - Permanent domain block (lines 100-107)
+    - `block-app` - Add program to forbidden-programs list (killed on sight, 24/7)
     - `panic` - Panic mode (lines 111-123)
     - `lock` - Force sudoers lock (lines 124-126)
     - `add-keyword` - Add monitoring keywords (lines 127-134)
@@ -279,7 +280,7 @@ type Domain struct {
 - Client sends command via Unix socket at `/tmp/glocker.sock`
 - Format: `"action:payload\n"` (e.g., `"block:example.com\n"`)
 - Server processes command and returns response
-- Commands: `status`, `reload`, `unblock`, `block`, `panic`, `lock`, `add-keyword`, `uninstall`
+- Commands: `status`, `reload`, `unblock`, `block`, `block-app`, `panic`, `lock`, `add-keyword`, `uninstall`
 - Multi-line responses end with `"END"`
 
 ### Important Files and Paths

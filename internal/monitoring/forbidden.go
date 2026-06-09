@@ -218,6 +218,22 @@ func killMatchingProcesses(cfg *config.Config, programName string) {
 	}
 }
 
+// KillForbiddenNow immediately kills any processes matching the given program
+// names, recording violations and sending accountability notifications just as
+// the periodic monitor would. It is used by `glocker -block-app` so a freshly
+// blocked program is terminated right away instead of waiting for the next
+// monitor tick. Programs added via -block-app have no time windows (killed
+// always), so no window check is needed.
+func KillForbiddenNow(cfg *config.Config, names []string) {
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		killMatchingProcesses(cfg, name)
+	}
+}
+
 // KillOnBlock terminates the processes listed in cfg.KillOnBlock. It is meant to
 // run right after a domain is blocked: browsers cache DNS internally, so a newly
 // blocked domain stays reachable until they restart. Unlike forbidden-program

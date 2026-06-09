@@ -149,8 +149,10 @@ glocker -unblock "youtube.com,reddit.com:work research"
 glocker -block "facebook.com,instagram.com"
 glocker -add-keyword "gambling,casino,poker"
 
-# Forbidden-program runtime grants (program must be extendible: true)
+# Forbidden-program management
+glocker -block-app "steam,chromium"            # kill these on sight, 24/7
 glocker -extend "firefox:client call with X"   # one hour, max once per 24h
+                                               # (program must be extendible: true)
 
 # Control
 glocker -reload          # Reload config

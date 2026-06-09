@@ -38,7 +38,7 @@ domains:
 
   # Time-based blocking - only blocked during specified windows
   - name: "twitter.com"
-    time_windows:
+    block_windows:
       - start: "09:00"
         end: "17:00"
         days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -145,12 +145,40 @@ forbidden_programs:
   enabled: true
   check_interval_seconds: 5
   programs:
-    - name: "chromium"
-      time_windows:
+    - name: "chromium"          # killed DURING these windows
+      kill_windows:
         - start: "20:00"
           end: "05:00"
           days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-    - name: "steam"  # Always killed (no time windows)
+    - name: "steam"             # killed OUTSIDE these windows
+      allow_windows:
+        - start: "19:00"
+          end: "22:00"
+          days: ["Fri", "Sat"]
+    - name: "firefox"           # extendible: -extend grants one hour, max once per 24h
+      extendible: true
+      kill_windows:
+        - {start: "22:00", end: "05:00", days: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]}
+    - name: "discord"           # no windows → always killed
+```
+
+**Window modes:**
+- `kill_windows` → program is killed **during** the listed windows
+- `allow_windows` → program is killed **outside** the listed windows (inverse)
+- Neither → killed 24/7
+- `extendible: true` → `glocker -extend "name:reason"` grants a one-hour reprieve, capped at one grant per rolling 24h
+
+Programs can also be added at runtime with `glocker -block-app "name1,name2"` (no windows, killed on sight); the addition is persisted to the config file.
+
+## Kill on Block (DNS Cache Flush)
+
+Browsers cache DNS internally, so a domain freshly added via `glocker -block` stays reachable in an already-running browser until it restarts. Listed process names are killed right after a block applies, forcing a fresh lookup against the updated `/etc/hosts`. Matching is a case-insensitive substring of the process name; unlike `forbidden_programs`, this ignores time windows and is not counted as a violation.
+
+```yaml
+kill_on_block:
+  - firefox
+  - chromium
+  - brave
 ```
 
 ## Sudoers Control
@@ -161,7 +189,8 @@ sudoers:
   user: "noufal"
   allowed_sudoers_line: "noufal ALL=(ALL) NOPASSWD:ALL"
   blocked_sudoers_line: "noufal ALL=(ALL) NOPASSWD: /usr/bin/apt"
-  time_allowed:
+  # sudo is ALLOWED during these windows, blocked outside them
+  allow_windows:
     - start: "10:00"
       end: "16:00"
       days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -207,6 +236,18 @@ Sends notifications to accountability partner when:
 - Panic mode is activated/deactivated
 - Glocker is uninstalled
 
+## Lifecycle Logging
+
+Install and uninstall events are recorded to a log that `glockpeek` reads to mark `UNMANAGED` periods. `glocker -uninstall` must cite one of the configured `reasons` (validation is skipped if the list is empty) and accepts an optional free-form `-note`.
+
+```yaml
+lifecycle:
+  log_file: "/var/log/glocker-lifecycle.log"
+  reasons: ["maintenance", "hardware", "testing"]
+```
+
+Usage: `sudo glocker -uninstall "maintenance" -note "kernel upgrade"`
+
 ## Panic Mode
 
 ```yaml
@@ -215,19 +256,21 @@ panic_command: "sudo pm-suspend"
 
 ## Time Window Logic
 
-Time windows use HH:MM format and day-of-week arrays:
+Time windows use HH:MM format and day-of-week arrays. Each entry has the same
+shape regardless of which key it appears under (`block_windows`, `allow_windows`,
+`kill_windows`):
 
 ```yaml
-time_windows:
+block_windows:        # or allow_windows / kill_windows
   - start: "09:00"
     end: "17:00"
     days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
 ```
 
-Applied to:
-- Domain blocking
-- Sudoers restrictions
-- Forbidden programs
+The same window shape is used by several keys (the key name carries the semantics):
+- Domain blocking — `block_windows` (blocked during)
+- Sudoers restrictions — `allow_windows` (sudo allowed during)
+- Forbidden programs — `kill_windows` (killed during) or `allow_windows` (killed outside)
 
 Time windows support midnight-crossing (e.g., start: "22:00", end: "05:00").
 

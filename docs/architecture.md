@@ -10,9 +10,8 @@ Glocker is a **Go application** organized into modular packages under `internal/
 
 ```
 glocker/
-├── main.go                     # Entry point, CLI flags, daemon startup
-├── cmd/                        # Additional binaries
-│   ├── glocker/                # Main daemon
+├── cmd/                        # Binaries
+│   ├── glocker/                # Main daemon + CLI (entry point, flags)
 │   ├── glocklock/              # Screen locker utility
 │   └── glockpeek/              # Log analysis tool
 ├── internal/                   # Application packages
@@ -23,6 +22,7 @@ glocker/
 │   ├── ipc/                    # Unix socket server
 │   ├── monitoring/             # Background monitoring tasks
 │   ├── notify/                 # Email notifications
+│   ├── reports/                # Log parsing for glockpeek (reports, unblocks, lifecycle)
 │   ├── state/                  # Thread-safe global state
 │   ├── utils/                  # Shared utilities
 │   └── web/                    # HTTP server for extension
@@ -49,9 +49,11 @@ Glocker uses multiple independent monitors that work together to enforce blockin
 
 ```yaml
 domains:
+  # No windows → always blocked (permanent default)
+  - {name: "reddit.com"}
+  # Windows → blocked only during them
   - name: "twitter.com"
-    always_block: false
-    time_windows:
+    block_windows:
       - start: "09:00"
         end: "17:00"
         days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -111,12 +113,26 @@ extension_keywords:
 
 ### 5. Forbidden Programs Monitor
 
-**What it does:** Kills specified programs during configured time windows
+**What it does:** Kills specified programs based on per-program time windows
 
 **How it works:**
 - Checks every 5 seconds (configurable) for forbidden process names
-- Kills processes using `killall` when found during active time window
+- Process matching is a case-insensitive substring of the process name (`comm`)
+- Two window modes per program:
+  - `kill_windows` → killed **during** the listed windows
+  - `allow_windows` → killed **outside** the listed windows (inverse semantics)
+  - Neither → killed 24/7 (always forbidden)
+- A kill during an active window counts as a violation
 - Useful for blocking browsers, chat apps, games during work hours
+
+**Runtime additions:** `glocker -block-app "steam,chromium"` appends programs to
+this list at runtime — persisted to the config file and applied to the in-memory
+list the monitor reads, so already-running matches are killed on the next tick.
+
+**Extensions:** A program marked `extendible: true` can be granted a one-hour
+reprieve via `glocker -extend "firefox:client call"` for legitimate edge cases.
+Grants are capped at one per rolling 24 hours, persisted across daemon restarts,
+and logged/emailed for accountability.
 
 **Configuration:**
 
@@ -125,12 +141,44 @@ forbidden_programs:
   enabled: true
   check_interval_seconds: 5
   programs:
-    - name: "chromium"
-      time_windows:
+    - name: "chromium"            # killed during these hours
+      kill_windows:
         - start: "20:00"
           end: "05:00"
           days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-    - name: "mullvadbrowser"  # Always blocked (no time windows)
+    - name: "steam"               # killed except during these hours
+      allow_windows:
+        - start: "19:00"
+          end: "22:00"
+          days: ["Fri", "Sat"]
+    - name: "firefox"             # killed 22:00–05:00, one-hour extensions allowed
+      extendible: true
+      kill_windows:
+        - {start: "22:00", end: "05:00", days: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]}
+    - name: "mullvadbrowser"      # no windows → always killed
+```
+
+### 5b. Kill-on-Block (DNS Cache Flush)
+
+**What it does:** Kills configured browsers immediately after `glocker -block`
+applies, so a newly blocked domain isn't still reachable from a browser's
+internal DNS cache.
+
+**How it works:**
+- `cli.ProcessBlockRequest` calls `monitoring.KillOnBlock(cfg)` right after
+  enforcement writes the new domain to `/etc/hosts`
+- Matching reuses the forbidden-programs core (`terminateMatching`), but unlike
+  forbidden programs it **ignores time windows** and is **not counted as a
+  violation** — restarting a browser to re-read `/etc/hosts` is expected behavior
+- The list is surfaced in `glocker -info`
+
+**Configuration:**
+
+```yaml
+kill_on_block:
+  - firefox
+  - chromium
+  - brave
 ```
 
 ### 6. Violation Tracking & Threshold Actions
@@ -171,7 +219,8 @@ sudoers:
   user: "noufal"
   allowed_sudoers_line: "noufal ALL=(ALL) NOPASSWD:ALL"
   blocked_sudoers_line: "noufal ALL=(ALL) NOPASSWD: /usr/bin/apt, /sbin/modprobe"
-  time_allowed:
+  # sudo is ALLOWED during these windows, blocked outside them
+  allow_windows:
     - start: "10:00"
       end: "16:00"
       days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -363,8 +412,13 @@ Communication between CLI and daemon uses Unix socket with simple text protocol:
 - `status\n` - Request runtime status
 - `reload\n` - Reload configuration
 - `unblock:youtube.com,reddit.com:work\n` - Temporarily unblock domains
-- `block:facebook.com\n` - Permanently block domain
+- `block:facebook.com\n` - Permanently block domain (persists to config, kills `kill_on_block` browsers)
+- `block-app:steam,chromium\n` - Add programs to the forbidden list (killed 24/7)
+- `extend:firefox:client call\n` - Grant a one-hour run extension for an extendible program
+- `add-keyword:gambling,casino\n` - Add monitoring keywords
+- `lock\n` - Force sudoers lock immediately
 - `panic:30\n` - Enter panic mode for 30 minutes
+- `uninstall\n` - Uninstall glocker
 
 **Responses:** Multi-line text ending with `"END\n"`
 
@@ -505,8 +559,9 @@ func RecordViolation(cfg *config.Config, violationType, domain, url string) {
 
 - `/etc/glocker/config.yaml` - Main configuration
 - `/tmp/glocker.sock` - Unix socket for IPC
-- `/var/log/glocker-reports.log` - Content monitoring logs
+- `/var/log/glocker-reports.log` - Content monitoring / violation logs
 - `/var/log/glocker-unblocks.log` - Unblock request logs
+- `/var/log/glocker-lifecycle.log` - Install/uninstall events (reason + note); read by glockpeek to mark `UNMANAGED` periods
 - `/usr/local/bin/glocker` - Installed binary (setuid root)
 - `/etc/systemd/system/glocker.service` - Systemd service file
 
@@ -530,4 +585,5 @@ When enabled:
 
 - Sends email notifications via Mailgun when blocks are bypassed
 - Logs all unblock attempts with reasons
+- Logs install/uninstall lifecycle events with a required reason (gated by the configured list) and optional note
 - Daily violation reports (configurable)

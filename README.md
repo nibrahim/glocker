@@ -59,6 +59,7 @@ Each system can be independently enabled/disabled and configured with time windo
 - **Program Extensions** - Mark a forbidden program `extendible: true` to allow `glocker -extend` to grant a one-hour reprieve for legitimate edge cases (e.g. an unplanned evening business call); capped at one grant per rolling 24 hours, persisted across daemon restarts, logged and emailed
 - **Allow Windows for Programs** - In addition to `kill_windows`, programs can be configured with `allow_windows` (killed outside the listed times) for inverse semantics
 - **Accountability** - Email notifications to partner on violations, unblocks, and extension grants
+- **DNS Cache Flushing** - Configured browsers (`kill_on_block`) are killed right after `glocker -block` applies, forcing a fresh lookup so a newly blocked domain isn't still reachable from a browser's internal DNS cache
 - **Lifecycle Logging** - Install and uninstall events are recorded with a required reason and optional note; valid reasons are gated by config
 - **Content Monitoring** - Firefox extension watches for keywords on any page
 - **Screen Locker** - Time-based or text-based mindful unlocking
@@ -114,6 +115,15 @@ forbidden_programs:
           end: "05:00"
           days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
+# Browsers cache DNS internally, so a domain freshly added via `glocker -block`
+# stays reachable until they restart. Kill them on every -block to force a
+# fresh lookup against the updated /etc/hosts. Ignores time windows and is not
+# counted as a violation.
+kill_on_block:
+  - firefox
+  - chromium
+  - brave
+
 # Lifecycle accountability: -uninstall must cite one of these reasons
 lifecycle:
   log_file: "/var/log/glocker-lifecycle.log"
@@ -146,7 +156,8 @@ glocker -info            # Static configuration: domains, programs,
 
 # Domain management
 glocker -unblock "youtube.com,reddit.com:work research"
-glocker -block "facebook.com,instagram.com"
+glocker -block "facebook.com,instagram.com"   # persisted to config; also kills
+                                              # kill_on_block browsers to flush DNS
 glocker -add-keyword "gambling,casino,poker"
 
 # Forbidden-program management
@@ -168,6 +179,43 @@ glockpeek -detail 2024-06-15       # Detail view for a date (also accepts
                                    # "last week", "last month", etc.)
 glockpeek -from 2024-06 -to 2024-07  # Range view across months
 ```
+
+## Log Analysis with glockpeek
+
+`glockpeek` reads Glocker's log files — violations (`/var/log/glocker-reports.log`), unblocks (`/var/log/glocker-unblocks.log`), and lifecycle events (`/var/log/glocker-lifecycle.log`) — and renders colored, terminal-friendly summaries so you can see your patterns at a glance. It is read-only and needs no daemon or root.
+
+**Summary view (default)** — aggregate statistics across all logs:
+
+```bash
+glockpeek            # Violations summary: totals, by type (URL vs content
+                     # keyword), time-of-day periods, top keywords, top
+                     # domains, day-of-week distribution
+glockpeek -unblocks  # Unblocks summary: totals, time of day, top domains,
+                     # reasons cited, day of week
+```
+
+Bars are colored relative to the average (red = above average, green = below) so outliers stand out.
+
+**Date-range filtering** — scope any summary to a period. Accepts `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`:
+
+```bash
+glockpeek -from 2024                  # Everything from 2024 onward
+glockpeek -from 2024-01 -to 2024-06   # First half of 2024
+glockpeek -unblocks -from 2024-06     # Unblocks since June 2024
+```
+
+**Detailed timelines** — `-detail` picks the right granularity (day / week / month / year) from the input and accepts both exact dates and natural-language expressions:
+
+```bash
+glockpeek -detail yesterday      # Hour-by-hour breakdown for a single day
+glockpeek -detail 'last week'    # Day-by-day, Monday–Sunday
+glockpeek -detail 2024-06        # Day-by-day calendar for a month
+glockpeek -detail 'last month'   # Same, for the previous month
+glockpeek -detail 2024           # Month-by-month rollup for a year
+glockpeek -detail 'last year'    # Same, for the previous year
+```
+
+Detail views fold in the **lifecycle log**: any period during which Glocker was uninstalled (longer than 2 minutes — quick upgrades are ignored) is marked `UNMANAGED` in red, annotated with the reason and note from the uninstall, and counted separately from clean and violating periods. This makes gaps in coverage visible rather than silently absent. Hours/days with more than 2 violations are flagged as egregious (inverse video) to distinguish deliberate attempts from accidental hits.
 
 ## Architecture
 

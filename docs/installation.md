@@ -40,7 +40,8 @@ glocker -version
 # Temporarily unblock domains (20 minutes by default)
 glocker -unblock "youtube.com,reddit.com:work research"
 
-# Permanently block additional domains
+# Permanently block additional domains (persisted to config; also kills any
+# kill_on_block browsers so the new block isn't masked by their DNS cache)
 glocker -block "facebook.com,instagram.com"
 
 # Add keywords to monitoring lists (URL and content)
@@ -80,46 +81,46 @@ All commands communicate with the running daemon via Unix socket (`/tmp/glocker.
 
 ### glockpeek - Log Analysis
 
-A command-line tool for analyzing Glocker's violation and unblock logs with visual summaries.
+A read-only command-line tool for analyzing Glocker's violation, unblock, and
+lifecycle logs with visual summaries. Needs no daemon or root.
 
-**Default Summary View**
+**Summary View** (default)
 
 ```bash
-# Show all summaries (violations and unblocks)
+# Violations summary (totals, by type, time of day, top keywords/domains)
 glockpeek
 
-# Show only violations or unblocks
-glockpeek -violations
+# Unblocks summary (totals, top domains, reasons, day of week)
 glockpeek -unblocks
-
-# Show top 10 items instead of default 5
-glockpeek -top 10
 ```
 
-**Date Filtering**
+**Date Filtering** — accepts `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`:
 
 ```bash
-# Filter by year, month, or date range
 glockpeek -from 2024
 glockpeek -from 2024-06
 glockpeek -from 2024-06-15 -to 2024-06-30
+glockpeek -unblocks -from 2024-06       # filtering works with -unblocks too
 ```
 
-**Detailed Views**
+**Detailed Views** — `-detail` selects day/week/month/year granularity from the
+input and accepts exact dates or natural-language expressions:
 
 ```bash
-# Timeline for a specific day (hour-by-hour breakdown)
-glockpeek -day 2024-06-15
-
-# Daily aggregates for a month (calendar view)
-glockpeek -month 2024-06
+glockpeek -detail 2024-06-15       # hour-by-hour breakdown for a day
+glockpeek -detail yesterday        # natural-language day
+glockpeek -detail 'last week'      # day-by-day, Mon–Sun
+glockpeek -detail 2024-06          # daily calendar for a month
+glockpeek -detail 2024             # month-by-month rollup for a year
 ```
 
 The output includes:
 - Colored bar charts (red for above average, green for below)
-- Inverse video highlighting for egregious periods
+- Inverse video highlighting for egregious periods (>2 violations)
 - Top offenders by frequency
 - Time-of-day patterns
+- `UNMANAGED` markers (from the lifecycle log) for periods when Glocker was
+  uninstalled, annotated with the recorded reason/note
 
 ### glocklock - Screen Locker
 

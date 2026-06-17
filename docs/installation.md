@@ -94,6 +94,12 @@ glockpeek
 glockpeek -unblocks
 ```
 
+The violations summary also reports **unmanaged time** — periods when Glocker
+was uninstalled (from the lifecycle log). Because that is a bypass of the
+blocking regime, it is shown in red and counted as a violation, with the total
+duration, number of periods, and uninstall reasons. The window respects any
+`-from`/`-to` filter.
+
 **Date Filtering** — accepts `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`:
 
 ```bash

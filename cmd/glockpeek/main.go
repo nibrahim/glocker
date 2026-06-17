@@ -274,12 +274,21 @@ func printViolationsSummary(topN int, from, to *time.Time) {
 		})
 	}
 
+	summary := reports.SummarizeReports(entries)
+
+	// Unmanaged time (glocker uninstalled) counts as a violation of the
+	// blocking regime, so surface it in the summary even when there are no
+	// content violations to report.
+	periods := getUnmanagedPeriods()
+	rangeStart, rangeEnd := summaryUnmanagedRange(from, to, summary, periods)
+
 	if len(entries) == 0 {
 		fmt.Println("\nNo violation entries found.")
+		if !rangeStart.IsZero() {
+			printUnmanagedSummary(rangeStart, rangeEnd, periods)
+		}
 		return
 	}
-
-	summary := reports.SummarizeReports(entries)
 
 	fmt.Printf("\nTotal violations: %d\n", summary.TotalCount)
 	if summary.FirstEntry != nil && summary.LastEntry != nil {
@@ -287,6 +296,9 @@ func printViolationsSummary(topN int, from, to *time.Time) {
 			summary.FirstEntry.Format("2006-01-02"),
 			summary.LastEntry.Format("2006-01-02"))
 	}
+
+	// Unmanaged time section, marked as a violation.
+	printUnmanagedSummary(rangeStart, rangeEnd, periods)
 
 	// By type
 	fmt.Println("\n── By Type ──")
@@ -1387,60 +1399,101 @@ func getTopFromMap(m map[string]int, n int) []string {
 func calculateUnmanagedMinutesForDay(date time.Time) int {
 	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.Local)
 	dayEnd := dayStart.Add(24 * time.Hour)
+	return calculateUnmanagedMinutesInRange(dayStart, dayEnd, getUnmanagedPeriods())
+}
 
-	entries, err := reports.ParseLifecycleLog("")
-	if err != nil {
+// calculateUnmanagedMinutesInRange returns the total minutes glocker was
+// unmanaged that overlap [start, end).
+func calculateUnmanagedMinutesInRange(start, end time.Time, periods []unmanagedPeriod) int {
+	total := 0
+	for _, p := range periods {
+		pStart := p.start
+		pEnd := p.end
+		if pEnd.IsZero() {
+			pEnd = time.Now()
+		}
+		// Clamp to the requested range.
+		if pStart.Before(start) {
+			pStart = start
+		}
+		if pEnd.After(end) {
+			pEnd = end
+		}
+		if pStart.Before(pEnd) {
+			total += int(pEnd.Sub(pStart).Minutes())
+		}
+	}
+	return total
+}
+
+// formatUnmanagedDuration renders a minute count as "45m", "2h 15m", or
+// "3d 4h 5m" for longer spans.
+func formatUnmanagedDuration(minutes int) string {
+	if minutes < 60 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	days := minutes / (24 * 60)
+	hours := (minutes % (24 * 60)) / 60
+	mins := minutes % 60
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, mins)
+	}
+	return fmt.Sprintf("%dh %dm", hours, mins)
+}
+
+// summaryUnmanagedRange resolves the [start, end) window over which the
+// violations summary reports unmanaged time. When no -from/-to is given, it
+// spans from the earliest known activity (first violation or first unmanaged
+// period) to now. Returns a zero start when nothing is known.
+func summaryUnmanagedRange(from, to *time.Time, summary reports.ReportSummary, periods []unmanagedPeriod) (time.Time, time.Time) {
+	end := time.Now()
+	if to != nil {
+		end = *to
+	}
+	if from != nil {
+		return *from, end
+	}
+
+	start := time.Time{}
+	if summary.FirstEntry != nil {
+		start = *summary.FirstEntry
+	}
+	for _, p := range periods {
+		if start.IsZero() || p.start.Before(start) {
+			start = p.start
+		}
+	}
+	return start, end
+}
+
+// printUnmanagedSummary prints an "Unmanaged Time" section covering
+// [start, end). Time when glocker was uninstalled is a bypass of the blocking
+// regime, so it is highlighted in red and labelled as a violation. Nothing is
+// printed when there is no unmanaged time in range. Returns total unmanaged
+// minutes.
+func printUnmanagedSummary(start, end time.Time, periods []unmanagedPeriod) int {
+	totalMin := calculateUnmanagedMinutesInRange(start, end, periods)
+	if totalMin <= 0 {
 		return 0
 	}
 
-	totalMinutes := 0
-	var currentUninstall *time.Time
-
-	for _, e := range entries {
-		if e.Type == "uninstall" {
-			currentUninstall = &e.Timestamp
-		} else if e.Type == "install" && currentUninstall != nil {
-			// Skip very short periods (upgrades)
-			if e.Timestamp.Sub(*currentUninstall) < 2*time.Minute {
-				currentUninstall = nil
-				continue
-			}
-
-			// Calculate overlap with the target day
-			start := *currentUninstall
-			end := e.Timestamp
-
-			// Clamp to day boundaries
-			if start.Before(dayStart) {
-				start = dayStart
-			}
-			if end.After(dayEnd) {
-				end = dayEnd
-			}
-
-			// Only count if there's overlap
-			if start.Before(end) {
-				totalMinutes += int(end.Sub(start).Minutes())
-			}
-
-			currentUninstall = nil
+	// Count the periods overlapping the range.
+	overlapping := 0
+	for _, p := range periods {
+		pEnd := p.end
+		if pEnd.IsZero() {
+			pEnd = time.Now()
+		}
+		if start.Before(pEnd) && end.After(p.start) {
+			overlapping++
 		}
 	}
 
-	// Handle ongoing unmanaged period
-	if currentUninstall != nil {
-		start := *currentUninstall
-		end := time.Now()
-		if end.After(dayEnd) {
-			end = dayEnd
-		}
-		if start.Before(dayStart) {
-			start = dayStart
-		}
-		if start.Before(end) {
-			totalMinutes += int(end.Sub(start).Minutes())
-		}
+	fmt.Printf("\n── %sUnmanaged Time (counts as violation)%s ──\n", colorRed, colorReset)
+	fmt.Printf("  %s⚠ %s unmanaged across %d period(s)%s\n",
+		colorRed, formatUnmanagedDuration(totalMin), overlapping, colorReset)
+	if reasons := unmanagedReasonsForRange(start, end, periods); len(reasons) > 0 {
+		fmt.Printf("  Reasons: %s\n", strings.Join(reasons, ", "))
 	}
-
-	return totalMinutes
+	return totalMin
 }

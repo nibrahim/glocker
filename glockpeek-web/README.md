@@ -4,11 +4,26 @@ A tiny web companion to the `glockpeek` CLI. It reads the same glocker log
 files and lets you walk through your history visually — to find the times you
 are most **vulnerable to failure**.
 
-The headline view is the **vulnerability map**: a weekday × hour heatmap of
-violations. Slots where glocker was uninstalled are hatched, so a blank cell is
-never mistaken for a clean one.
+The headline is a single **composite health score** (0–100) so you can see
+overall health at a glance; the **vulnerability map** (a weekday × hour heatmap)
+sits just below to show *when* you slip.
 
-## What it shows
+## Composite health score
+
+`score = 100 − penalties`, floored at 0. Each penalty is a **rate** (not a raw
+count) so the score is comparable as you switch the window:
+
+| Penalty | Based on | Max points (weight) |
+|---------|----------|---------------------|
+| Unmanaged | fraction of the window glocker was uninstalled | 80 |
+| Violations | violations per day | 30 / (viol·day), capped at 45 |
+| Deliberate days | fraction of days with >2 hits | 50 |
+
+Weights live in `HEALTH_WEIGHTS` at the top of `public/app.js` — tune to taste.
+The score is banded (Excellent ≥ 90, Good ≥ 75, Fair ≥ 60, At risk ≥ 40,
+Critical < 40) and shows a breakdown of what cost the most.
+
+## What else it shows
 
 - **Vulnerability map** — violations by weekday × hour, with the peak slot glowing.
 - **Readout strip** — totals, deliberate days (>2 hits), clean days, peak exposure window, unmanaged time, unblocks.

@@ -99,6 +99,7 @@ function render() {
     .filter((p) => p.end > p.start);
 
   const heat = buildHeatmap(violations, b);
+  renderScore(violations, unmanaged, b);
   renderReadout(violations, unblocks, unmanaged, heat, b);
   renderHeatmap(heat);
   renderWeekdayChart(violations);
@@ -178,6 +179,109 @@ function heatColor(ratio) {
   // ensure any non-zero count is visibly warm, not base
   const lo = RAMP[1];
   return `rgb(${Math.max(mix(0), lo[0] * 0.6) | 0},${mix(1)},${mix(2)})`;
+}
+
+// ── Composite health score ──────────────────────────────
+// score = 100 − penalties, where each penalty is a RATE (not a raw count) so
+// the number is comparable as you switch windows. Weights are the max points
+// each failure mode can cost; tune them here.
+const HEALTH_WEIGHTS = {
+  exposure: 80, // points lost if glocker were uninstalled the entire window
+  violation: 30, // points lost per (violation/day)…
+  violationCap: 45, // …capped here so one wild day can't zero the score alone
+  deliberate: 50, // points lost if every day were a deliberate day (>2 hits)
+};
+
+function computeHealth(violations, unmanaged, b) {
+  const windowMs = Math.max(1, Math.min(b.end, state.data.now) - b.start);
+  const days = Math.max(1, Math.round(windowMs / DAY));
+
+  const unmanagedMs = unmanaged.reduce((s, p) => s + (p.end - p.start), 0);
+  const exposureFrac = Math.min(1, unmanagedMs / windowMs);
+
+  const byDay = new Map();
+  for (const v of violations) byDay.set(dayKey(v.ts), (byDay.get(dayKey(v.ts)) || 0) + 1);
+  const deliberateDays = [...byDay.values()].filter((c) => c > 2).length;
+
+  const vRate = violations.length / days;
+  const dFrac = deliberateDays / days;
+
+  const penalties = {
+    exposure: exposureFrac * HEALTH_WEIGHTS.exposure,
+    violations: Math.min(vRate * HEALTH_WEIGHTS.violation, HEALTH_WEIGHTS.violationCap),
+    deliberate: dFrac * HEALTH_WEIGHTS.deliberate,
+  };
+  const score = Math.max(0, Math.round(100 - penalties.exposure - penalties.violations - penalties.deliberate));
+
+  return { score, days, exposureFrac, vRate, deliberateDays, penalties, band: bandFor(score) };
+}
+
+function bandFor(s) {
+  if (s >= 90) return { label: "Excellent", color: "#34d399" };
+  if (s >= 75) return { label: "Good", color: "var(--safe)" };
+  if (s >= 60) return { label: "Fair", color: "var(--signal)" };
+  if (s >= 40) return { label: "At risk", color: "#ff8a3c" };
+  return { label: "Critical", color: "var(--danger)" };
+}
+
+function verdict(h) {
+  if (h.score >= 90) return "Fully covered with almost no slips. Keep it up.";
+  const drivers = [
+    ["exposure", "unmanaged time — glocker was uninstalled"],
+    ["violations", "frequent violations while guarded"],
+    ["deliberate", "days with repeated, deliberate attempts"],
+  ].sort((a, b) => h.penalties[b[0]] - h.penalties[a[0]]);
+  return `Health is ${h.band.label.toLowerCase()}. Biggest drag: ${drivers[0][1]}.`;
+}
+
+function renderScore(violations, unmanaged, b) {
+  const h = computeHealth(violations, unmanaged, b);
+  const R = 52, C = 2 * Math.PI * R;
+  const offset = C * (1 - h.score / 100);
+  const color = h.band.color;
+
+  const pens = [
+    {
+      label: "Unmanaged", val: h.penalties.exposure, color: "var(--exposed)",
+      help: `Glocker was uninstalled ${(h.exposureFrac * 100).toFixed(1)}% of this window. Exposure is weighted heaviest — up to ${HEALTH_WEIGHTS.exposure} points.`,
+    },
+    {
+      label: "Violations", val: h.penalties.violations, color: "var(--danger)",
+      help: `${h.vRate.toFixed(2)} violations/day. ${HEALTH_WEIGHTS.violation} points per violation/day, capped at ${HEALTH_WEIGHTS.violationCap}.`,
+    },
+    {
+      label: "Deliberate days", val: h.penalties.deliberate, color: "var(--danger-deep)",
+      help: `${h.deliberateDays} of ${h.days} days had >2 hits. Up to ${HEALTH_WEIGHTS.deliberate} points if every day were deliberate.`,
+    },
+  ];
+
+  const breakdown = pens
+    .map(
+      (p) => `<div class="pen" title="${esc(p.help)}">
+        <span class="plabel">${p.label}</span>
+        <span class="pval">&minus;${p.val.toFixed(0)}</span>
+        <span class="ptrack"><span class="pfill" style="width:${Math.min(100, p.val).toFixed(1)}%;background:${p.color}"></span></span>
+      </div>`
+    )
+    .join("");
+
+  document.getElementById("score").innerHTML = `
+    <div class="score-gauge" title="${h.score} out of 100">
+      <svg viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="gauge-track" cx="60" cy="60" r="${R}"></circle>
+        <circle class="gauge-arc" cx="60" cy="60" r="${R}"
+          style="stroke:${color};stroke-dasharray:${C.toFixed(1)};stroke-dashoffset:${offset.toFixed(1)}"></circle>
+      </svg>
+      <div class="gauge-center">
+        <span class="gauge-num" style="color:${color}">${h.score}</span>
+        <span class="gauge-max">/ 100</span>
+      </div>
+    </div>
+    <div class="score-detail">
+      <div class="score-band" style="color:${color}">${h.band.label}</div>
+      <p class="score-verdict">${esc(verdict(h))}</p>
+      <div class="score-breakdown">${breakdown}</div>
+    </div>`;
 }
 
 // ── Renderers ───────────────────────────────────────────

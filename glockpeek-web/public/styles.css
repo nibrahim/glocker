@@ -174,6 +174,54 @@ main {
 .panel-sub { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-dim); }
 .hero { border-color: var(--line-2); }
 
+/* ── Composite health score (leading metric) ──────────── */
+.score-hero { border-color: var(--line-2); }
+.score-body {
+  display: grid;
+  grid-template-columns: 168px 1fr;
+  gap: 34px;
+  align-items: center;
+}
+@media (max-width: 620px) { .score-body { grid-template-columns: 1fr; justify-items: center; } }
+
+.score-gauge { position: relative; width: 168px; height: 168px; }
+.score-gauge svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.gauge-track { fill: none; stroke: var(--line-2); stroke-width: 9; }
+.gauge-arc {
+  fill: none;
+  stroke-width: 9;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.2, 0.7, 0.2, 1), stroke 0.4s;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.12));
+}
+.gauge-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.gauge-num { font-family: var(--display); font-weight: 900; font-size: 54px; line-height: 1; letter-spacing: -0.02em; }
+.gauge-max { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); margin-top: 4px; }
+
+.score-detail { min-width: 0; }
+.score-band {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 24px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+.score-verdict { margin: 8px 0 18px; color: var(--ink-dim); font-size: 14px; }
+.score-breakdown { display: flex; flex-direction: column; gap: 11px; max-width: 460px; }
+.pen { display: grid; grid-template-columns: 120px 38px 1fr; gap: 12px; align-items: center; }
+.pen .plabel { font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim); }
+.pen .pval { font-family: var(--mono); font-size: 12.5px; color: var(--ink); text-align: right; }
+.pen .ptrack { height: 6px; background: var(--bg-2); border-radius: 3px; overflow: hidden; }
+.pen .pfill { height: 100%; border-radius: 3px; transition: width 0.6s cubic-bezier(0.2, 0.7, 0.2, 1); }
+
 /* ── Instrument readout strip ─────────────────────────── */
 .readout {
   display: grid;

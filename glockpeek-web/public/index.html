@@ -31,11 +31,20 @@
   </header>
 
   <main id="dash" hidden>
+    <!-- Leading metric: composite health score -->
+    <section class="panel score-hero" title="A 0–100 health score: 100 minus weighted penalties for unmanaged time, violations, and deliberate days. Hover each penalty for its weight.">
+      <div class="panel-head">
+        <h2>Composite health</h2>
+        <p class="panel-sub">100 minus penalties for unmanaged time, violations, and deliberate days. Higher is healthier.</p>
+      </div>
+      <div class="score-body" id="score"></div>
+    </section>
+
     <!-- Instrument readout strip -->
     <section class="readout" id="readout"></section>
 
-    <!-- Hero: vulnerability heatmap -->
-    <section class="panel hero">
+    <!-- Vulnerability heatmap -->
+    <section class="panel">
       <div class="panel-head">
         <h2>Vulnerability map</h2>
         <p class="panel-sub">Violations by hour &times; weekday. Brighter is more exposed.</p>

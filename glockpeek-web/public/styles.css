@@ -9,9 +9,9 @@
   --panel-2: #11161f;
   --line: #1b2230;
   --line-2: #283142;
-  --ink: #e7ecf3;
-  --ink-dim: #8b97a8;
-  --ink-faint: #515c6d;
+  --ink: #eef2f7;
+  --ink-dim: #c3ccd9;   /* secondary text — still clearly legible on dark */
+  --ink-faint: #97a3b4; /* least important text — readable, never decorative */
 
   --safe: #2f9e8f;     /* clean / quiet */
   --signal: #f0a020;   /* accent, deliberate */
@@ -259,21 +259,65 @@ main {
 .legend-key .swatch { width: 13px; height: 13px; border-radius: 3px; display: inline-block; }
 .legend-key .swatch.hatch { background-image: repeating-linear-gradient(45deg, rgba(192,70,143,0.7) 0 3px, transparent 3px 6px); background-color: rgba(192,70,143,0.15); }
 
-/* ── Calendar ─────────────────────────────────────────── */
-.calendar { overflow-x: auto; padding-bottom: 6px; }
-.cal-grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 1fr); gap: 3px; width: max-content; }
-.cal-cell {
-  width: 13px; height: 13px;
-  border-radius: 3px;
-  background: #0c1119;
-  border: 1px solid rgba(255,255,255,0.03);
+/* ── Calendar (real month grids) ──────────────────────── */
+.calendar {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 22px;
 }
-.cal-cell.unmanaged {
-  background-image: repeating-linear-gradient(45deg, rgba(192,70,143,0.6) 0 2px, transparent 2px 4px);
-  background-color: rgba(192,70,143,0.12);
+.cal-month { min-width: 0; }
+.cal-month h3 {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+  margin: 0 0 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
-.cal-cell.future { opacity: 0; }
-.cal-months { display: flex; gap: 3px; margin-bottom: 6px; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); width: max-content; }
+.cal-month h3 .mtotal { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); font-weight: 500; }
+.cal-weekdays, .cal-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.cal-weekdays { margin-bottom: 6px; }
+.cal-wd {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+.cal-day {
+  aspect-ratio: 1 / 1;
+  border-radius: 5px;
+  background: #0d1320;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 4px 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.cal-day.blank { background: transparent; border-color: transparent; }
+.cal-day.out { opacity: 0.32; }            /* day outside the selected window */
+.cal-day.has { color: #fff; font-weight: 600; }
+.cal-day:not(.blank):hover { transform: scale(1.12); z-index: 2; border-color: rgba(255,255,255,0.4); }
+.cal-day.unmanaged {
+  background-image: repeating-linear-gradient(45deg, rgba(192,70,143,0.6) 0 4px, transparent 4px 8px);
+  background-color: rgba(192,70,143,0.16);
+  color: #f4cfe5;
+}
+.cal-day.today { box-shadow: 0 0 0 1.5px var(--signal); }
+.cal-legend {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line);
+  font-family: var(--mono); font-size: 11px; color: var(--ink-dim);
+}
 
 /* ── Rank lists (keywords / domains / reasons) ────────── */
 .ranklist { display: flex; flex-direction: column; gap: 10px; }

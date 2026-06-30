@@ -194,17 +194,35 @@ function renderReadout(violations, unblocks, unmanaged, heat, b) {
     : "—";
 
   const stats = [
-    { k: "Violations", v: violations.length, sub: `${(violations.length / days).toFixed(1)}/day` },
-    { k: "Deliberate days", v: deliberateDays, sub: `>2 hits · of ${days}d` , cls: deliberateDays ? "alarm" : "" },
-    { k: "Clean days", v: Math.max(0, cleanDays), sub: `${Math.round((Math.max(0, cleanDays) / days) * 100)}% of window` },
-    { k: "Peak exposure", v: peakLabel, sub: heat.peak ? `${heat.peak.count} hits` : "no data", cls: "peak", big: false },
-    { k: "Unmanaged", v: fmtDur(unmanagedMs), sub: `${unmanaged.length} span(s)`, cls: unmanagedMs ? "alarm" : "" },
-    { k: "Unblocks", v: unblocks.length, sub: "deliberate grants" },
+    {
+      k: "Violations", v: violations.length, sub: `${(violations.length / days).toFixed(1)}/day`,
+      help: "Total blocked-keyword hits (URL + page content) reported by the browser extension in the selected window.",
+    },
+    {
+      k: "Deliberate days", v: deliberateDays, sub: `>2 hits · of ${days}d`, cls: deliberateDays ? "alarm" : "",
+      help: "Days with more than 2 violations. glockpeek treats >2 hits in a day as a deliberate attempt rather than an accidental one.",
+    },
+    {
+      k: "Clean days", v: Math.max(0, cleanDays), sub: `${Math.round((Math.max(0, cleanDays) / days) * 100)}% of window`,
+      help: "Days in the window with zero recorded violations.",
+    },
+    {
+      k: "Peak exposure", v: peakLabel, sub: heat.peak ? `${heat.peak.count} hits` : "no data", cls: "peak", big: false,
+      help: "The weekday + hour slot with the most violations — the time you are statistically most vulnerable to failure.",
+    },
+    {
+      k: "Unmanaged", v: fmtDur(unmanagedMs), sub: `${unmanaged.length} span(s)`, cls: unmanagedMs ? "alarm" : "",
+      help: "Total time glocker was uninstalled (not enforcing) in the window. This counts as exposure — no blocking was active.",
+    },
+    {
+      k: "Unblocks", v: unblocks.length, sub: "deliberate grants",
+      help: "Number of temporary unblock grants you requested (e.g. glocker -unblock) in the window.",
+    },
   ];
 
   document.getElementById("readout").innerHTML = stats
     .map(
-      (s) => `<div class="stat ${s.cls || ""}">
+      (s) => `<div class="stat ${s.cls || ""}" title="${esc(s.help)}">
         <div class="k">${s.k}</div>
         <div class="v" ${s.big === false ? 'style="font-size:20px"' : ""}>${s.v}</div>
         <div class="sub">${s.sub}</div>
@@ -273,29 +291,74 @@ function renderCalendar(violations, b) {
   const counts = new Map();
   for (const v of violations) counts.set(dayKey(v.ts), (counts.get(dayKey(v.ts)) || 0) + 1);
   const max = Math.max(1, ...counts.values());
-
-  // Start on the Monday on/before the window start.
-  let cur = startOfDay(b.start);
-  cur -= weekdayIndex(new Date(cur)) * DAY;
-  const end = startOfDay(state.data.now);
   const periods = state.data.unmanaged;
+  const today = startOfDay(state.data.now);
+  const winStart = startOfDay(b.start);
+  const winEnd = Math.min(startOfDay(b.end), today);
+
+  const isUnmanaged = (t) =>
+    periods.some((p) => t < (p.open ? state.data.now : p.end) && t + DAY > p.start);
+
+  // One card per calendar month spanned by the window.
+  const months = [];
+  let m = new Date(winStart);
+  m = new Date(m.getFullYear(), m.getMonth(), 1);
+  const lastMonth = new Date(winEnd);
+  while (m <= lastMonth) {
+    months.push(renderMonth(m, counts, max, isUnmanaged, winStart, winEnd, today));
+    m = new Date(m.getFullYear(), m.getMonth() + 1, 1);
+  }
+
+  const legend = `<div class="cal-legend">
+    <span class="legend-scale">none
+      ${RAMP.map((_, i) => `<i style="background:${heatColor(i / (RAMP.length - 1))}"></i>`).join("")}
+      more</span>
+    <span class="legend-key"><span class="swatch hatch"></span> unmanaged (glocker off)</span>
+    <span class="legend-key"><span class="swatch" style="box-shadow:0 0 0 1.5px var(--signal)"></span> today</span>
+  </div>`;
+
+  document.getElementById("calendar").innerHTML = months.join("") + legend;
+}
+
+function renderMonth(monthStart, counts, max, isUnmanaged, winStart, winEnd, today) {
+  const year = monthStart.getFullYear();
+  const month = monthStart.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const lead = weekdayIndex(monthStart); // Mon=0 blanks before day 1
+
+  const wdHeader = WEEKDAYS.map((d) => `<div class="cal-wd">${d[0]}</div>`).join("");
 
   const cells = [];
-  for (let t = cur; t <= end; t += DAY) {
-    const future = t > end;
-    const key = dayKey(t);
-    const count = counts.get(key) || 0;
-    const ratio = count / max;
-    const dayEnd = t + DAY;
-    const unmanaged = periods.some((p) => t < (p.open ? state.data.now : p.end) && dayEnd > p.start);
-    const cls = `cal-cell${future ? " future" : ""}${unmanaged ? " unmanaged" : ""}`;
-    const bg = count > 0 && !unmanaged ? `background:${heatColor(ratio)}` : "";
-    const label = new Date(t).toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" });
-    const title = `${label} · ${count} violation${count === 1 ? "" : "s"}${unmanaged ? " · unmanaged" : ""}`;
-    cells.push(`<div class="${cls}" style="${bg}" title="${title}"></div>`);
+  for (let i = 0; i < lead; i++) cells.push(`<div class="cal-day blank"></div>`);
+
+  let monthTotal = 0;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const t = new Date(year, month, day).getTime();
+    const count = counts.get(dayKey(t)) || 0;
+    const inWindow = t >= winStart && t <= winEnd;
+    if (inWindow) monthTotal += count;
+    const unmanaged = inWindow && isUnmanaged(t);
+    const cls = [
+      "cal-day",
+      inWindow ? "" : "out",
+      count > 0 && inWindow ? "has" : "",
+      unmanaged ? "unmanaged" : "",
+      t === today ? "today" : "",
+    ].filter(Boolean).join(" ");
+    const bg = inWindow && count > 0 && !unmanaged ? `background:${heatColor(count / max)}` : "";
+    const label = new Date(t).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    const title = inWindow
+      ? `${label} · ${count} violation${count === 1 ? "" : "s"}${unmanaged ? " · glocker unmanaged this day" : ""}`
+      : `${label} · outside selected window`;
+    cells.push(`<div class="${cls}" style="${bg}" title="${title}">${day}</div>`);
   }
-  document.getElementById("calendar").innerHTML =
-    `<div class="cal-grid">${cells.join("")}</div>`;
+
+  const heading = monthStart.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  return `<div class="cal-month">
+    <h3>${heading} <span class="mtotal">${monthTotal} hit${monthTotal === 1 ? "" : "s"}</span></h3>
+    <div class="cal-weekdays">${wdHeader}</div>
+    <div class="cal-days">${cells.join("")}</div>
+  </div>`;
 }
 
 function renderRanklist(id, items, color) {
@@ -349,8 +412,8 @@ function renderFooter() {
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name.replace("var(", "").replace(")", "")).trim();
 }
-const GRID = "rgba(255,255,255,0.05)";
-const TICK = "#8b97a8";
+const GRID = "rgba(255,255,255,0.08)";
+const TICK = "#aeb9c9";
 
 function destroy(id) {
   if (state.charts[id]) state.charts[id].destroy();

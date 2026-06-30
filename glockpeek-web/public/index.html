@@ -46,11 +46,17 @@
 
     <div class="grid-2">
       <section class="panel">
-        <div class="panel-head"><h2>By weekday</h2></div>
+        <div class="panel-head">
+          <h2>By weekday</h2>
+          <p class="panel-sub">Total violations on each day of the week across the window.</p>
+        </div>
         <canvas id="chart-weekday"></canvas>
       </section>
       <section class="panel">
-        <div class="panel-head"><h2>By hour</h2></div>
+        <div class="panel-head">
+          <h2>By hour</h2>
+          <p class="panel-sub">Total violations in each hour of the day (00&ndash;23), all days combined.</p>
+        </div>
         <canvas id="chart-hour"></canvas>
       </section>
     </div>
@@ -66,17 +72,26 @@
 
     <!-- Daily timeline -->
     <section class="panel">
-      <div class="panel-head"><h2>Timeline</h2></div>
+      <div class="panel-head">
+        <h2>Timeline</h2>
+        <p class="panel-sub">Violations per day across the window.</p>
+      </div>
       <canvas id="chart-timeline"></canvas>
     </section>
 
     <div class="grid-2">
       <section class="panel">
-        <div class="panel-head"><h2>Top keywords</h2></div>
+        <div class="panel-head">
+          <h2>Top keywords</h2>
+          <p class="panel-sub">Blocked keywords that triggered the most reports.</p>
+        </div>
         <div id="top-keywords" class="ranklist"></div>
       </section>
       <section class="panel">
-        <div class="panel-head"><h2>Top domains</h2></div>
+        <div class="panel-head">
+          <h2>Top domains</h2>
+          <p class="panel-sub">Sites where violations were reported most often.</p>
+        </div>
         <div id="top-domains" class="ranklist"></div>
       </section>
     </div>

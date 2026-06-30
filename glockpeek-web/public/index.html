@@ -40,6 +40,34 @@
       <div class="score-body" id="score"></div>
     </section>
 
+    <!-- History: calendar + timeline on the left, sticky day inspector on the right -->
+    <div class="history">
+      <div class="history-main">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>History calendar</h2>
+            <p class="panel-sub">Each cell is a day. Red = violations, hatched = unmanaged (glocker off). Hover a day for details.</p>
+          </div>
+          <div id="calendar" class="calendar"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Timeline</h2>
+            <p class="panel-sub">Violations per day across the window. Hover a point for details.</p>
+          </div>
+          <canvas id="chart-timeline"></canvas>
+        </section>
+      </div>
+
+      <aside class="history-side">
+        <section class="panel day-inspector">
+          <div class="panel-head"><h2>Day detail</h2></div>
+          <div id="day-detail" class="day-detail"></div>
+        </section>
+      </aside>
+    </div>
+
     <!-- Instrument readout strip -->
     <section class="readout" id="readout"></section>
 
@@ -69,24 +97,6 @@
         <canvas id="chart-hour"></canvas>
       </section>
     </div>
-
-    <!-- Calendar: walk through history -->
-    <section class="panel">
-      <div class="panel-head">
-        <h2>History calendar</h2>
-        <p class="panel-sub">Each cell is a day. Red = violations, hatched = unmanaged (glocker off).</p>
-      </div>
-      <div id="calendar" class="calendar"></div>
-    </section>
-
-    <!-- Daily timeline -->
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Timeline</h2>
-        <p class="panel-sub">Violations per day across the window.</p>
-      </div>
-      <canvas id="chart-timeline"></canvas>
-    </section>
 
     <div class="grid-2">
       <section class="panel">

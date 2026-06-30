@@ -31,6 +31,14 @@ async function init() {
   }
   document.getElementById("loading").hidden = true;
   document.getElementById("dash").hidden = false;
+
+  // Delegated hover: the calendar is re-rendered on every range change, but the
+  // container element is stable so one listener suffices.
+  document.getElementById("calendar").addEventListener("mouseover", (e) => {
+    const cell = e.target.closest(".cal-day[data-ts]");
+    if (cell) showDay(Number(cell.dataset.ts));
+  });
+
   renderFooter();
   render();
 }
@@ -98,6 +106,15 @@ function render() {
     .map((p) => ({ ...p, start: Math.max(p.start, b.start), end: Math.min(p.end, b.end) }))
     .filter((p) => p.end > p.start);
 
+  // Per-day index shared by the calendar, timeline, and day inspector.
+  const dayIndex = new Map();
+  for (const v of violations) {
+    const k = dayKey(v.ts);
+    if (!dayIndex.has(k)) dayIndex.set(k, []);
+    dayIndex.get(k).push(v);
+  }
+  state.dayIndex = dayIndex;
+
   const heat = buildHeatmap(violations, b);
   renderScore(violations, unmanaged, b);
   renderReadout(violations, unblocks, unmanaged, heat, b);
@@ -106,6 +123,7 @@ function render() {
   renderHourChart(violations);
   renderCalendar(violations, b);
   renderTimeline(violations, b);
+  resetDayDetail();
   renderRanklist("top-keywords", tally(violations, "keyword"), "var(--danger)");
   renderRanklist("top-domains", tally(violations, "domain"), "var(--signal)");
   renderRanklist("unblock-reasons", tally(unblocks, "reason"), "var(--safe)");
@@ -379,7 +397,7 @@ function renderHourChart(violations) {
 
 function renderTimeline(violations, b) {
   const days = Math.round((b.end - b.start) / DAY) + 1;
-  const labels = [], data = [];
+  const labels = [], data = [], dayTs = [];
   const counts = new Map();
   for (const v of violations) counts.set(dayKey(v.ts), (counts.get(dayKey(v.ts)) || 0) + 1);
   for (let i = 0; i < days; i++) {
@@ -387,8 +405,12 @@ function renderTimeline(violations, b) {
     const d = new Date(ts);
     labels.push(d.getDate() === 1 || i === 0 ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
     data.push(counts.get(dayKey(ts)) || 0);
+    dayTs.push(ts);
   }
-  lineChart("chart-timeline", labels, data);
+  // Hovering a point fills the day inspector with that day's breakdown.
+  lineChart("chart-timeline", labels, data, (index) => {
+    if (index != null && dayTs[index] != null) showDay(dayTs[index]);
+  });
 }
 
 function renderCalendar(violations, b) {
@@ -454,7 +476,8 @@ function renderMonth(monthStart, counts, max, isUnmanaged, winStart, winEnd, tod
     const title = inWindow
       ? `${label} · ${count} violation${count === 1 ? "" : "s"}${unmanaged ? " · glocker unmanaged this day" : ""}`
       : `${label} · outside selected window`;
-    cells.push(`<div class="${cls}" style="${bg}" title="${title}">${day}</div>`);
+    const data = inWindow ? ` data-ts="${t}"` : "";
+    cells.push(`<div class="${cls}" style="${bg}" title="${title}"${data}>${day}</div>`);
   }
 
   const heading = monthStart.toLocaleDateString(undefined, { month: "long", year: "numeric" });
@@ -463,6 +486,76 @@ function renderMonth(monthStart, counts, max, isUnmanaged, winStart, winEnd, tod
     <div class="cal-weekdays">${wdHeader}</div>
     <div class="cal-days">${cells.join("")}</div>
   </div>`;
+}
+
+// ── Day inspector (shared by calendar + timeline hover) ──
+function resetDayDetail() {
+  document.getElementById("day-detail").innerHTML =
+    `<div class="dd-empty">Hover a day in the calendar or a point on the timeline for a breakdown of that day's violations.</div>`;
+}
+
+function showDay(dayTs) {
+  const k = dayKey(dayTs);
+  const hits = (state.dayIndex.get(k) || []).slice().sort((a, b) => a.ts - b.ts);
+  const dateLabel = new Date(dayTs).toLocaleDateString(undefined, {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
+
+  const t = startOfDay(dayTs);
+  const um = state.data.unmanaged.find((p) => t < (p.open ? state.data.now : p.end) && t + DAY > p.start);
+  const deliberate = hits.length > 2;
+
+  const badges = [];
+  if (hits.length) badges.push(`<span class="dd-count">${hits.length} violation${hits.length === 1 ? "" : "s"}</span>`);
+  if (deliberate) badges.push(`<span class="badge alarm" title="More than 2 violations in a day — treated as deliberate">deliberate</span>`);
+  if (um) badges.push(`<span class="badge exposed" title="glocker was uninstalled this day">unmanaged</span>`);
+  const head = `<div class="dd-head"><span class="dd-date">${dateLabel}</span><span class="dd-badges">${badges.join("")}</span></div>`;
+
+  let body;
+  if (hits.length) {
+    const kw = miniRank(tally(hits, "keyword"), "var(--danger)");
+    const dom = miniRank(tally(hits, "domain"), "var(--signal)");
+    const list = hits
+      .map((h) => {
+        const time = new Date(h.ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+        const kind = h.type === "url-keyword" ? "url" : "page";
+        return `<div class="hit">
+          <span class="ht">${time}</span>
+          <span class="hk">${esc(h.keyword)}</span>
+          <span class="hd" title="${esc(h.url)}">${esc(h.domain || "—")} <em>${kind}</em></span>
+        </div>`;
+      })
+      .join("");
+    body = `<div class="dd-grid">
+      <div class="dd-sum">
+        <h4>Keywords</h4>${kw}
+        <h4>Domains</h4>${dom}
+      </div>
+      <div class="dd-hits"><h4>Hits (${hits.length})</h4><div class="hit-list">${list}</div></div>
+    </div>`;
+  } else if (um) {
+    const why = [um.reason, um.note].filter(Boolean).join(" — ") || "no reason given";
+    body = `<div class="dd-note exposed-note">glocker was unmanaged this day — activity was not recorded.<br><span class="dim">Reason: ${esc(why)}</span></div>`;
+  } else {
+    body = `<div class="dd-note clean-note">No violations — clean day ✓</div>`;
+  }
+
+  document.getElementById("day-detail").innerHTML = head + body;
+}
+
+function miniRank(items, color) {
+  if (!items.length) return `<div class="empty">none</div>`;
+  const max = items[0].count;
+  return items
+    .slice(0, 6)
+    .map(
+      (it) => `<div class="mrank">
+        <span class="mlabel" title="${esc(it.name)}">${esc(it.name)}</span>
+        <span class="mbar"><span style="width:${Math.round((it.count / max) * 100)}%;background:${color}"></span></span>
+        <span class="mcount">${it.count}</span>
+      </div>`
+    )
+    .join("");
 }
 
 function renderRanklist(id, items, color) {
@@ -533,12 +626,18 @@ function barChart(id, labels, data, colorVar) {
   });
 }
 
-function lineChart(id, labels, data) {
+function lineChart(id, labels, data, onPoint) {
   destroy(id);
   const ctx = document.getElementById(id).getContext("2d");
   const grad = ctx.createLinearGradient(0, 0, 0, 240);
   grad.addColorStop(0, "rgba(255,77,77,0.35)");
   grad.addColorStop(1, "rgba(255,77,77,0)");
+  const opts = baseOpts();
+  opts.interaction = { mode: "index", intersect: false };
+  opts.plugins.tooltip.enabled = false; // the day inspector replaces the native tooltip
+  if (onPoint) {
+    opts.onHover = (_e, els) => onPoint(els.length ? els[0].index : null);
+  }
   state.charts[id] = new Chart(ctx, {
     type: "line",
     data: {
@@ -550,10 +649,12 @@ function lineChart(id, labels, data) {
         fill: true,
         tension: 0.3,
         pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHoverBackgroundColor: cssVar("var(--danger)"),
         borderWidth: 1.5,
       }],
     },
-    options: baseOpts(),
+    options: opts,
   });
 }
 

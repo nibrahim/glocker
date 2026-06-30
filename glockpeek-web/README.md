@@ -28,7 +28,10 @@ Critical < 40) and shows a breakdown of what cost the most.
 - **Vulnerability map** — violations by weekday × hour, with the peak slot glowing.
 - **Readout strip** — totals, deliberate days (>2 hits), clean days, peak exposure window, unmanaged time, unblocks.
 - **By weekday / by hour** — frequency distributions.
-- **History calendar** — GitHub-style per-day grid; red = violations, hatched = unmanaged.
+- **History calendar** — real month grids; red = violations, hatched = unmanaged.
+- **Day detail** — a reserved inspector that fills with a day's full breakdown
+  (keywords, domains, time-ordered hit list, deliberate/unmanaged badges) when
+  you hover a calendar day or a timeline point.
 - **Timeline** — violations per day across the window.
 - **Top keywords / domains** — what trips the blocker.
 - **Unblocks** — deliberate temporary grants, by reason.

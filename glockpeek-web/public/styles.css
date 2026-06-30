@@ -64,23 +64,25 @@ body {
   mask-image: radial-gradient(circle at 50% 30%, black, transparent 90%);
 }
 
-main, .masthead, .footer { position: relative; z-index: 1; }
+.app { position: relative; z-index: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100vh; }
 
-/* ── Masthead ─────────────────────────────────────────── */
-.masthead {
+/* ── Sidebar / nav ────────────────────────────────────── */
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  flex-wrap: wrap;
-  padding: 28px clamp(16px, 4vw, 48px) 18px;
-  border-bottom: 1px solid var(--line);
+  flex-direction: column;
+  gap: 26px;
+  padding: 24px 16px;
+  border-right: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 40%);
 }
 
-.brand { display: flex; align-items: center; gap: 18px; }
-
+.brand { display: flex; align-items: center; gap: 12px; padding: 0 6px; }
 .reticle {
-  width: 46px; height: 46px;
+  width: 38px; height: 38px;
   flex: none;
   border-radius: 50%;
   border: 1px solid var(--line-2);
@@ -93,15 +95,15 @@ main, .masthead, .footer { position: relative; z-index: 1; }
   background: var(--danger);
   box-shadow: 0 0 8px var(--danger);
 }
-.reticle::before { left: 50%; top: 8px; bottom: 8px; width: 1px; transform: translateX(-50%); opacity: 0.6; }
-.reticle::after  { top: 50%; left: 8px; right: 8px; height: 1px; transform: translateY(-50%); opacity: 0.6;
+.reticle::before { left: 50%; top: 7px; bottom: 7px; width: 1px; transform: translateX(-50%); opacity: 0.6; }
+.reticle::after  { top: 50%; left: 7px; right: 7px; height: 1px; transform: translateY(-50%); opacity: 0.6;
   animation: sweep 4s linear infinite; transform-origin: center; }
 @keyframes sweep { from { transform: translateY(-50%) rotate(0); } to { transform: translateY(-50%) rotate(360deg); } }
 
 .brand h1 {
   font-family: var(--display);
   font-weight: 900;
-  font-size: clamp(28px, 4vw, 40px);
+  font-size: 23px;
   letter-spacing: -0.02em;
   margin: 0;
   line-height: 1;
@@ -109,13 +111,40 @@ main, .masthead, .footer { position: relative; z-index: 1; }
 }
 .brand h1 span { color: var(--danger); }
 .tagline {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  color: var(--ink-dim);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
   text-transform: uppercase;
 }
+
+.nav { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.nav li { margin: 0; }
+.nav button {
+  width: 100%;
+  text-align: left;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.nav button:hover { color: var(--ink); background: var(--panel); }
+.nav button.active {
+  color: #fff;
+  background: var(--panel-2);
+  box-shadow: inset 2px 0 0 var(--danger);
+}
+
+.sidebar-foot { margin-top: auto; padding: 0 8px; }
+.src { font-family: var(--mono); font-size: 10px; line-height: 1.8; color: var(--ink-faint); }
 
 /* range control */
 .range { display: flex; align-items: center; gap: 12px; }
@@ -141,14 +170,45 @@ main, .masthead, .footer { position: relative; z-index: 1; }
 .range-buttons button:hover { color: var(--ink); }
 .range-buttons button.active { background: var(--danger); color: #fff; box-shadow: 0 0 14px rgba(255,77,77,0.4); }
 
-/* ── Layout ───────────────────────────────────────────── */
-main {
-  max-width: 1640px;
-  margin: 0 auto;
-  padding: 26px clamp(16px, 4vw, 48px) 80px;
+/* ── Content / views ──────────────────────────────────── */
+.content { min-width: 0; display: flex; flex-direction: column; }
+.main-header {
   display: flex;
-  flex-direction: column;
-  gap: 22px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 22px clamp(16px, 3vw, 40px) 18px;
+  border-bottom: 1px solid var(--line);
+}
+.view-title {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+main { padding: 24px clamp(16px, 3vw, 40px) 64px; min-width: 0; }
+.view { display: none; flex-direction: column; gap: 22px; }
+.view.active { display: flex; }
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { margin-right: auto; }
+  .nav { flex-direction: row; flex-wrap: wrap; gap: 4px; width: 100%; }
+  .nav button { width: auto; }
+  .sidebar-foot { display: none; }
 }
 
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
@@ -503,25 +563,13 @@ canvas { max-height: 260px; }
 }
 .error { color: var(--danger); flex-direction: column; gap: 10px; text-align: center; padding: 20px; }
 
-.footer {
-  border-top: 1px solid var(--line);
-  padding: 16px clamp(16px, 4vw, 48px);
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-faint);
-  letter-spacing: 0.04em;
-}
-
-/* staggered panel reveal */
-main:not([hidden]) > * { animation: rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
-main > *:nth-child(1) { animation-delay: 0.02s; }
-main > *:nth-child(2) { animation-delay: 0.07s; }
-main > *:nth-child(3) { animation-delay: 0.12s; }
-main > *:nth-child(4) { animation-delay: 0.17s; }
-main > *:nth-child(5) { animation-delay: 0.22s; }
-main > *:nth-child(6) { animation-delay: 0.27s; }
-main > *:nth-child(7) { animation-delay: 0.32s; }
+/* staggered reveal of the active view's panels (re-runs on each view switch) */
+.view.active > * { animation: rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.view.active > *:nth-child(1) { animation-delay: 0.02s; }
+.view.active > *:nth-child(2) { animation-delay: 0.08s; }
+.view.active > *:nth-child(3) { animation-delay: 0.14s; }
+.view.active > *:nth-child(4) { animation-delay: 0.20s; }
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  main > *, .reticle::after { animation: none !important; }
+  .view.active > *, .reticle::after { animation: none !important; }
 }

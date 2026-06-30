@@ -15,7 +15,15 @@ const RANGES = [
   { id: "all", label: "all", days: null },
 ];
 
-const state = { data: null, range: "90d", charts: {} };
+const state = { data: null, range: "30d", view: "overview", charts: {} };
+
+const VIEW_TITLES = {
+  overview: "Overview",
+  history: "History",
+  patterns: "Patterns",
+  sources: "Sources",
+  bypasses: "Bypasses",
+};
 
 init();
 
@@ -39,8 +47,27 @@ async function init() {
     if (cell) showDay(Number(cell.dataset.ts));
   });
 
+  // Left-nav view switching.
+  document.getElementById("nav").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-view]");
+    if (btn) setView(btn.dataset.view);
+  });
+
   renderFooter();
   render();
+}
+
+function setView(view) {
+  state.view = view;
+  document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === view));
+  document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  document.getElementById("view-title").textContent = VIEW_TITLES[view] || view;
+  // Charts built while their view was display:none have zero size; fix on reveal.
+  requestAnimationFrame(() => {
+    for (const c of Object.values(state.charts)) {
+      try { c.resize(); } catch { /* chart may be mid-rebuild */ }
+    }
+  });
 }
 
 function showError(msg) {

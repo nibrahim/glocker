@@ -23,21 +23,23 @@ Weights live in `HEALTH_WEIGHTS` at the top of `public/app.js` — tune to taste
 The score is banded (Excellent ≥ 90, Good ≥ 75, Fair ≥ 60, At risk ≥ 40,
 Critical < 40) and shows a breakdown of what cost the most.
 
-## What else it shows
+## Views
 
-- **Vulnerability map** — violations by weekday × hour, with the peak slot glowing.
-- **Readout strip** — totals, deliberate days (>2 hits), clean days, peak exposure window, unmanaged time, unblocks.
-- **By weekday / by hour** — frequency distributions.
-- **History calendar** — real month grids; red = violations, hatched = unmanaged.
-- **Day detail** — a reserved inspector that fills with a day's full breakdown
-  (keywords, domains, time-ordered hit list, deliberate/unmanaged badges) when
-  you hover a calendar day or a timeline point.
-- **Timeline** — violations per day across the window.
-- **Top keywords / domains** — what trips the blocker.
-- **Unblocks** — deliberate temporary grants, by reason.
-- **Unmanaged exposure** — every span when glocker was uninstalled.
+A left-hand nav switches between views instead of one long scroll:
 
-Use the **window** control (30d / 90d / 1y / all) to walk through history.
+- **Overview** — composite health score + the readout strip (totals, deliberate
+  days (>2 hits), clean days, peak exposure window, unmanaged time, unblocks).
+- **History** — real month-grid calendar + daily timeline, with a sticky
+  **Day detail** inspector that fills with a day's full breakdown (keyword and
+  domain tallies, time-ordered hit list, deliberate/unmanaged badges) when you
+  hover a calendar day or a timeline point.
+- **Patterns** — the vulnerability map (weekday × hour, peak slot glowing) plus
+  by-weekday and by-hour distributions.
+- **Sources** — top keywords and top domains.
+- **Bypasses** — unblock grants by reason, and every span when glocker was
+  uninstalled.
+
+The **window** control (30d / 90d / 1y / all, default 30d) reframes every view.
 
 ## Data sources
 

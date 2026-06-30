@@ -1,0 +1,156 @@
+openapi: 3.0.3
+info:
+  title: glockpeek-web API
+  version: 0.1.0
+  description: >
+    Serves the parsed glocker log history (violations, unblocks, lifecycle
+    events, and computed unmanaged periods) to the dashboard frontend. All
+    aggregation and date-range filtering happens client-side; these endpoints
+    return the full parsed data set.
+servers:
+  - url: http://localhost:4317
+paths:
+  /api/data:
+    get:
+      summary: Full parsed glocker history
+      operationId: getData
+      responses:
+        "200":
+          description: Parsed history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Data"
+        "500":
+          description: Server error reading or parsing logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/health:
+    get:
+      summary: Liveness and which log files were found
+      operationId: getHealth
+      responses:
+        "200":
+          description: Health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  sources:
+                    $ref: "#/components/schemas/Sources"
+                  paths:
+                    type: object
+                    additionalProperties:
+                      type: string
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    Sources:
+      type: object
+      description: Whether each log file was found and readable.
+      properties:
+        reports:
+          type: boolean
+        unblocks:
+          type: boolean
+        lifecycle:
+          type: boolean
+    Violation:
+      type: object
+      description: One content/URL keyword violation report.
+      properties:
+        ts:
+          type: integer
+          format: int64
+          description: Event time in epoch milliseconds (local-zone naive timestamp).
+        type:
+          type: string
+          enum: [url-keyword, content-keyword]
+        keyword:
+          type: string
+        url:
+          type: string
+        domain:
+          type: string
+    Unblock:
+      type: object
+      description: One temporary unblock grant.
+      properties:
+        ts:
+          type: integer
+          format: int64
+          description: Unblock time in epoch milliseconds.
+        restoreTs:
+          type: integer
+          format: int64
+          nullable: true
+          description: When the unblock expired, in epoch milliseconds.
+        reason:
+          type: string
+        domain:
+          type: string
+    Lifecycle:
+      type: object
+      description: One install or uninstall event.
+      properties:
+        ts:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [install, uninstall]
+        reason:
+          type: string
+        note:
+          type: string
+    Unmanaged:
+      type: object
+      description: A span during which glocker was uninstalled (fully exposed).
+      properties:
+        start:
+          type: integer
+          format: int64
+        end:
+          type: integer
+          format: int64
+        open:
+          type: boolean
+          description: True if glocker is still uninstalled (span ends at now).
+        reason:
+          type: string
+        note:
+          type: string
+    Data:
+      type: object
+      properties:
+        now:
+          type: integer
+          format: int64
+          description: Server time in epoch milliseconds when the data was read.
+        sources:
+          $ref: "#/components/schemas/Sources"
+        violations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Violation"
+        unblocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Unblock"
+        lifecycle:
+          type: array
+          items:
+            $ref: "#/components/schemas/Lifecycle"
+        unmanaged:
+          type: array
+          items:
+            $ref: "#/components/schemas/Unmanaged"

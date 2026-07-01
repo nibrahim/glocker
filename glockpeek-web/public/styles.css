@@ -398,6 +398,8 @@ main { padding: 24px clamp(16px, 3vw, 40px) 64px; min-width: 0; }
   text-transform: uppercase;
 }
 .cal-day {
+  position: relative;
+  overflow: hidden;
   aspect-ratio: 1 / 1;
   border-radius: 5px;
   background: #0d1320;
@@ -415,10 +417,14 @@ main { padding: 24px clamp(16px, 3vw, 40px) 64px; min-width: 0; }
 .cal-day.out { opacity: 0.32; }            /* day outside the selected window */
 .cal-day.has { color: #fff; font-weight: 600; }
 .cal-day:not(.blank):hover { transform: scale(1.12); z-index: 2; border-color: rgba(255,255,255,0.4); }
-.cal-day.unmanaged {
-  background-image: repeating-linear-gradient(45deg, rgba(192,70,143,0.6) 0 4px, transparent 4px 8px);
-  background-color: rgba(192,70,143,0.16);
-  color: #f4cfe5;
+.cal-daynum { position: relative; z-index: 1; }
+/* Proportional unmanaged strip, filling from the bottom by day fraction. */
+.cal-hatch {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  z-index: 0;
+  background-image: repeating-linear-gradient(45deg, rgba(214, 96, 165, 0.85) 0 3px, transparent 3px 6px);
+  background-color: rgba(192, 70, 143, 0.22);
 }
 .cal-day.today { box-shadow: 0 0 0 1.5px var(--signal); }
 .cal-legend {
@@ -493,6 +499,20 @@ main { padding: 24px clamp(16px, 3vw, 40px) 64px; min-width: 0; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .hit .hd em { color: var(--ink-faint); font-style: normal; text-transform: uppercase; }
+
+/* Coverage line: unmanaged vs managed split for the hovered day. */
+.dd-cov {
+  display: flex; flex-direction: column; gap: 3px;
+  font-family: var(--mono); font-size: 12.5px;
+  margin-bottom: 14px; padding: 10px 12px;
+  border-left: 2px solid var(--exposed);
+  background: rgba(192, 70, 143, 0.08);
+  border-radius: 0 6px 6px 0;
+}
+.dd-cov .cov-unm { color: var(--exposed); }
+.dd-cov .cov-unm b { color: #f4cfe5; font-weight: 600; }
+.dd-cov .cov-man { color: var(--ink-dim); }
+.dd-cov .cov-why { color: var(--ink-faint); }
 
 .dd-note { font-family: var(--mono); font-size: 13.5px; padding: 18px 4px; line-height: 1.6; }
 .dd-note .dim { color: var(--ink-faint); }

@@ -440,6 +440,21 @@ function renderTimeline(violations, b) {
   });
 }
 
+// Milliseconds of a given day [t, t+DAY) that glocker was unmanaged, clipped to
+// each span (and to "now" for the still-open span / for today's partial day).
+function dayUnmanagedMs(t) {
+  let ms = 0;
+  for (const p of state.data.unmanaged) {
+    const pEnd = p.open ? state.data.now : p.end;
+    const s = Math.max(p.start, t);
+    const e = Math.min(pEnd, t + DAY);
+    if (e > s) ms += e - s;
+  }
+  return ms;
+}
+
+const HOUR_MS = 3600000;
+
 function renderCalendar(violations, b) {
   const counts = new Map();
   for (const v of violations) counts.set(dayKey(v.ts), (counts.get(dayKey(v.ts)) || 0) + 1);
@@ -449,16 +464,13 @@ function renderCalendar(violations, b) {
   const winStart = startOfDay(b.start);
   const winEnd = Math.min(startOfDay(b.end), today);
 
-  const isUnmanaged = (t) =>
-    periods.some((p) => t < (p.open ? state.data.now : p.end) && t + DAY > p.start);
-
   // One card per calendar month spanned by the window.
   const months = [];
   let m = new Date(winStart);
   m = new Date(m.getFullYear(), m.getMonth(), 1);
   const lastMonth = new Date(winEnd);
   while (m <= lastMonth) {
-    months.push(renderMonth(m, counts, max, isUnmanaged, winStart, winEnd, today));
+    months.push(renderMonth(m, counts, max, winStart, winEnd, today));
     m = new Date(m.getFullYear(), m.getMonth() + 1, 1);
   }
 
@@ -466,14 +478,14 @@ function renderCalendar(violations, b) {
     <span class="legend-scale">none
       ${RAMP.map((_, i) => `<i style="background:${heatColor(i / (RAMP.length - 1))}"></i>`).join("")}
       more</span>
-    <span class="legend-key"><span class="swatch hatch"></span> unmanaged (glocker off)</span>
+    <span class="legend-key"><span class="swatch hatch"></span> unmanaged (proportion of day, &gt;1h)</span>
     <span class="legend-key"><span class="swatch" style="box-shadow:0 0 0 1.5px var(--signal)"></span> today</span>
   </div>`;
 
   document.getElementById("calendar").innerHTML = months.join("") + legend;
 }
 
-function renderMonth(monthStart, counts, max, isUnmanaged, winStart, winEnd, today) {
+function renderMonth(monthStart, counts, max, winStart, winEnd, today) {
   const year = monthStart.getFullYear();
   const month = monthStart.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -490,21 +502,27 @@ function renderMonth(monthStart, counts, max, isUnmanaged, winStart, winEnd, tod
     const count = counts.get(dayKey(t)) || 0;
     const inWindow = t >= winStart && t <= winEnd;
     if (inWindow) monthTotal += count;
-    const unmanaged = inWindow && isUnmanaged(t);
+
+    // Hatch only the fraction of the day that was unmanaged, and only when it
+    // exceeds an hour (below that it's usually just an upgrade blip).
+    const unmMs = inWindow ? dayUnmanagedMs(t) : 0;
+    const hatched = unmMs > HOUR_MS;
+    const frac = Math.min(1, unmMs / DAY);
+
     const cls = [
       "cal-day",
       inWindow ? "" : "out",
       count > 0 && inWindow ? "has" : "",
-      unmanaged ? "unmanaged" : "",
       t === today ? "today" : "",
     ].filter(Boolean).join(" ");
-    const bg = inWindow && count > 0 && !unmanaged ? `background:${heatColor(count / max)}` : "";
+    const bg = inWindow && count > 0 ? `background:${heatColor(count / max)}` : "";
     const label = new Date(t).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     const title = inWindow
-      ? `${label} · ${count} violation${count === 1 ? "" : "s"}${unmanaged ? " · glocker unmanaged this day" : ""}`
+      ? `${label} · ${count} violation${count === 1 ? "" : "s"}${unmMs > 0 ? ` · ${fmtDur(unmMs)} unmanaged` : ""}`
       : `${label} · outside selected window`;
     const data = inWindow ? ` data-ts="${t}"` : "";
-    cells.push(`<div class="${cls}" style="${bg}" title="${title}"${data}>${day}</div>`);
+    const hatch = hatched ? `<span class="cal-hatch" style="height:${Math.round(frac * 100)}%"></span>` : "";
+    cells.push(`<div class="${cls}" style="${bg}" title="${title}"${data}>${hatch}<span class="cal-daynum">${day}</span></div>`);
   }
 
   const heading = monthStart.toLocaleDateString(undefined, { month: "long", year: "numeric" });
@@ -529,14 +547,31 @@ function showDay(dayTs) {
   });
 
   const t = startOfDay(dayTs);
-  const um = state.data.unmanaged.find((p) => t < (p.open ? state.data.now : p.end) && t + DAY > p.start);
+  const elapsed = Math.max(HOUR_MS, Math.min(t + DAY, state.data.now) - t); // day so far
+  const unmMs = dayUnmanagedMs(t);
+  const managedMs = Math.max(0, elapsed - unmMs);
+  const unmPct = Math.round((unmMs / elapsed) * 100);
+  const fullyUnmanaged = managedMs < HOUR_MS && unmMs > 0;
   const deliberate = hits.length > 2;
 
   const badges = [];
   if (hits.length) badges.push(`<span class="dd-count">${hits.length} violation${hits.length === 1 ? "" : "s"}</span>`);
   if (deliberate) badges.push(`<span class="badge alarm" title="More than 2 violations in a day — treated as deliberate">deliberate</span>`);
-  if (um) badges.push(`<span class="badge exposed" title="glocker was uninstalled this day">unmanaged</span>`);
+  if (unmMs > HOUR_MS) badges.push(`<span class="badge exposed" title="glocker was uninstalled for part of this day">unmanaged</span>`);
   const head = `<div class="dd-head"><span class="dd-date">${dateLabel}</span><span class="dd-badges">${badges.join("")}</span></div>`;
+
+  // Coverage line — always shown when any of the day was unmanaged, so the
+  // managed remainder's stats are never hidden behind an "unmanaged" label.
+  let coverage = "";
+  if (unmMs > 0) {
+    const spans = state.data.unmanaged.filter((p) => t < (p.open ? state.data.now : p.end) && t + DAY > p.start);
+    const reasons = [...new Set(spans.map((p) => [p.reason, p.note].filter(Boolean).join(" — ")).filter(Boolean))].join(", ");
+    coverage = `<div class="dd-cov">
+      <span class="cov-unm">Unmanaged <b>${fmtDur(unmMs)}</b> (${unmPct}%)</span>
+      <span class="cov-man">Managed ${fmtDur(managedMs)} · ${hits.length} violation${hits.length === 1 ? "" : "s"}</span>
+      ${reasons ? `<span class="cov-why">Reason: ${esc(reasons)}</span>` : ""}
+    </div>`;
+  }
 
   let body;
   if (hits.length) {
@@ -553,16 +588,17 @@ function showDay(dayTs) {
         </div>`;
       })
       .join("");
-    body = `<div class="dd-grid">
+    body = coverage + `<div class="dd-grid">
       <div class="dd-sum">
         <h4>Keywords</h4>${kw}
         <h4>Domains</h4>${dom}
       </div>
       <div class="dd-hits"><h4>Hits (${hits.length})</h4><div class="hit-list">${list}</div></div>
     </div>`;
-  } else if (um) {
-    const why = [um.reason, um.note].filter(Boolean).join(" — ") || "no reason given";
-    body = `<div class="dd-note exposed-note">glocker was unmanaged this day — activity was not recorded.<br><span class="dim">Reason: ${esc(why)}</span></div>`;
+  } else if (fullyUnmanaged) {
+    body = coverage + `<div class="dd-note exposed-note">glocker was unmanaged all day — no activity was recorded.</div>`;
+  } else if (unmMs > 0) {
+    body = coverage + `<div class="dd-note clean-note">No violations during the managed part of the day ✓</div>`;
   } else {
     body = `<div class="dd-note clean-note">No violations — clean day ✓</div>`;
   }

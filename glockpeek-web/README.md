@@ -29,10 +29,13 @@ A left-hand nav switches between views instead of one long scroll:
 
 - **Overview** — composite health score + the readout strip (totals, deliberate
   days (>2 hits), clean days, peak exposure window, unmanaged time, unblocks).
-- **History** — real month-grid calendar + daily timeline, with a sticky
-  **Day detail** inspector that fills with a day's full breakdown (keyword and
-  domain tallies, time-ordered hit list, deliberate/unmanaged badges) when you
-  hover a calendar day or a timeline point.
+- **History** — real month-grid calendar + daily timeline. Each day is shaded
+  by violation count and carries a bottom hatch strip sized to the *fraction*
+  of the day glocker was unmanaged (shown only above an hour), so a briefly
+  unmanaged day no longer looks fully exposed. A sticky **Day detail** inspector
+  fills with a day's full breakdown — the unmanaged/managed split, keyword and
+  domain tallies, and a time-ordered hit list — when you hover a calendar day
+  or a timeline point.
 - **Patterns** — the vulnerability map (weekday × hour, peak slot glowing) plus
   by-weekday and by-hour distributions.
 - **Sources** — top keywords and top domains.

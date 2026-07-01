@@ -483,8 +483,12 @@ function renderTimeline(violations, b) {
     dayTs.push(ts);
   }
   // Hovering a point fills the day inspector with that day's breakdown.
-  lineChart("chart-timeline", labels, data, (index) => {
-    if (index != null && dayTs[index] != null) showDay(dayTs[index]);
+  // Draw a vertical gridline at each labelled (month-start) tick.
+  lineChart("chart-timeline", labels, data, {
+    onPoint: (index) => {
+      if (index != null && dayTs[index] != null) showDay(dayTs[index]);
+    },
+    gridAt: (index) => !!labels[index],
   });
 }
 
@@ -737,7 +741,7 @@ function barChart(id, labels, data, colorVar) {
   });
 }
 
-function lineChart(id, labels, data, onPoint) {
+function lineChart(id, labels, data, { onPoint, gridAt } = {}) {
   destroy(id);
   const ctx = document.getElementById(id).getContext("2d");
   const grad = ctx.createLinearGradient(0, 0, 0, 240);
@@ -748,6 +752,14 @@ function lineChart(id, labels, data, onPoint) {
   opts.plugins.tooltip.enabled = false; // the day inspector replaces the native tooltip
   if (onPoint) {
     opts.onHover = (_e, els) => onPoint(els.length ? els[0].index : null);
+  }
+  if (gridAt) {
+    // Vertical gridlines only at ticks the predicate selects (keeps 1y readable).
+    opts.scales.x.grid = {
+      display: true,
+      drawTicks: false,
+      color: (c) => (gridAt(c.index) ? GRID : "transparent"),
+    };
   }
   state.charts[id] = new Chart(ctx, {
     type: "line",

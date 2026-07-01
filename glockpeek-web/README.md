@@ -43,6 +43,9 @@ A left-hand nav switches between views instead of one long scroll:
   uninstalled.
 
 The **window** control (30d / 90d / 1y / all, default 30d) reframes every view.
+For the fixed sizes, the **‹ ›** pager steps one whole window into the past or
+future (the label shows the current window's dates); it stops at the present and
+at the earliest logged day. "all" spans everything and isn't paged.
 
 ## Data sources
 

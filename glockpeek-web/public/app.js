@@ -15,7 +15,9 @@ const RANGES = [
   { id: "all", label: "all", days: null },
 ];
 
-const state = { data: null, range: "30d", view: "overview", charts: {} };
+// offset counts fixed windows back from the most recent: 0 = latest window
+// ending now, -1 = the window immediately before it, etc.
+const state = { data: null, range: "30d", offset: 0, view: "overview", charts: {} };
 
 const VIEW_TITLES = {
   overview: "Overview",
@@ -100,11 +102,35 @@ function buildRangeButtons() {
     if (r.id === state.range) b.classList.add("active");
     b.addEventListener("click", () => {
       state.range = r.id;
+      state.offset = 0; // reset to the most recent window when resizing
       wrap.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x.dataset.id === r.id));
       render();
     });
     wrap.appendChild(b);
   }
+
+  // Step one window into the past / future.
+  document.getElementById("range-prev").addEventListener("click", () => shiftWindow(-1));
+  document.getElementById("range-next").addEventListener("click", () => shiftWindow(1));
+}
+
+function shiftWindow(dir) {
+  const r = RANGES.find((x) => x.id === state.range);
+  if (!r.days) return; // "all" is not shiftable
+  const next = Math.min(0, state.offset + dir);
+  if (next === state.offset) return;
+  // Don't page past the earliest data we have.
+  if (dir < 0 && windowBounds().start <= startOfDay(earliestTs())) return;
+  state.offset = next;
+  render();
+}
+
+function earliestTs() {
+  let min = Infinity;
+  for (const a of [state.data.violations, state.data.unblocks, state.data.lifecycle]) {
+    if (a.length) min = Math.min(min, a[0].ts); // arrays are sorted ascending
+  }
+  return Number.isFinite(min) ? min : state.data.now;
 }
 
 function windowBounds() {
@@ -112,14 +138,35 @@ function windowBounds() {
   const r = RANGES.find((x) => x.id === state.range);
   if (!r.days) {
     // "all" — from the earliest event we have.
-    const firstTs = Math.min(
-      ...[state.data.violations, state.data.unblocks, state.data.lifecycle]
-        .map((a) => (a.length ? a[0].ts : Infinity))
-    );
-    const start = Number.isFinite(firstTs) ? startOfDay(firstTs) : startOfDay(now - 30 * DAY);
+    const start = startOfDay(earliestTs());
     return { start, end: now };
   }
-  return { start: startOfDay(now - (r.days - 1) * DAY), end: now };
+  // Anchor to day boundaries and page back by whole windows.
+  const endDayStart = startOfDay(now) + state.offset * r.days * DAY;
+  const start = endDayStart - (r.days - 1) * DAY;
+  const end = state.offset === 0 ? now : endDayStart + DAY - 1;
+  return { start, end };
+}
+
+// Update the pager label and enabled/disabled state of the step buttons.
+function renderRangeControl(b) {
+  const r = RANGES.find((x) => x.id === state.range);
+  const nav = document.getElementById("range-nav");
+  const label = document.getElementById("range-label");
+  const prev = document.getElementById("range-prev");
+  const next = document.getElementById("range-next");
+
+  if (!r.days) {
+    nav.hidden = true;
+    return;
+  }
+  nav.hidden = false;
+  const fmt = (ts) => new Date(ts).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const fmtY = (ts) => new Date(ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  label.textContent = `${fmt(b.start)} – ${fmtY(b.end)}`;
+
+  next.disabled = state.offset === 0;
+  prev.disabled = b.start <= startOfDay(earliestTs());
 }
 
 const within = (ts, b) => ts >= b.start && ts <= b.end;
@@ -127,6 +174,7 @@ const within = (ts, b) => ts >= b.start && ts <= b.end;
 // ── Master render ───────────────────────────────────────
 function render() {
   const b = windowBounds();
+  renderRangeControl(b);
   const violations = state.data.violations.filter((v) => within(v.ts, b));
   const unblocks = state.data.unblocks.filter((u) => within(u.ts, b));
   const unmanaged = state.data.unmanaged

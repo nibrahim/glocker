@@ -482,13 +482,23 @@ function renderTimeline(violations, b) {
     data.push(counts.get(dayKey(ts)) || 0);
     dayTs.push(ts);
   }
+  // Vertical gridline density adapts to the window: every day for short
+  // windows, weekly once daily would crowd, monthly for long spans.
+  const granularity = days <= 45 ? "day" : days <= 180 ? "week" : "month";
+  const gridAt = (i) => {
+    const ts = dayTs[i];
+    if (ts == null) return false;
+    if (granularity === "day") return true;
+    const d = new Date(ts);
+    return granularity === "week" ? weekdayIndex(d) === 0 : d.getDate() === 1;
+  };
+
   // Hovering a point fills the day inspector with that day's breakdown.
-  // Draw a vertical gridline at each labelled (month-start) tick.
   lineChart("chart-timeline", labels, data, {
     onPoint: (index) => {
       if (index != null && dayTs[index] != null) showDay(dayTs[index]);
     },
-    gridAt: (index) => !!labels[index],
+    gridAt,
   });
 }
 

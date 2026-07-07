@@ -9,6 +9,8 @@ const DAY = 86400000;
 const HOUR = 3600000;
 
 const RANGES = [
+  { id: "1d", label: "1d", days: 1 },
+  { id: "1w", label: "1w", days: 7 },
   { id: "30d", label: "30d", days: 30 },
   { id: "90d", label: "90d", days: 90 },
   { id: "1y", label: "1y", days: 365 },
@@ -846,17 +848,69 @@ function tagForSample(e, compiled) {
   return null;
 }
 
+const UNTAGGED = "(untagged)";
+
 function computeTagUsage(entries, compiled) {
   const byTag = new Map();
+  const hourByTag = new Map(); // tag -> [24] ms, for the stacked hour-of-day chart
+  const untaggedByProg = new Map(); // program -> { ms, titles: Map<title, ms> }
   let untagged = 0, active = 0;
+
+  const addHour = (name, hr, dt) => {
+    let a = hourByTag.get(name);
+    if (!a) { a = new Array(24).fill(0); hourByTag.set(name, a); }
+    a[hr] += dt;
+  };
+
   eachSampleDuration(entries, (e, dt, away) => {
     if (away) return;
     active += dt;
+    const hr = new Date(e.ts).getHours();
     const tag = tagForSample(e, compiled);
-    if (tag) byTag.set(tag, (byTag.get(tag) || 0) + dt);
-    else untagged += dt;
+    if (tag) {
+      byTag.set(tag, (byTag.get(tag) || 0) + dt);
+      addHour(tag, hr, dt);
+    } else {
+      untagged += dt;
+      addHour(UNTAGGED, hr, dt);
+      // Track what's untagged so the user can see it and turn it into a rule.
+      const prog = (e.active.class || "").trim() || "unknown";
+      let u = untaggedByProg.get(prog);
+      if (!u) { u = { ms: 0, titles: new Map() }; untaggedByProg.set(prog, u); }
+      u.ms += dt;
+      const title = e.active.title || "—";
+      u.titles.set(title, (u.titles.get(title) || 0) + dt);
+    }
   });
-  return { tags: rankMap(byTag), untagged, active };
+
+  // Flatten untagged into a ranked list, each with its heaviest example title.
+  const untaggedItems = [...untaggedByProg.entries()]
+    .map(([program, u]) => {
+      const top = [...u.titles.entries()].sort((a, b) => b[1] - a[1])[0];
+      return { program, ms: u.ms, title: top ? top[0] : "", titleCount: u.titles.size };
+    })
+    .sort((a, b) => b.ms - a.ms);
+
+  return { tags: rankMap(byTag), untagged, active, hourByTag, untaggedItems };
+}
+
+// Canonical ordering shared by the tag pie and the stacked hour chart, so a tag
+// keeps the same colour in both. Tags sorted by total desc, untagged last-ish
+// (sorted in by size but flagged so it always renders grey).
+function orderedTagItems(tu) {
+  const items = tu.tags.slice();
+  if (tu.untagged > 0) items.push({ name: UNTAGGED, ms: tu.untagged, untagged: true });
+  items.sort((a, b) => b.ms - a.ms);
+  return items;
+}
+
+function tagColorMap(items) {
+  const map = new Map();
+  let ci = 0;
+  for (const it of items) {
+    map.set(it.name, it.untagged ? cssVar("var(--ink-faint)") : TAG_COLORS[ci++ % TAG_COLORS.length]);
+  }
+  return map;
 }
 
 function renderUsage(b) {
@@ -882,6 +936,60 @@ function recategorize() {
   if (!win) return;
   const tu = computeTagUsage(win.entries, compileRules(state.rules));
   renderUsageTags(tu, win.available);
+  renderUsageTagHours(tu, win.available);
+  renderUntagged(tu, win.available);
+}
+
+// The active time no rule matched, grouped by program with an example title, so
+// the user can see what still needs a rule (and click to start one).
+function renderUntagged(tu, available) {
+  const el = document.getElementById("usage-untagged");
+  if (!available) {
+    el.innerHTML = `<div class="empty">usage tracking is off</div>`;
+    return;
+  }
+  const items = tu.untaggedItems || [];
+  if (!items.length) {
+    el.innerHTML = `<div class="empty">nothing untagged — full coverage ✓</div>`;
+    return;
+  }
+  const max = items[0].ms || 1;
+  el.innerHTML = items
+    .slice(0, 15)
+    .map((it) => {
+      const pct = Math.round((it.ms / max) * 100);
+      const more = it.titleCount > 1 ? ` <em>+${it.titleCount - 1} more</em>` : "";
+      return `<div class="untag">
+        <div class="untag-info">
+          <span class="untag-prog">${esc(it.program)}</span>
+          <span class="untag-title" title="${esc(it.title)}">${esc(it.title)}${more}</span>
+        </div>
+        <span class="untag-time">${esc(fmtDur(it.ms))}</span>
+        <button class="untag-tag" type="button" data-tag-program="${esc(it.program)}" title="Start a rule for ${esc(it.program)}">&plus; tag</button>
+        <span class="untag-bar"><span style="width:${pct}%"></span></span>
+      </div>`;
+    })
+    .join("");
+}
+
+// Start a rule for a program: append a prefilled row to the editor, focus its
+// tag field, and let the user name it and Save.
+function startRuleForProgram(program) {
+  syncRulesFromDom();
+  state.rules.push({ program: `^${escapeRegex(program)}$`, title: "", tag: "" });
+  renderRulesEditor();
+  markRuleValidity();
+  const rows = document.querySelectorAll("#rules-rows .rule-row");
+  const last = rows[rows.length - 1];
+  if (last) {
+    last.scrollIntoView({ behavior: "smooth", block: "center" });
+    last.querySelector('[data-field="tag"]').focus();
+  }
+  recategorize();
+}
+
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // Categorical palette for the tag pie (distinct hues that read on the dark
@@ -893,27 +1001,49 @@ const TAG_COLORS = [
 
 function renderUsageTags(tu, available) {
   const wrap = document.getElementById("usage-tags-wrap");
-  const items = tu.tags.slice();
-  if (tu.untagged > 0) items.push({ name: "(untagged)", ms: tu.untagged, untagged: true });
-
+  const items = orderedTagItems(tu);
   if (!available || !items.length) {
     destroy("chart-usage-tags");
     wrap.innerHTML = `<div class="empty">${available ? "no active time in window" : "usage tracking is off"}</div>`;
     return;
   }
-
   // Re-create the canvas if a previous empty state replaced it.
   if (!document.getElementById("chart-usage-tags")) {
     wrap.innerHTML = `<canvas id="chart-usage-tags"></canvas>`;
   }
-  items.sort((a, b) => b.ms - a.ms);
-  const labels = items.map((it) => it.name);
-  const data = items.map((it) => it.ms);
-  let ci = 0;
-  const colors = items.map((it) =>
-    it.untagged ? cssVar("var(--ink-faint)") : TAG_COLORS[ci++ % TAG_COLORS.length]
+  const colors = tagColorMap(items);
+  pieChart(
+    "chart-usage-tags",
+    items.map((it) => it.name),
+    items.map((it) => it.ms),
+    items.map((it) => colors.get(it.name))
   );
-  pieChart("chart-usage-tags", labels, data, colors);
+}
+
+// Hour-of-day (00–23) on X, hours on Y, one stacked segment per tag. Shows when
+// during the day each tagged activity happens.
+function renderUsageTagHours(tu, available) {
+  const wrap = document.getElementById("usage-taghours-wrap");
+  const items = orderedTagItems(tu);
+  if (!available || !items.length) {
+    destroy("chart-usage-taghours");
+    wrap.innerHTML = `<div class="empty">${available ? "no active time in window" : "usage tracking is off"}</div>`;
+    return;
+  }
+  if (!document.getElementById("chart-usage-taghours")) {
+    wrap.innerHTML = `<canvas id="chart-usage-taghours"></canvas>`;
+  }
+  const colors = tagColorMap(items);
+  const labels = Array.from({ length: 24 }, (_, h) => (h % 2 === 0 ? String(h).padStart(2, "0") : ""));
+  const datasets = items.map((it) => ({
+    label: it.name,
+    data: (tu.hourByTag.get(it.name) || new Array(24).fill(0)).map((ms) => ms / 3600000),
+    backgroundColor: colors.get(it.name),
+    stack: "tags",
+    borderWidth: 0,
+    maxBarThickness: 22,
+  }));
+  stackedBarChart("chart-usage-taghours", labels, datasets);
 }
 
 // ── Rule editor ─────────────────────────────────────────
@@ -945,6 +1075,12 @@ function setupRules() {
     markRuleValidity();
   });
   document.getElementById("rule-save").addEventListener("click", saveRulesToServer);
+
+  // "＋ tag" on an untagged row prefills a rule for that program.
+  document.getElementById("usage-untagged").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-tag-program]");
+    if (btn) startRuleForProgram(btn.dataset.tagProgram);
+  });
 }
 
 function renderRulesEditor() {
@@ -1144,6 +1280,31 @@ function pieChart(id, labels, data, colors) {
         },
       },
     },
+  });
+}
+
+function stackedBarChart(id, labels, datasets) {
+  destroy(id);
+  const opts = baseOpts();
+  opts.interaction = { mode: "index", intersect: false };
+  opts.scales.x.stacked = true;
+  opts.scales.y.stacked = true;
+  opts.scales.y.ticks.callback = (v) => `${v}h`;
+  opts.plugins.legend = {
+    display: true,
+    position: "bottom",
+    labels: { color: TICK, font: { family: "IBM Plex Sans", size: 11 }, boxWidth: 12, padding: 8 },
+  };
+  opts.plugins.tooltip = {
+    mode: "index",
+    intersect: false,
+    filter: (item) => item.parsed.y > 0, // hide the many zero-height segments
+    callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}h` },
+  };
+  state.charts[id] = new Chart(document.getElementById(id), {
+    type: "bar",
+    data: { labels, datasets },
+    options: opts,
   });
 }
 

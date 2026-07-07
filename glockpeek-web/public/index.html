@@ -131,50 +131,43 @@
         <section class="view" data-view="usage">
           <section class="readout" id="usage-readout"></section>
 
-          <section class="panel">
-            <div class="panel-head">
-              <h2>Active time by day</h2>
-              <p class="panel-sub">Minutes of active (non-idle) desktop use per day across the window.</p>
-            </div>
-            <canvas id="chart-usage-timeline"></canvas>
-          </section>
+          <!-- Row 1: activity over time -->
+          <div class="grid-2">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Active time by day</h2>
+                <p class="panel-sub">Minutes of active (non-idle) desktop use per day across the window.</p>
+              </div>
+              <canvas id="chart-usage-timeline"></canvas>
+            </section>
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Active time by hour</h2>
+                <p class="panel-sub">When you are most active (00&ndash;23), all days combined.</p>
+              </div>
+              <canvas id="chart-usage-hour"></canvas>
+            </section>
+          </div>
 
-          <section class="panel">
-            <div class="panel-head">
-              <h2>Active time by hour</h2>
-              <p class="panel-sub">When you are most active (00&ndash;23), all days combined.</p>
-            </div>
-            <canvas id="chart-usage-hour"></canvas>
-          </section>
-
+          <!-- Row 2: tag breakdowns -->
           <div class="grid-2">
             <section class="panel">
               <div class="panel-head">
                 <h2>Time by tag</h2>
                 <p class="panel-sub">Active time recategorized by your rules. Untagged time is shown so you can see coverage.</p>
               </div>
-              <div id="usage-tags-wrap" class="pie-wrap"><canvas id="chart-usage-tags"></canvas></div>
+              <div id="usage-tags-wrap" class="tall-chart"><canvas id="chart-usage-tags"></canvas></div>
             </section>
-
             <section class="panel">
               <div class="panel-head">
-                <h2>Rules</h2>
-                <p class="panel-sub">First rule whose program &amp; title regexes both match wins. Blank = match anything. Saved as JSON; raw log untouched.</p>
+                <h2>Tag activity by hour of day</h2>
+                <p class="panel-sub">Active hours in each hour-of-day slot (00&ndash;23), stacked by tag.</p>
               </div>
-              <div class="rules-editor">
-                <div class="rules-head">
-                  <span>Program</span><span>Title</span><span>Tag</span><span></span>
-                </div>
-                <div id="rules-rows"></div>
-                <div class="rules-actions">
-                  <button id="rule-add" class="btn-ghost" type="button">+ Add rule</button>
-                  <span class="rules-status" id="rules-status"></span>
-                  <button id="rule-save" class="btn-primary" type="button">Save rules</button>
-                </div>
-              </div>
+              <div id="usage-taghours-wrap" class="tall-chart"><canvas id="chart-usage-taghours"></canvas></div>
             </section>
           </div>
 
+          <!-- Row 3: raw app/window breakdown -->
           <div class="grid-2">
             <section class="panel">
               <div class="panel-head">
@@ -191,6 +184,34 @@
               <div id="usage-titles" class="ranklist"></div>
             </section>
           </div>
+
+          <!-- Untagged items feed rule creation -->
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Untagged windows</h2>
+              <p class="panel-sub">Active time no rule matched, by program. Click &plus; tag to start a rule for it, then set a tag below and Save.</p>
+            </div>
+            <div id="usage-untagged" class="untag-list"></div>
+          </section>
+
+          <!-- Rules at the bottom -->
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Rules</h2>
+              <p class="panel-sub">First rule whose program &amp; title regexes both match wins. Blank = match anything. Saved as JSON; raw log untouched.</p>
+            </div>
+            <div class="rules-editor">
+              <div class="rules-head">
+                <span>Program</span><span>Title</span><span>Tag</span><span></span>
+              </div>
+              <div id="rules-rows"></div>
+              <div class="rules-actions">
+                <button id="rule-add" class="btn-ghost" type="button">+ Add rule</button>
+                <span class="rules-status" id="rules-status"></span>
+                <button id="rule-save" class="btn-primary" type="button">Save rules</button>
+              </div>
+            </div>
+          </section>
         </section>
 
         <!-- Sources -->

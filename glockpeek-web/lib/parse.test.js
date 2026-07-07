@@ -8,6 +8,7 @@ import {
   parseReports,
   parseUnblocks,
   parseLifecycle,
+  parseUsage,
   unmanagedPeriods,
 } from "./parse.js";
 
@@ -74,6 +75,41 @@ test("unmanagedPeriods pairs uninstall->install and skips short upgrades", async
     assert.equal(periods.length, 1);
     assert.equal(periods[0].reason, "temp");
     assert.equal(periods[0].open, false);
+  });
+});
+
+test("parseUsage extracts the active window, idle time and window count", async () => {
+  const log = [
+    '{"ts":"2026-07-07T15:36:11+05:30","idle_ms":5,"windows":[{"active":true,"class":"kitty","instance":"kitty","title":"zsh"},{"active":false,"class":"Emacs","title":"notes"}]}',
+    "not json — skipped",
+    '{"ts":"2026-07-07T15:36:01+05:30","idle_ms":27,"windows":[{"active":true,"class":"firefox-esr","title":"YouTube"}]}',
+  ].join("\n");
+  await withFile("usage.jsonl", log, async (path) => {
+    const { available, entries } = await parseUsage(path);
+    assert.equal(available, true);
+    assert.equal(entries.length, 2);
+    // sorted ascending -> the 15:36:01 firefox sample comes first
+    assert.equal(entries[0].active.class, "firefox-esr");
+    assert.equal(entries[0].idleMs, 27);
+    assert.equal(entries[1].active.class, "kitty");
+    assert.equal(entries[1].windowCount, 2);
+    // the full window list is dropped; only the active window is kept
+    assert.equal(entries[1].active.title, "zsh");
+  });
+});
+
+test("parseUsage tolerates missing idle_ms and no active window", async () => {
+  const log = [
+    '{"ts":"2026-07-07T16:00:00+05:30","windows":[{"active":false,"class":"kitty","title":"zsh"}]}',
+    '{"ts":"2026-07-07T16:00:10+05:30","idle_ms":90000,"windows":[]}',
+  ].join("\n");
+  await withFile("usage.jsonl", log, async (path) => {
+    const { entries } = await parseUsage(path);
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].idleMs, -1); // missing idle_ms -> unknown
+    assert.equal(entries[0].active, null); // no window is active
+    assert.equal(entries[1].active, null); // no windows at all
+    assert.equal(entries[1].windowCount, 0);
   });
 });
 

@@ -17,12 +17,13 @@ const RANGES = [
 
 // offset counts fixed windows back from the most recent: 0 = latest window
 // ending now, -1 = the window immediately before it, etc.
-const state = { data: null, range: "30d", offset: 0, view: "overview", charts: {} };
+const state = { data: null, range: "30d", offset: 0, view: "overview", charts: {}, rules: [], usageWindow: null };
 
 const VIEW_TITLES = {
   overview: "Overview",
   history: "History",
   patterns: "Patterns",
+  usage: "Usage",
   sources: "Sources",
   bypasses: "Bypasses",
 };
@@ -39,6 +40,12 @@ async function init() {
     showError(`Could not load logs: ${err.message}`);
     return;
   }
+  // Usage categorization rules (non-fatal if the endpoint is unavailable).
+  try {
+    const rres = await fetch("/api/rules");
+    if (rres.ok) state.rules = (await rres.json()).rules || [];
+  } catch { /* keep empty rules */ }
+
   document.getElementById("loading").hidden = true;
   document.getElementById("dash").hidden = false;
 
@@ -49,14 +56,33 @@ async function init() {
     if (cell) showDay(Number(cell.dataset.ts));
   });
 
-  // Left-nav view switching.
+  // Left-nav view switching drives the URL hash; the hashchange handler below
+  // (and the initial hash) is what actually applies the view — so deep links
+  // and browser back/forward all work.
   document.getElementById("nav").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-view]");
-    if (btn) setView(btn.dataset.view);
+    if (btn) routeTo(btn.dataset.view);
   });
+  window.addEventListener("hashchange", () => setView(viewFromHash()));
 
+  setupRules();
   renderFooter();
   render();
+  setView(viewFromHash()); // honour a deep-linked view like #usage on load
+}
+
+// The view named by the URL hash (e.g. "#usage"), or "overview" if absent/unknown.
+function viewFromHash() {
+  const v = decodeURIComponent(location.hash.replace(/^#\/?/, ""));
+  return VIEW_TITLES[v] ? v : "overview";
+}
+
+// Navigate to a view by updating the hash; the hashchange handler applies it.
+// If the hash already matches (e.g. re-clicking the current tab), apply directly
+// since no hashchange event would fire.
+function routeTo(view) {
+  if (viewFromHash() === view) setView(view);
+  else location.hash = view;
 }
 
 function setView(view) {
@@ -127,7 +153,7 @@ function shiftWindow(dir) {
 
 function earliestTs() {
   let min = Infinity;
-  for (const a of [state.data.violations, state.data.unblocks, state.data.lifecycle]) {
+  for (const a of [state.data.violations, state.data.unblocks, state.data.lifecycle, state.data.usage || []]) {
     if (a.length) min = Math.min(min, a[0].ts); // arrays are sorted ascending
   }
   return Number.isFinite(min) ? min : state.data.now;
@@ -203,6 +229,7 @@ function render() {
   renderRanklist("top-domains", tally(violations, "domain"), "var(--signal)");
   renderRanklist("unblock-reasons", tally(unblocks, "reason"), "var(--safe)");
   renderUnmanaged(unmanaged);
+  renderUsage(b);
 }
 
 // ── Aggregation ─────────────────────────────────────────
@@ -723,11 +750,362 @@ function renderUnmanaged(unmanaged) {
     .join("");
 }
 
+// ── Usage metrics ───────────────────────────────────────
+// The usage log samples the focused window + idle time every ~10s. We turn the
+// samples into durations by attributing the gap until the next sample to that
+// sample's active window — unless the user was idle (AFK) or the tracker had a
+// gap (capped so a tracker restart doesn't count as hours of use).
+const USAGE_IDLE_THRESHOLD_MS = 60_000; // idle ≥ 60s → counted as away, not active
+const USAGE_MAX_GAP_MS = 5 * 60_000;    // cap per-sample attribution across gaps
+
+// Attribute each sample's duration (the gap until the next sample, capped) and
+// call fn(entry, dt, away). `away` folds in idle and no-focus so both the raw
+// metrics and the rule categorizer share one definition of "active".
+// idleMs === -1 means the screensaver extension was unavailable; treat that as
+// active since we can't prove otherwise.
+function eachSampleDuration(entries, fn) {
+  const gaps = [];
+  for (let i = 1; i < entries.length; i++) gaps.push(entries[i].ts - entries[i - 1].ts);
+  gaps.sort((a, b) => a - b);
+  const nominal = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 10_000;
+
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    let dt = i + 1 < entries.length ? entries[i + 1].ts - e.ts : nominal;
+    if (dt <= 0) continue;
+    dt = Math.min(dt, USAGE_MAX_GAP_MS);
+    const away = e.idleMs >= USAGE_IDLE_THRESHOLD_MS || !e.active;
+    fn(e, dt, away);
+  }
+}
+
+const rankMap = (m) => [...m.entries()].map(([name, ms]) => ({ name, ms })).sort((a, b) => b.ms - a.ms);
+
+function computeUsage(entries) {
+  const byApp = new Map();
+  const byTitle = new Map();
+  const byDay = new Map();
+  const byHour = new Array(24).fill(0);
+  let activeMs = 0, idleMs = 0;
+
+  eachSampleDuration(entries, (e, dt, away) => {
+    if (away) {
+      idleMs += dt;
+      return;
+    }
+    activeMs += dt;
+    const app = (e.active.class || "").trim() || "unknown";
+    byApp.set(app, (byApp.get(app) || 0) + dt);
+    const title = e.active.title || "—";
+    byTitle.set(title, (byTitle.get(title) || 0) + dt);
+    byDay.set(dayKey(e.ts), (byDay.get(dayKey(e.ts)) || 0) + dt);
+    byHour[new Date(e.ts).getHours()] += dt;
+  });
+
+  return {
+    activeMs,
+    idleMs,
+    trackedMs: activeMs + idleMs,
+    apps: rankMap(byApp),
+    titles: rankMap(byTitle),
+    byDay,
+    byHour,
+  };
+}
+
+// ── Rule-based categorization (arbtt-style) ─────────────
+// Rules are applied client-side so edits recategorize instantly. Each rule is
+// { program, title, tag }: optional case-insensitive regexes on the active
+// window's class and title. The first rule whose present regexes all match
+// wins; $1..$9 in the tag interpolate that rule's regex captures.
+function compileRules(rules) {
+  return rules.map((r) => {
+    let program = null, title = null, error = false;
+    try { if (r.program) program = new RegExp(r.program, "i"); } catch { error = true; }
+    try { if (r.title) title = new RegExp(r.title, "i"); } catch { error = true; }
+    return { program, title, tag: (r.tag || "").trim(), error };
+  });
+}
+
+function interpolateTag(tag, match) {
+  if (!match) return tag;
+  return tag.replace(/\$([1-9])/g, (_, n) => match[Number(n)] || "");
+}
+
+function tagForSample(e, compiled) {
+  if (!e.active) return null;
+  const cls = e.active.class || "";
+  const title = e.active.title || "";
+  for (const c of compiled) {
+    if (c.error || !c.tag) continue;
+    let pm = null, tm = null;
+    if (c.program) { pm = c.program.exec(cls); if (!pm) continue; }
+    if (c.title) { tm = c.title.exec(title); if (!tm) continue; }
+    return interpolateTag(c.tag, tm || pm); // named/numbered captures from the last regex to match
+  }
+  return null;
+}
+
+function computeTagUsage(entries, compiled) {
+  const byTag = new Map();
+  let untagged = 0, active = 0;
+  eachSampleDuration(entries, (e, dt, away) => {
+    if (away) return;
+    active += dt;
+    const tag = tagForSample(e, compiled);
+    if (tag) byTag.set(tag, (byTag.get(tag) || 0) + dt);
+    else untagged += dt;
+  });
+  return { tags: rankMap(byTag), untagged, active };
+}
+
+function renderUsage(b) {
+  const available = state.data.sources && state.data.sources.usage;
+  const entries = (state.data.usage || []).filter((e) => within(e.ts, b));
+  // Stash the in-window samples so rule edits can recategorize without a
+  // full re-render of the rest of the view.
+  state.usageWindow = { entries, available };
+  const u = computeUsage(entries);
+
+  renderUsageReadout(u, available);
+  renderDurationRank("usage-apps", u.apps, "var(--signal)", available);
+  renderDurationRank("usage-titles", u.titles, "var(--safe)", available);
+  renderUsageTimeline(u, b);
+  renderUsageHourChart(u);
+  recategorize();
+}
+
+// Recompute and render only the "Time by tag" panel from the current window
+// and rules — cheap enough to run on every keystroke in the rule editor.
+function recategorize() {
+  const win = state.usageWindow;
+  if (!win) return;
+  const tu = computeTagUsage(win.entries, compileRules(state.rules));
+  renderUsageTags(tu, win.available);
+}
+
+// Categorical palette for the tag pie (distinct hues that read on the dark
+// theme). "(untagged)" is always rendered in the muted faint ink instead.
+const TAG_COLORS = [
+  "#f0a020", "#2f9e8f", "#4a90d9", "#c0468f", "#7bc86c",
+  "#9b6dff", "#ff4d4d", "#e8734a", "#54c7d6", "#c9a227",
+];
+
+function renderUsageTags(tu, available) {
+  const wrap = document.getElementById("usage-tags-wrap");
+  const items = tu.tags.slice();
+  if (tu.untagged > 0) items.push({ name: "(untagged)", ms: tu.untagged, untagged: true });
+
+  if (!available || !items.length) {
+    destroy("chart-usage-tags");
+    wrap.innerHTML = `<div class="empty">${available ? "no active time in window" : "usage tracking is off"}</div>`;
+    return;
+  }
+
+  // Re-create the canvas if a previous empty state replaced it.
+  if (!document.getElementById("chart-usage-tags")) {
+    wrap.innerHTML = `<canvas id="chart-usage-tags"></canvas>`;
+  }
+  items.sort((a, b) => b.ms - a.ms);
+  const labels = items.map((it) => it.name);
+  const data = items.map((it) => it.ms);
+  let ci = 0;
+  const colors = items.map((it) =>
+    it.untagged ? cssVar("var(--ink-faint)") : TAG_COLORS[ci++ % TAG_COLORS.length]
+  );
+  pieChart("chart-usage-tags", labels, data, colors);
+}
+
+// ── Rule editor ─────────────────────────────────────────
+function setupRules() {
+  renderRulesEditor();
+
+  const rows = document.getElementById("rules-rows");
+  // Live feedback: sync + recategorize on every keystroke, without re-rendering
+  // the editor (which would drop focus).
+  rows.addEventListener("input", () => {
+    syncRulesFromDom();
+    markRuleValidity();
+    recategorize();
+  });
+  rows.addEventListener("click", (e) => {
+    const del = e.target.closest("[data-del]");
+    if (!del) return;
+    syncRulesFromDom();
+    state.rules.splice(Number(del.dataset.del), 1);
+    renderRulesEditor();
+    markRuleValidity();
+    recategorize();
+  });
+
+  document.getElementById("rule-add").addEventListener("click", () => {
+    syncRulesFromDom();
+    state.rules.push({ program: "", title: "", tag: "" });
+    renderRulesEditor();
+    markRuleValidity();
+  });
+  document.getElementById("rule-save").addEventListener("click", saveRulesToServer);
+}
+
+function renderRulesEditor() {
+  const wrap = document.getElementById("rules-rows");
+  if (!state.rules.length) {
+    wrap.innerHTML = `<div class="rules-empty">No rules yet — add one to categorize your active time.</div>`;
+    return;
+  }
+  wrap.innerHTML = state.rules
+    .map(
+      (r, i) => `<div class="rule-row" data-i="${i}">
+        <input data-field="program" value="${esc(r.program || "")}" placeholder="^Emacs$" spellcheck="false" autocomplete="off" />
+        <input data-field="title" value="${esc(r.title || "")}" placeholder="regex on title" spellcheck="false" autocomplete="off" />
+        <input data-field="tag" value="${esc(r.tag || "")}" placeholder="Activity:dev" spellcheck="false" autocomplete="off" />
+        <button class="rule-del" data-del="${i}" title="Delete rule" type="button">&times;</button>
+      </div>`
+    )
+    .join("");
+}
+
+function syncRulesFromDom() {
+  const rows = [...document.querySelectorAll("#rules-rows .rule-row")];
+  state.rules = rows.map((row) => ({
+    program: row.querySelector('[data-field="program"]').value.trim(),
+    title: row.querySelector('[data-field="title"]').value.trim(),
+    tag: row.querySelector('[data-field="tag"]').value.trim(),
+  }));
+}
+
+// Flag rows whose program/title is not a valid regex so the user sees why a
+// rule isn't matching.
+function markRuleValidity() {
+  for (const row of document.querySelectorAll("#rules-rows .rule-row")) {
+    let bad = false;
+    for (const f of ["program", "title"]) {
+      const v = row.querySelector(`[data-field="${f}"]`).value.trim();
+      if (v) {
+        try { new RegExp(v); } catch { bad = true; }
+      }
+    }
+    row.classList.toggle("invalid", bad);
+  }
+}
+
+async function saveRulesToServer() {
+  syncRulesFromDom();
+  const status = document.getElementById("rules-status");
+  const btn = document.getElementById("rule-save");
+  btn.disabled = true;
+  status.className = "rules-status";
+  status.textContent = "saving…";
+  try {
+    const res = await fetch("/api/rules", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rules: state.rules }),
+    });
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    state.rules = (await res.json()).rules || []; // canonical, server-sanitized
+    renderRulesEditor();
+    markRuleValidity();
+    recategorize();
+    status.className = "rules-status ok";
+    status.textContent = `saved ${state.rules.length} rule${state.rules.length === 1 ? "" : "s"} ✓`;
+  } catch (err) {
+    status.className = "rules-status err";
+    status.textContent = `save failed: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderUsageReadout(u, available) {
+  const el = document.getElementById("usage-readout");
+  if (!available) {
+    el.innerHTML = `<div class="stat" title="No usage log was found on the server.">
+      <div class="k">Usage tracking</div>
+      <div class="v" style="font-size:20px">off</div>
+      <div class="sub">no usage log — run usage-tracker or set GLOCKER_USAGE_LOG</div>
+    </div>`;
+    return;
+  }
+  const activePct = u.trackedMs ? Math.round((u.activeMs / u.trackedMs) * 100) : 0;
+  const top = u.apps[0];
+  const stats = [
+    {
+      k: "Active time", v: fmtDur(u.activeMs), sub: `${activePct}% of tracked`,
+      help: "Time a window was focused and you were not idle, in the selected window.",
+    },
+    {
+      k: "Idle time", v: fmtDur(u.idleMs), sub: `${100 - activePct}% of tracked`,
+      help: `Tracked time with no input for ≥${USAGE_IDLE_THRESHOLD_MS / 1000}s (or no focused window).`,
+    },
+    {
+      k: "Applications", v: u.apps.length, sub: "distinct apps",
+      help: "Number of distinct window classes you were actively using.",
+    },
+    {
+      k: "Busiest app", v: top ? top.name : "—", sub: top ? fmtDur(top.ms) : "no data", cls: "peak", big: false,
+      help: "The application with the most active time in the window.",
+    },
+  ];
+  el.innerHTML = stats
+    .map(
+      (s) => `<div class="stat ${s.cls || ""}" title="${esc(s.help)}">
+        <div class="k">${s.k}</div>
+        <div class="v" ${s.big === false ? 'style="font-size:20px"' : ""}>${esc(String(s.v))}</div>
+        <div class="sub">${esc(s.sub)}</div>
+      </div>`
+    )
+    .join("");
+}
+
+// Like renderRanklist, but the value is a duration rather than a count.
+function renderDurationRank(id, items, color, available) {
+  const el = document.getElementById(id);
+  if (!available) {
+    el.innerHTML = `<div class="empty">usage tracking is off</div>`;
+    return;
+  }
+  if (!items.length) {
+    el.innerHTML = `<div class="empty">no usage in window</div>`;
+    return;
+  }
+  const max = items[0].ms;
+  el.innerHTML = items
+    .slice(0, 8)
+    .map((it) => {
+      const pct = max ? Math.round((it.ms / max) * 100) : 0;
+      return `<div class="rank">
+        <span class="label" title="${esc(it.name)}">${esc(it.name)}</span>
+        <span class="count">${esc(fmtDur(it.ms))}</span>
+        <span class="track"><span class="fill" style="width:${pct}%;background:${color}"></span></span>
+      </div>`;
+    })
+    .join("");
+}
+
+function renderUsageTimeline(u, b) {
+  const days = Math.round((b.end - b.start) / DAY) + 1;
+  const labels = [], data = [];
+  for (let i = 0; i < days; i++) {
+    const ts = b.start + i * DAY;
+    const d = new Date(ts);
+    labels.push(d.getDate() === 1 || i === 0 ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
+    data.push(Math.round((u.byDay.get(dayKey(ts)) || 0) / 60000));
+  }
+  barChart("chart-usage-timeline", labels, data, "var(--signal)");
+}
+
+function renderUsageHourChart(u) {
+  const data = u.byHour.map((ms) => Math.round(ms / 60000));
+  const labels = Array.from({ length: 24 }, (_, h) => (h % 2 === 0 ? String(h).padStart(2, "0") : ""));
+  barChart("chart-usage-hour", labels, data, "var(--safe)");
+}
+
 function renderFooter() {
   const s = state.data.sources;
   const mark = (ok) => (ok ? "✓" : "✗ missing");
   document.getElementById("footer-sources").textContent =
-    `reports ${mark(s.reports)}  ·  unblocks ${mark(s.unblocks)}  ·  lifecycle ${mark(s.lifecycle)}  ·  read ${new Date(state.data.now).toLocaleString()}`;
+    `reports ${mark(s.reports)}  ·  unblocks ${mark(s.unblocks)}  ·  lifecycle ${mark(s.lifecycle)}  ·  usage ${mark(s.usage)}  ·  read ${new Date(state.data.now).toLocaleString()}`;
 }
 
 // ── Chart.js helpers ────────────────────────────────────
@@ -739,6 +1117,34 @@ const TICK = "#aeb9c9";
 
 function destroy(id) {
   if (state.charts[id]) state.charts[id].destroy();
+}
+
+function pieChart(id, labels, data, colors) {
+  destroy(id);
+  const total = data.reduce((s, v) => s + v, 0) || 1;
+  state.charts[id] = new Chart(document.getElementById(id), {
+    type: "doughnut",
+    data: {
+      labels,
+      datasets: [{ data, backgroundColor: colors, borderColor: cssVar("var(--panel)"), borderWidth: 2 }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "58%",
+      plugins: {
+        legend: {
+          position: "right",
+          labels: { color: TICK, font: { family: "IBM Plex Sans", size: 11 }, boxWidth: 12, padding: 8 },
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${ctx.label}: ${fmtDur(ctx.parsed)} (${Math.round((100 * ctx.parsed) / total)}%)`,
+          },
+        },
+      },
+    },
+  });
 }
 
 function barChart(id, labels, data, colorVar) {

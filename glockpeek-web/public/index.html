@@ -30,6 +30,7 @@
         <li><button data-view="overview" class="active">Overview</button></li>
         <li><button data-view="history">History</button></li>
         <li><button data-view="patterns">Patterns</button></li>
+        <li><button data-view="usage">Usage</button></li>
         <li><button data-view="sources">Sources</button></li>
         <li><button data-view="bypasses">Bypasses</button></li>
       </ul>
@@ -122,6 +123,72 @@
                 <p class="panel-sub">Total violations in each hour of the day (00&ndash;23), all days combined.</p>
               </div>
               <canvas id="chart-hour"></canvas>
+            </section>
+          </div>
+        </section>
+
+        <!-- Usage -->
+        <section class="view" data-view="usage">
+          <section class="readout" id="usage-readout"></section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Active time by day</h2>
+              <p class="panel-sub">Minutes of active (non-idle) desktop use per day across the window.</p>
+            </div>
+            <canvas id="chart-usage-timeline"></canvas>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Active time by hour</h2>
+              <p class="panel-sub">When you are most active (00&ndash;23), all days combined.</p>
+            </div>
+            <canvas id="chart-usage-hour"></canvas>
+          </section>
+
+          <div class="grid-2">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Time by tag</h2>
+                <p class="panel-sub">Active time recategorized by your rules. Untagged time is shown so you can see coverage.</p>
+              </div>
+              <div id="usage-tags-wrap" class="pie-wrap"><canvas id="chart-usage-tags"></canvas></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Rules</h2>
+                <p class="panel-sub">First rule whose program &amp; title regexes both match wins. Blank = match anything. Saved as JSON; raw log untouched.</p>
+              </div>
+              <div class="rules-editor">
+                <div class="rules-head">
+                  <span>Program</span><span>Title</span><span>Tag</span><span></span>
+                </div>
+                <div id="rules-rows"></div>
+                <div class="rules-actions">
+                  <button id="rule-add" class="btn-ghost" type="button">+ Add rule</button>
+                  <span class="rules-status" id="rules-status"></span>
+                  <button id="rule-save" class="btn-primary" type="button">Save rules</button>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="grid-2">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Time by application</h2>
+                <p class="panel-sub">Where your active time went, by focused window class.</p>
+              </div>
+              <div id="usage-apps" class="ranklist"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Top windows</h2>
+                <p class="panel-sub">Individual window titles you spent the most active time in.</p>
+              </div>
+              <div id="usage-titles" class="ranklist"></div>
             </section>
           </div>
         </section>

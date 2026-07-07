@@ -7,6 +7,8 @@ export const DEFAULT_PATHS = {
   reports: process.env.GLOCKER_REPORTS_LOG || "/var/log/glocker-reports.log",
   unblocks: process.env.GLOCKER_UNBLOCKS_LOG || "/var/log/glocker-unblocks.log",
   lifecycle: process.env.GLOCKER_LIFECYCLE_LOG || "/var/log/glocker-lifecycle.log",
+  // Written by internal/usage (the usage-tracker); one JSON sample per line.
+  usage: process.env.GLOCKER_USAGE_LOG || "/var/log/glocker-usage.jsonl",
 };
 
 // Periods shorter than this are treated as upgrades, not real exposure.
@@ -112,6 +114,39 @@ export async function parseLifecycle(path = DEFAULT_PATHS.lifecycle) {
   return { available: true, entries };
 }
 
+// Parse the usage-tracker JSONL log. Each line is a Sample:
+//   {"ts":"…","idle_ms":1200,"windows":[{"active":true,"class":"firefox",…}, …]}
+// We keep only what the dashboard aggregates over — the active window and idle
+// time — so the payload stays small even for long histories (the full window
+// list is dropped here).
+export async function parseUsage(path = DEFAULT_PATHS.usage) {
+  const lines = await readLines(path);
+  if (lines === null) return { available: false, entries: [] };
+  const entries = [];
+  for (const line of lines) {
+    let o;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const ts = Date.parse(o.ts);
+    if (Number.isNaN(ts)) continue;
+    const windows = Array.isArray(o.windows) ? o.windows : [];
+    const active = windows.find((w) => w && w.active) || null;
+    entries.push({
+      ts,
+      idleMs: Number.isFinite(o.idle_ms) ? o.idle_ms : -1,
+      active: active
+        ? { class: active.class || "", instance: active.instance || "", title: active.title || "" }
+        : null,
+      windowCount: windows.length,
+    });
+  }
+  entries.sort((a, b) => a.ts - b.ts);
+  return { available: true, entries };
+}
+
 // Pair each uninstall with the next install to find spans when glocker was not
 // enforcing. An open span (uninstall with no following install) ends at `now`.
 // Mirrors getUnmanagedPeriods() in cmd/glockpeek/main.go.
@@ -148,10 +183,11 @@ export function unmanagedPeriods(lifecycle, now = Date.now()) {
 
 // Read and parse everything in one shot.
 export async function loadAll(paths = DEFAULT_PATHS, now = Date.now()) {
-  const [reports, unblocks, lifecycle] = await Promise.all([
+  const [reports, unblocks, lifecycle, usage] = await Promise.all([
     parseReports(paths.reports),
     parseUnblocks(paths.unblocks),
     parseLifecycle(paths.lifecycle),
+    parseUsage(paths.usage),
   ]);
   return {
     now,
@@ -159,10 +195,12 @@ export async function loadAll(paths = DEFAULT_PATHS, now = Date.now()) {
       reports: reports.available,
       unblocks: unblocks.available,
       lifecycle: lifecycle.available,
+      usage: usage.available,
     },
     violations: reports.entries,
     unblocks: unblocks.entries,
     lifecycle: lifecycle.entries,
     unmanaged: unmanagedPeriods(lifecycle.entries, now),
+    usage: usage.entries,
   };
 }

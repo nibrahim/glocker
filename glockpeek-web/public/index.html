@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>glockpeek · exposure analysis</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2307090d'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%231b2230'/%3E%3Cpath d='M16 6v20M6 16h20' stroke='%23ff4d4d' stroke-width='1'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23ff4d4d'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <div class="app">
+    <nav class="sidebar">
+      <div class="brand">
+        <span class="reticle" aria-hidden="true"></span>
+        <div class="brand-text">
+          <h1>glock<span>peek</span></h1>
+          <p class="tagline">exposure analysis</p>
+        </div>
+      </div>
+
+      <ul class="nav" id="nav">
+        <li><button data-view="overview" class="active">Overview</button></li>
+        <li><button data-view="history">History</button></li>
+        <li><button data-view="patterns">Patterns</button></li>
+        <li><button data-view="sources">Sources</button></li>
+        <li><button data-view="bypasses">Bypasses</button></li>
+      </ul>
+
+      <div class="sidebar-foot">
+        <span id="footer-sources" class="src"></span>
+      </div>
+    </nav>
+
+    <div class="content">
+      <header class="main-header">
+        <h2 class="view-title" id="view-title">Overview</h2>
+        <div class="range" id="range-control">
+          <label>window</label>
+          <div class="range-buttons" id="range-buttons"></div>
+          <div class="range-nav" id="range-nav">
+            <button id="range-prev" title="Previous window" aria-label="Previous window">&lsaquo;</button>
+            <span class="range-label" id="range-label"></span>
+            <button id="range-next" title="Next window" aria-label="Next window">&rsaquo;</button>
+          </div>
+        </div>
+      </header>
+
+      <main id="dash" hidden>
+        <!-- Overview -->
+        <section class="view active" data-view="overview">
+          <section class="panel score-hero" title="A 0–100 health score: 100 minus weighted penalties for unmanaged time, violations, and deliberate days. Hover each penalty for its weight.">
+            <div class="panel-head">
+              <h2>Composite health</h2>
+              <p class="panel-sub">100 minus penalties for unmanaged time, violations, and deliberate days. Higher is healthier.</p>
+            </div>
+            <div class="score-body" id="score"></div>
+          </section>
+
+          <section class="readout" id="readout"></section>
+        </section>
+
+        <!-- History -->
+        <section class="view" data-view="history">
+          <div class="history">
+            <div class="history-main">
+              <section class="panel">
+                <div class="panel-head">
+                  <h2>History calendar</h2>
+                  <p class="panel-sub">Each cell is a day. Red = violations, hatched = unmanaged (glocker off). Hover a day for details.</p>
+                </div>
+                <div id="calendar" class="calendar"></div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h2>Timeline</h2>
+                  <p class="panel-sub">Violations per day across the window. Hover a point for details.</p>
+                </div>
+                <canvas id="chart-timeline"></canvas>
+              </section>
+            </div>
+
+            <aside class="history-side">
+              <section class="panel day-inspector">
+                <div class="panel-head"><h2>Day detail</h2></div>
+                <div id="day-detail" class="day-detail"></div>
+              </section>
+            </aside>
+          </div>
+        </section>
+
+        <!-- Patterns -->
+        <section class="view" data-view="patterns">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Vulnerability map</h2>
+              <p class="panel-sub">Violations by hour &times; weekday. Brighter is more exposed.</p>
+            </div>
+            <div id="heatmap" class="heatmap"></div>
+            <div class="heatmap-legend" id="heatmap-legend"></div>
+          </section>
+
+          <div class="grid-2">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>By weekday</h2>
+                <p class="panel-sub">Total violations on each day of the week across the window.</p>
+              </div>
+              <canvas id="chart-weekday"></canvas>
+            </section>
+            <section class="panel">
+              <div class="panel-head">
+                <h2>By hour</h2>
+                <p class="panel-sub">Total violations in each hour of the day (00&ndash;23), all days combined.</p>
+              </div>
+              <canvas id="chart-hour"></canvas>
+            </section>
+          </div>
+        </section>
+
+        <!-- Sources -->
+        <section class="view" data-view="sources">
+          <div class="grid-2">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Top keywords</h2>
+                <p class="panel-sub">Blocked keywords that triggered the most reports.</p>
+              </div>
+              <div id="top-keywords" class="ranklist"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Top domains</h2>
+                <p class="panel-sub">Sites where violations were reported most often.</p>
+              </div>
+              <div id="top-domains" class="ranklist"></div>
+            </section>
+          </div>
+        </section>
+
+        <!-- Bypasses -->
+        <section class="view" data-view="bypasses">
+          <div class="grid-2">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Unblocks</h2>
+                <p class="panel-sub">Deliberate temporary grants &mdash; by reason.</p>
+              </div>
+              <div id="unblock-reasons" class="ranklist"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Unmanaged exposure</h2>
+                <p class="panel-sub">Spans when glocker was uninstalled.</p>
+              </div>
+              <div id="unmanaged-list" class="unmanaged-list"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="loading" class="loading">reading logs&hellip;</div>
+  <div id="error" class="error" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="app.js" type="module"></script>
+</body>
+</html>

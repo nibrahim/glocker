@@ -5,7 +5,7 @@ import express from "express";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { loadAll, DEFAULT_PATHS } from "./lib/parse.js";
-import { loadRules, saveRules, DEFAULT_RULES_PATH } from "./lib/rules.js";
+import { loadConfig, saveConfig, DEFAULT_RULES_PATH } from "./lib/rules.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 4317;
@@ -36,24 +36,23 @@ app.get("/api/health", async (_req, res) => {
   }
 });
 
-// GET /api/rules — the saved usage categorization rules.
+// GET /api/rules — the saved usage categorization config: rules + tag colours.
 app.get("/api/rules", async (_req, res) => {
   try {
     res.set("Cache-Control", "no-store");
-    res.json({ rules: await loadRules() });
+    res.json(await loadConfig());
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// PUT /api/rules — replace the whole rule list. Body: { rules: [...] } or a
-// bare array. Rules are sanitized before being written; the raw usage log is
-// never touched.
+// PUT /api/rules — replace the whole config. Body: { rules: [...], colors: {} }
+// (a bare rules array is still accepted for back-compat). Everything is
+// sanitized before being written; the raw usage log is never touched.
 app.put("/api/rules", async (req, res) => {
   try {
-    const input = Array.isArray(req.body) ? req.body : req.body && req.body.rules;
-    const saved = await saveRules(input);
-    res.json({ rules: saved });
+    const input = Array.isArray(req.body) ? { rules: req.body } : req.body || {};
+    res.json(await saveConfig(input));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

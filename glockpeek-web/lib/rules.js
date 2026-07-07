@@ -1,12 +1,15 @@
-// Persistence for usage categorization rules. Rules live in their own JSON
-// file — the raw usage log is never modified. Each rule is a simple triple:
+// Persistence for usage categorization config: the rule list plus a per-tag
+// colour map. Stored in its own JSON file — the raw usage log is never touched.
 //
-//   { program: "<regex>", title: "<regex>", tag: "Category:Value" }
+//   {
+//     "rules":  [ { "program": "<regex>", "title": "<regex>", "tag": "Cat:Val" } ],
+//     "colors": { "Cat:Val": "#rrggbb" }
+//   }
 //
 // program/title are optional regex strings (empty = match anything); the first
-// rule whose program AND title both match a sample wins, arbtt-style. The
-// matching itself happens client-side (see public/app.js); this module only
-// loads, validates, and saves the rule list.
+// rule whose program AND title both match a sample wins, arbtt-style. Matching
+// and colouring happen client-side (see public/app.js); this module only loads,
+// validates, and saves the config.
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -16,6 +19,7 @@ export const DEFAULT_RULES_PATH =
   process.env.GLOCKER_USAGE_RULES || new URL("../usage-rules.json", import.meta.url).pathname;
 
 const str = (v) => (typeof v === "string" ? v : "");
+const HEX = /^#[0-9a-fA-F]{6}$/;
 
 // Coerce arbitrary client input into a clean array of rules. Anything that is
 // not an object, or a rule with no tag, is dropped — a malformed request can
@@ -36,26 +40,46 @@ export function sanitizeRules(input) {
   return out;
 }
 
-export async function loadRules(path = DEFAULT_RULES_PATH) {
+// Keep only string tag -> #rrggbb entries; drop anything malformed.
+export function sanitizeColors(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const out = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (typeof k === "string" && k.trim() && typeof v === "string" && HEX.test(v)) {
+      out[k] = v.toLowerCase();
+    }
+  }
+  return out;
+}
+
+// Read the config, tolerating a missing/corrupt file and the legacy formats
+// (a bare rules array, or { rules: [...] } with no colours).
+export async function loadConfig(path = DEFAULT_RULES_PATH) {
   let text;
   try {
     text = await readFile(path, "utf8");
   } catch (err) {
-    if (err.code === "ENOENT") return []; // no rules yet is fine
+    if (err.code === "ENOENT") return { rules: [], colors: {} };
     throw err;
   }
   let parsed;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return []; // treat a corrupt file as empty rather than 500ing the UI
+    return { rules: [], colors: {} }; // corrupt file -> empty, don't 500 the UI
   }
-  // Accept either a bare array or { rules: [...] }.
-  return sanitizeRules(Array.isArray(parsed) ? parsed : parsed.rules);
+  if (Array.isArray(parsed)) return { rules: sanitizeRules(parsed), colors: {} };
+  return {
+    rules: sanitizeRules(parsed.rules),
+    colors: sanitizeColors(parsed.colors),
+  };
 }
 
-export async function saveRules(rules, path = DEFAULT_RULES_PATH) {
-  const clean = sanitizeRules(rules);
+export async function saveConfig(input, path = DEFAULT_RULES_PATH) {
+  const clean = {
+    rules: sanitizeRules(input && input.rules),
+    colors: sanitizeColors(input && input.colors),
+  };
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, JSON.stringify(clean, null, 2) + "\n", "utf8");
   return clean;

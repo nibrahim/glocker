@@ -19,7 +19,7 @@ const RANGES = [
 
 // offset counts fixed windows back from the most recent: 0 = latest window
 // ending now, -1 = the window immediately before it, etc.
-const state = { data: null, range: "30d", offset: 0, view: "overview", charts: {}, rules: [], usageWindow: null };
+const state = { data: null, range: "30d", offset: 0, view: "overview", charts: {}, rules: [], tagColors: {}, usageWindow: null };
 
 const VIEW_TITLES = {
   overview: "Overview",
@@ -42,11 +42,15 @@ async function init() {
     showError(`Could not load logs: ${err.message}`);
     return;
   }
-  // Usage categorization rules (non-fatal if the endpoint is unavailable).
+  // Usage categorization config: rules + tag colours (non-fatal if missing).
   try {
     const rres = await fetch("/api/rules");
-    if (rres.ok) state.rules = (await rres.json()).rules || [];
-  } catch { /* keep empty rules */ }
+    if (rres.ok) {
+      const cfg = await rres.json();
+      state.rules = cfg.rules || [];
+      state.tagColors = cfg.colors || {};
+    }
+  } catch { /* keep empty rules/colours */ }
 
   document.getElementById("loading").hidden = true;
   document.getElementById("dash").hidden = false;
@@ -904,11 +908,18 @@ function orderedTagItems(tu) {
   return items;
 }
 
+// A tag's colour is the user's saved override if any, else a stable palette
+// slot by rank. Untagged is always the muted faint ink.
 function tagColorMap(items) {
   const map = new Map();
   let ci = 0;
   for (const it of items) {
-    map.set(it.name, it.untagged ? cssVar("var(--ink-faint)") : TAG_COLORS[ci++ % TAG_COLORS.length]);
+    if (it.untagged) {
+      map.set(it.name, cssVar("var(--ink-faint)"));
+      continue;
+    }
+    const fallback = TAG_COLORS[ci++ % TAG_COLORS.length];
+    map.set(it.name, state.tagColors[it.name] || fallback);
   }
   return map;
 }
@@ -931,13 +942,38 @@ function renderUsage(b) {
 
 // Recompute and render only the "Time by tag" panel from the current window
 // and rules — cheap enough to run on every keystroke in the rule editor.
-function recategorize() {
+function recategorize({ colorsOnly = false } = {}) {
   const win = state.usageWindow;
   if (!win) return;
   const tu = computeTagUsage(win.entries, compileRules(state.rules));
   renderUsageTags(tu, win.available);
   renderUsageTagHours(tu, win.available);
   renderUntagged(tu, win.available);
+  // Skip re-rendering the colour pickers when a picker itself triggered this,
+  // so the open colour dialog / focus isn't disturbed mid-drag.
+  if (!colorsOnly) renderTagColors(tu, win.available);
+}
+
+// One colour swatch per tag (excluding untagged), shown in the Rules panel.
+// Editing recolours the charts live; the value is saved with the rules.
+function renderTagColors(tu, available) {
+  const el = document.getElementById("tag-colors");
+  if (!el) return;
+  const ordered = orderedTagItems(tu);
+  const items = ordered.filter((it) => !it.untagged);
+  if (!available || !items.length) {
+    el.innerHTML = `<span class="tagcolor-empty">Tag colours appear here once rules produce tags.</span>`;
+    return;
+  }
+  const colors = tagColorMap(ordered);
+  el.innerHTML = items
+    .map(
+      (it) => `<label class="tagcolor" title="Colour for ${esc(it.name)}">
+        <input type="color" data-tagcolor="${esc(it.name)}" value="${colors.get(it.name)}" />
+        <span>${esc(it.name)}</span>
+      </label>`
+    )
+    .join("");
 }
 
 // The active time no rule matched, grouped by program with an example title, so
@@ -1001,7 +1037,7 @@ const TAG_COLORS = [
 
 function renderUsageTags(tu, available) {
   const wrap = document.getElementById("usage-tags-wrap");
-  const items = orderedTagItems(tu);
+  const items = orderedTagItems(tu); // already sorted by ms desc == percentage desc
   if (!available || !items.length) {
     destroy("chart-usage-tags");
     wrap.innerHTML = `<div class="empty">${available ? "no active time in window" : "usage tracking is off"}</div>`;
@@ -1011,13 +1047,14 @@ function renderUsageTags(tu, available) {
   if (!document.getElementById("chart-usage-tags")) {
     wrap.innerHTML = `<canvas id="chart-usage-tags"></canvas>`;
   }
+  const total = items.reduce((s, it) => s + it.ms, 0) || 1;
   const colors = tagColorMap(items);
-  pieChart(
-    "chart-usage-tags",
-    items.map((it) => it.name),
-    items.map((it) => it.ms),
-    items.map((it) => colors.get(it.name))
-  );
+  hbarChart("chart-usage-tags", {
+    labels: items.map((it) => it.name),
+    pct: items.map((it) => (100 * it.ms) / total),
+    ms: items.map((it) => it.ms),
+    colors: items.map((it) => colors.get(it.name)),
+  });
 }
 
 // Hour-of-day (00–23) on X, hours on Y, one stacked segment per tag. Shows when
@@ -1081,6 +1118,21 @@ function setupRules() {
     const btn = e.target.closest("[data-tag-program]");
     if (btn) startRuleForProgram(btn.dataset.tagProgram);
   });
+
+  // Per-tag colour pickers: recolour charts live; the value is saved with rules.
+  document.getElementById("tag-colors").addEventListener("input", (e) => {
+    const inp = e.target.closest("[data-tagcolor]");
+    if (!inp) return;
+    state.tagColors[inp.dataset.tagcolor] = inp.value;
+    setRulesStatus("unsaved colour — click Save rules", "");
+    recategorize({ colorsOnly: true });
+  });
+}
+
+function setRulesStatus(msg, cls) {
+  const s = document.getElementById("rules-status");
+  s.className = "rules-status" + (cls ? " " + cls : "");
+  s.textContent = msg;
 }
 
 function renderRulesEditor() {
@@ -1127,27 +1179,25 @@ function markRuleValidity() {
 
 async function saveRulesToServer() {
   syncRulesFromDom();
-  const status = document.getElementById("rules-status");
   const btn = document.getElementById("rule-save");
   btn.disabled = true;
-  status.className = "rules-status";
-  status.textContent = "saving…";
+  setRulesStatus("saving…", "");
   try {
     const res = await fetch("/api/rules", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rules: state.rules }),
+      body: JSON.stringify({ rules: state.rules, colors: state.tagColors }),
     });
     if (!res.ok) throw new Error(`server returned ${res.status}`);
-    state.rules = (await res.json()).rules || []; // canonical, server-sanitized
+    const cfg = await res.json(); // canonical, server-sanitized
+    state.rules = cfg.rules || [];
+    state.tagColors = cfg.colors || {};
     renderRulesEditor();
     markRuleValidity();
     recategorize();
-    status.className = "rules-status ok";
-    status.textContent = `saved ${state.rules.length} rule${state.rules.length === 1 ? "" : "s"} ✓`;
+    setRulesStatus(`saved ${state.rules.length} rule${state.rules.length === 1 ? "" : "s"} ✓`, "ok");
   } catch (err) {
-    status.className = "rules-status err";
-    status.textContent = `save failed: ${err.message}`;
+    setRulesStatus(`save failed: ${err.message}`, "err");
   } finally {
     btn.disabled = false;
   }
@@ -1255,31 +1305,34 @@ function destroy(id) {
   if (state.charts[id]) state.charts[id].destroy();
 }
 
-function pieChart(id, labels, data, colors) {
+// Horizontal bar: percentage on X, category (tag) on Y, one coloured bar each.
+// Pass parallel arrays; ms is used only for the tooltip.
+function hbarChart(id, { labels, pct, ms, colors }) {
   destroy(id);
-  const total = data.reduce((s, v) => s + v, 0) || 1;
+  const opts = baseOpts();
+  opts.indexAxis = "y";
+  opts.scales = {
+    x: {
+      beginAtZero: true,
+      grid: { color: GRID },
+      ticks: { color: TICK, font: { family: "IBM Plex Mono", size: 10 }, callback: (v) => `${v}%` },
+    },
+    y: {
+      grid: { display: false },
+      ticks: { color: TICK, font: { family: "IBM Plex Mono", size: 11 }, autoSkip: false },
+    },
+  };
+  opts.plugins.legend = { display: false };
+  opts.plugins.tooltip = {
+    callbacks: { label: (ctx) => ` ${fmtDur(ms[ctx.dataIndex])} (${pct[ctx.dataIndex].toFixed(1)}%)` },
+  };
   state.charts[id] = new Chart(document.getElementById(id), {
-    type: "doughnut",
+    type: "bar",
     data: {
       labels,
-      datasets: [{ data, backgroundColor: colors, borderColor: cssVar("var(--panel)"), borderWidth: 2 }],
+      datasets: [{ data: pct, backgroundColor: colors, borderWidth: 0, borderRadius: 3, maxBarThickness: 26 }],
     },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: "58%",
-      plugins: {
-        legend: {
-          position: "right",
-          labels: { color: TICK, font: { family: "IBM Plex Sans", size: 11 }, boxWidth: 12, padding: 8 },
-        },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => ` ${ctx.label}: ${fmtDur(ctx.parsed)} (${Math.round((100 * ctx.parsed) / total)}%)`,
-          },
-        },
-      },
-    },
+    options: opts,
   });
 }
 

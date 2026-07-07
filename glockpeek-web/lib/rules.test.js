@@ -1,10 +1,10 @@
-// Tests for the usage-rules store. Run with: node --test
+// Tests for the usage-rules/config store. Run with: node --test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sanitizeRules, loadRules, saveRules } from "./rules.js";
+import { sanitizeRules, sanitizeColors, loadConfig, saveConfig } from "./rules.js";
 
 test("sanitizeRules keeps valid triples and drops junk", () => {
   const out = sanitizeRules([
@@ -22,47 +22,65 @@ test("sanitizeRules keeps valid triples and drops junk", () => {
   ]);
 });
 
-test("sanitizeRules returns [] for non-array input", () => {
-  assert.deepEqual(sanitizeRules(null), []);
-  assert.deepEqual(sanitizeRules({}), []);
+test("sanitizeColors keeps #rrggbb entries and drops the rest", () => {
+  assert.deepEqual(
+    sanitizeColors({
+      "Activity:work": "#F0A020", // upper-cased -> normalized
+      "Activity:games": "#7bc86c",
+      "Bad:short": "#fff", // not 6 digits -> dropped
+      "Bad:named": "red", // not hex -> dropped
+      "": "#000000", // empty key -> dropped
+      "Bad:num": 123, // non-string -> dropped
+    }),
+    { "Activity:work": "#f0a020", "Activity:games": "#7bc86c" }
+  );
+  assert.deepEqual(sanitizeColors(null), {});
+  assert.deepEqual(sanitizeColors(["#ffffff"]), {});
 });
 
-test("loadRules returns [] when the file is missing", async () => {
-  assert.deepEqual(await loadRules("/no/such/rules.json"), []);
+test("loadConfig returns empty config when the file is missing", async () => {
+  assert.deepEqual(await loadConfig("/no/such/rules.json"), { rules: [], colors: {} });
 });
 
-test("saveRules writes sanitized JSON and loadRules round-trips it", async () => {
+test("saveConfig writes sanitized rules+colors and loadConfig round-trips them", async () => {
   const dir = await mkdtemp(join(tmpdir(), "glockrules-"));
   const path = join(dir, "usage-rules.json");
   try {
-    const saved = await saveRules(
-      [
-        { program: "firefox", title: "YouTube", tag: "Activity:leisure" },
-        { junk: true }, // dropped on save
-      ],
+    const saved = await saveConfig(
+      {
+        rules: [
+          { program: "firefox", title: "YouTube", tag: "Activity:leisure" },
+          { junk: true }, // dropped
+        ],
+        colors: { "Activity:leisure": "#c0468f", "Bad:x": "nope" },
+      },
       path
     );
-    assert.equal(saved.length, 1);
+    assert.deepEqual(saved.rules, [{ program: "firefox", title: "YouTube", tag: "Activity:leisure" }]);
+    assert.deepEqual(saved.colors, { "Activity:leisure": "#c0468f" });
 
-    // On disk it is a bare array of clean triples.
+    // On disk it is the { rules, colors } envelope.
     const onDisk = JSON.parse(await readFile(path, "utf8"));
-    assert.deepEqual(onDisk, [{ program: "firefox", title: "YouTube", tag: "Activity:leisure" }]);
+    assert.deepEqual(onDisk, {
+      rules: [{ program: "firefox", title: "YouTube", tag: "Activity:leisure" }],
+      colors: { "Activity:leisure": "#c0468f" },
+    });
 
-    assert.deepEqual(await loadRules(path), saved);
+    assert.deepEqual(await loadConfig(path), saved);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("loadRules accepts the { rules: [...] } envelope too", async () => {
+test("loadConfig accepts a legacy bare-array rules file", async () => {
   const dir = await mkdtemp(join(tmpdir(), "glockrules-"));
   const path = join(dir, "usage-rules.json");
   try {
-    await saveRules([{ program: "", title: "", tag: "A:b" }], path);
-    // Rewrite as an envelope shape and confirm loadRules unwraps it.
-    const { writeFile } = await import("node:fs/promises");
-    await writeFile(path, JSON.stringify({ rules: [{ tag: "C:d" }] }));
-    assert.deepEqual(await loadRules(path), [{ program: "", title: "", tag: "C:d" }]);
+    await writeFile(path, JSON.stringify([{ program: "", title: "", tag: "A:b" }]));
+    assert.deepEqual(await loadConfig(path), {
+      rules: [{ program: "", title: "", tag: "A:b" }],
+      colors: {},
+    });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

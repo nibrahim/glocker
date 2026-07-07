@@ -657,6 +657,24 @@ canvas { max-height: 260px; }
 .untag-bar { grid-area: bar; height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .untag-bar > span { display: block; height: 100%; background: var(--ink-faint); border-radius: 3px; }
 
+/* ── Per-tag colour pickers ────────────────────────────── */
+.tag-colors { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 14px; }
+.tagcolor-empty { color: var(--ink-faint); font-family: var(--mono); font-size: 12px; }
+.tagcolor {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+  cursor: pointer;
+}
+.tagcolor input[type="color"] {
+  -webkit-appearance: none; appearance: none;
+  width: 20px; height: 20px; padding: 0;
+  background: transparent; border: 1px solid var(--line-2); border-radius: 5px;
+  cursor: pointer;
+}
+.tagcolor input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+.tagcolor input[type="color"]::-webkit-color-swatch { border: none; border-radius: 3px; }
+.tagcolor input[type="color"]::-moz-color-swatch { border: none; border-radius: 3px; }
+
 /* ── Usage rule editor ─────────────────────────────────── */
 .rules-editor { display: flex; flex-direction: column; gap: 8px; }
 .rules-head,

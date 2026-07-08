@@ -33,7 +33,20 @@ type X11Source struct {
 // NewX11Source connects to the X server named by $DISPLAY and prepares the
 // atoms and extensions needed for sampling.
 func NewX11Source() (*X11Source, error) {
-	conn, err := xgb.NewConn()
+	return NewX11SourceDisplay("")
+}
+
+// NewX11SourceDisplay is like NewX11Source but connects to an explicit display
+// (e.g. ":0"); an empty display falls back to $DISPLAY. Useful when the tracker
+// runs outside the user's session (e.g. the root daemon).
+func NewX11SourceDisplay(display string) (*X11Source, error) {
+	var conn *xgb.Conn
+	var err error
+	if display == "" {
+		conn, err = xgb.NewConn()
+	} else {
+		conn, err = xgb.NewConnDisplay(display)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("connect to X server: %w", err)
 	}

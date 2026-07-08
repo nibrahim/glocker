@@ -31,8 +31,19 @@ var assetsFS embed.FS
 // easy.
 const (
 	DefaultUsageLogPath = "/var/log/glocker-usage.jsonl"
-	DefaultRulesPath    = "/etc/glocker/usage-rules.json"
+	// Rules are mutable state written by the dashboard, so they live under
+	// /var/lib (app state), not /etc (static config).
+	DefaultRulesPath = "/var/lib/glocker/usage-rules.json"
 )
+
+// Options lets the caller (the daemon, from config) pin the usage log and rules
+// file. Empty fields fall back to the matching env var, then the default.
+type Options struct {
+	UsageLog  string
+	RulesFile string
+}
+
+var opts Options
 
 // logPaths holds the resolved file locations for one request.
 type logPaths struct {
@@ -48,9 +59,17 @@ func resolvePaths() logPaths {
 		reports:   envOr("GLOCKER_REPORTS_LOG", reports.DefaultReportsLogPath),
 		unblocks:  envOr("GLOCKER_UNBLOCKS_LOG", reports.DefaultUnblocksLogPath),
 		lifecycle: envOr("GLOCKER_LIFECYCLE_LOG", reports.DefaultLifecycleLogPath),
-		usage:     envOr("GLOCKER_USAGE_LOG", DefaultUsageLogPath),
-		rules:     envOr("GLOCKER_USAGE_RULES", DefaultRulesPath),
+		usage:     pick(opts.UsageLog, "GLOCKER_USAGE_LOG", DefaultUsageLogPath),
+		rules:     pick(opts.RulesFile, "GLOCKER_USAGE_RULES", DefaultRulesPath),
 	}
+}
+
+// pick prefers an explicit value, then an env var, then the default.
+func pick(explicit, env, def string) string {
+	if explicit != "" {
+		return explicit
+	}
+	return envOr(env, def)
 }
 
 func envOr(env, def string) string {
@@ -60,9 +79,11 @@ func envOr(env, def string) string {
 	return def
 }
 
-// Register mounts the /stats dashboard and its API onto mux. All routes are
-// restricted to loopback clients.
-func Register(mux *http.ServeMux) {
+// Register mounts the /stats dashboard and its API onto mux, using o to locate
+// the usage log and rules file (empty fields fall back to env/defaults). All
+// routes are restricted to loopback clients.
+func Register(mux *http.ServeMux, o Options) {
+	opts = o
 	sub, err := fs.Sub(assetsFS, "assets")
 	if err != nil {
 		return // embed failure is a build-time bug; nothing to serve

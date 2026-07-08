@@ -14,7 +14,7 @@ import (
 // only be registered once per process).
 func newMux() *http.ServeMux {
 	mux := http.NewServeMux()
-	Register(mux)
+	Register(mux, Options{})
 	return mux
 }
 

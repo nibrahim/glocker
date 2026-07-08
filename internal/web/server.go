@@ -39,7 +39,10 @@ func StartWebTrackingServer(cfg *config.Config) {
 	})
 
 	// The glockpeek dashboard + its JSON API, mounted at /stats (localhost only).
-	stats.Register(http.DefaultServeMux)
+	stats.Register(http.DefaultServeMux, stats.Options{
+		UsageLog:  cfg.UsageMonitor.LogFile,
+		RulesFile: cfg.UsageMonitor.RulesFile,
+	})
 
 	// Start HTTP server
 	go func() {

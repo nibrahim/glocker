@@ -17,7 +17,7 @@ func main() {
 		addr = os.Args[1]
 	}
 	mux := http.NewServeMux()
-	stats.Register(mux)
+	stats.Register(mux, stats.Options{})
 	log.Printf("statsdev on http://%s/stats/", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }

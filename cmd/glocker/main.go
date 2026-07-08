@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -21,6 +23,7 @@ import (
 	"glocker/internal/ipc"
 	"glocker/internal/monitoring"
 	"glocker/internal/state"
+	"glocker/internal/usage"
 	"glocker/internal/web"
 )
 
@@ -494,9 +497,15 @@ func main() {
 		go monitoring.MonitorDailyReport(cfg)
 	}
 
-	// Start web tracking server
-	if cfg.WebTracking.Enabled || cfg.ContentMonitoring.Enabled {
+	// Start web tracking server (also hosts the /stats dashboard, so start it
+	// when the usage monitor is on even if web/content tracking is off).
+	if cfg.WebTracking.Enabled || cfg.ContentMonitoring.Enabled || cfg.UsageMonitor.Enabled {
 		go web.StartWebTrackingServer(cfg)
+	}
+
+	// Start the arbtt-style usage tracker.
+	if cfg.UsageMonitor.Enabled {
+		go startUsageMonitor(cfg)
 	}
 
 	// Initial enforcement - build hosts file and store state
@@ -521,5 +530,50 @@ func main() {
 			log.Printf("Received signal %v, shutting down...", sig)
 			return
 		}
+	}
+}
+
+// startUsageMonitor runs the arbtt-style usage tracker for the daemon's
+// lifetime, sampling the focused window + idle time into the configured JSONL
+// log. Failures (e.g. no X access as root) are logged and disable the tracker
+// without bringing down the daemon.
+func startUsageMonitor(cfg *config.Config) {
+	um := cfg.UsageMonitor
+
+	logFile := um.LogFile
+	if logFile == "" {
+		logFile = config.DefaultUsageLogFile
+	}
+	interval := time.Duration(um.IntervalSeconds) * time.Second
+	if interval <= 0 {
+		interval = time.Duration(config.DefaultUsageInterval) * time.Second
+	}
+	// The daemon runs as root; reach the user's X session via the configured
+	// authority cookie if given.
+	if um.XAuthority != "" {
+		os.Setenv("XAUTHORITY", um.XAuthority)
+	}
+
+	source, err := usage.NewX11SourceDisplay(um.Display)
+	if err != nil {
+		log.Printf("usage monitor: cannot connect to X (%v); tracker disabled", err)
+		return
+	}
+	defer source.Close()
+
+	sink, err := usage.NewJSONLFileSink(logFile)
+	if err != nil {
+		log.Printf("usage monitor: cannot open log %s: %v", logFile, err)
+		return
+	}
+	defer sink.Close()
+
+	tracker := usage.NewTracker(source, sink, usage.Config{
+		Interval: interval,
+		OnError:  func(err error) { slog.Debug("usage monitor sample error", "err", err) },
+	})
+	log.Printf("usage monitor: sampling every %s to %s", interval, logFile)
+	if err := tracker.Run(context.Background()); err != nil && err != context.Canceled {
+		log.Printf("usage monitor stopped: %v", err)
 	}
 }

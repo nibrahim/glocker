@@ -68,6 +68,33 @@ type WebTrackingConfig struct {
 	Command string `yaml:"command"`
 }
 
+// Defaults for the usage monitor, applied when the corresponding field is unset.
+const (
+	DefaultUsageLogFile   = "/var/log/glocker-usage.jsonl"
+	DefaultUsageRulesFile = "/var/lib/glocker/usage-rules.json" // mutable state -> /var, not /etc
+	DefaultUsageInterval  = 60                                  // seconds
+)
+
+// UsageMonitorConfig controls the arbtt-style desktop usage tracker: it samples
+// the focused window (class + title) and idle time to a JSONL log, which the
+// /stats dashboard reads and categorizes. Runs only when Enabled.
+type UsageMonitorConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// LogFile is the JSONL sample log (default DefaultUsageLogFile).
+	LogFile string `yaml:"log_file"`
+	// RulesFile is where the dashboard stores categorization rules + colours
+	// (default DefaultUsageRulesFile).
+	RulesFile string `yaml:"rules_file"`
+	// IntervalSeconds between samples (default DefaultUsageInterval).
+	IntervalSeconds int `yaml:"interval_seconds"`
+	// Display is the X display to sample, e.g. ":0"; empty uses $DISPLAY. The
+	// daemon runs as root, so this (and XAuthority) usually must be set to reach
+	// the user's session.
+	Display string `yaml:"display"`
+	// XAuthority is the path to the user's X authority cookie (optional).
+	XAuthority string `yaml:"xauthority"`
+}
+
 // ContentMonitoringConfig controls content/keyword monitoring via browser extension.
 type ContentMonitoringConfig struct {
 	Enabled bool   `yaml:"enabled"`
@@ -154,6 +181,7 @@ type Config struct {
 	ViolationTracking       ViolationTrackingConfig `yaml:"violation_tracking"`
 	Unblocking              UnblockingConfig        `yaml:"unblocking"`
 	Lifecycle               LifecycleConfig         `yaml:"lifecycle"`
+	UsageMonitor            UsageMonitorConfig      `yaml:"usage_monitor"`
 	MindfulDelay            int                     `yaml:"mindful_delay"` // Seconds
 	NotificationCommand     string                  `yaml:"notification_command"`
 	PanicCommand            string                  `yaml:"panic_command"`

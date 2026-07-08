@@ -857,7 +857,7 @@ const UNTAGGED = "(untagged)";
 function computeTagUsage(entries, compiled) {
   const byTag = new Map();
   const hourByTag = new Map(); // tag -> [24] ms, for the stacked hour-of-day chart
-  const untaggedByProg = new Map(); // program -> { ms, titles: Map<title, ms> }
+  const untaggedByWindow = new Map(); // "program\x00title" -> { program, title, ms }
   let untagged = 0, active = 0;
 
   const addHour = (name, hr, dt) => {
@@ -877,23 +877,19 @@ function computeTagUsage(entries, compiled) {
     } else {
       untagged += dt;
       addHour(UNTAGGED, hr, dt);
-      // Track what's untagged so the user can see it and turn it into a rule.
-      const prog = (e.active.class || "").trim() || "unknown";
-      let u = untaggedByProg.get(prog);
-      if (!u) { u = { ms: 0, titles: new Map() }; untaggedByProg.set(prog, u); }
-      u.ms += dt;
+      // Track each untagged window (program + title) separately so the user can
+      // see and tag individual windows, not a collapsed per-program summary.
+      const program = (e.active.class || "").trim() || "unknown";
       const title = e.active.title || "—";
-      u.titles.set(title, (u.titles.get(title) || 0) + dt);
+      const key = program + " " + title;
+      let u = untaggedByWindow.get(key);
+      if (!u) { u = { program, title, ms: 0 }; untaggedByWindow.set(key, u); }
+      u.ms += dt;
     }
   });
 
-  // Flatten untagged into a ranked list, each with its heaviest example title.
-  const untaggedItems = [...untaggedByProg.entries()]
-    .map(([program, u]) => {
-      const top = [...u.titles.entries()].sort((a, b) => b[1] - a[1])[0];
-      return { program, ms: u.ms, title: top ? top[0] : "", titleCount: u.titles.size };
-    })
-    .sort((a, b) => b.ms - a.ms);
+  // Rank individual untagged windows by active time (most-used first).
+  const untaggedItems = [...untaggedByWindow.values()].sort((a, b) => b.ms - a.ms);
 
   return { tags: rankMap(byTag), untagged, active, hourByTag, untaggedItems };
 }
@@ -991,28 +987,32 @@ function renderUntagged(tu, available) {
   }
   const max = items[0].ms || 1;
   el.innerHTML = items
-    .slice(0, 15)
+    .slice(0, 10)
     .map((it) => {
       const pct = Math.round((it.ms / max) * 100);
-      const more = it.titleCount > 1 ? ` <em>+${it.titleCount - 1} more</em>` : "";
       return `<div class="untag">
         <div class="untag-info">
           <span class="untag-prog">${esc(it.program)}</span>
-          <span class="untag-title" title="${esc(it.title)}">${esc(it.title)}${more}</span>
+          <span class="untag-title" title="${esc(it.title)}">${esc(it.title)}</span>
         </div>
         <span class="untag-time">${esc(fmtDur(it.ms))}</span>
-        <button class="untag-tag" type="button" data-tag-program="${esc(it.program)}" title="Start a rule for ${esc(it.program)}">&plus; tag</button>
+        <button class="untag-tag" type="button" data-tag-program="${esc(it.program)}" data-tag-title="${esc(it.title)}" title="Start a rule for this window">&plus; tag</button>
         <span class="untag-bar"><span style="width:${pct}%"></span></span>
       </div>`;
     })
     .join("");
 }
 
-// Start a rule for a program: append a prefilled row to the editor, focus its
-// tag field, and let the user name it and Save.
-function startRuleForProgram(program) {
+// Start a rule for a specific window: append a prefilled row (program anchored,
+// title as an escaped starting point the user can generalize), focus its tag
+// field, and let the user name it and Save.
+function startRuleForWindow(program, title) {
   syncRulesFromDom();
-  state.rules.push({ program: `^${escapeRegex(program)}$`, title: "", tag: "" });
+  state.rules.push({
+    program: program ? `^${escapeRegex(program)}$` : "",
+    title: title && title !== "—" ? escapeRegex(title) : "",
+    tag: "",
+  });
   renderRulesEditor();
   markRuleValidity();
   const rows = document.querySelectorAll("#rules-rows .rule-row");
@@ -1113,10 +1113,10 @@ function setupRules() {
   });
   document.getElementById("rule-save").addEventListener("click", saveRulesToServer);
 
-  // "＋ tag" on an untagged row prefills a rule for that program.
+  // "＋ tag" on an untagged row prefills a rule for that specific window.
   document.getElementById("usage-untagged").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-tag-program]");
-    if (btn) startRuleForProgram(btn.dataset.tagProgram);
+    if (btn) startRuleForWindow(btn.dataset.tagProgram, btn.dataset.tagTitle || "");
   });
 
   // Per-tag colour pickers: recolour charts live; the value is saved with rules.

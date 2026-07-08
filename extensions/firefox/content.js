@@ -183,9 +183,12 @@ function analyzeContent() {
   
   console.log('analyzeContent() called for URL:', window.location.href);
   
-  // Skip analyzing localhost/127.0.0.1 pages to prevent redirect loops
-  if (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') {
-    console.log('Skipping localhost analysis to prevent redirect loops');
+  // Skip localhost pages: prevents redirect loops, and stops the glocker
+  // dashboard (glocker.localhost/stats) from catching itself — it displays the
+  // very keywords it records. Covers 127.0.0.1, localhost, and any *.localhost.
+  const host = window.location.hostname.toLowerCase();
+  if (host === '127.0.0.1' || host === 'localhost' || host.endsWith('.localhost')) {
+    console.log('Skipping localhost/dashboard analysis:', host);
     return;
   }
   

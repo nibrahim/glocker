@@ -27,8 +27,8 @@ func TestUpdateHostsWritesGlockerLocalAlias(t *testing.T) {
 	}
 	s := string(got)
 	// The special-cased dashboard alias is always present in the managed block.
-	if !strings.Contains(s, "127.0.0.1 glocker.local") || !strings.Contains(s, "::1 glocker.local") {
-		t.Errorf("missing glocker.local alias:\n%s", s)
+	if !strings.Contains(s, "127.0.0.1 glocker.localhost") || !strings.Contains(s, "::1 glocker.localhost") {
+		t.Errorf("missing glocker.localhost alias:\n%s", s)
 	}
 	// Original content and the blocked domain survive alongside it.
 	if !strings.Contains(s, "127.0.0.1 localhost") || !strings.Contains(s, "127.0.0.1 example.com") {

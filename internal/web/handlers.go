@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"slices"
@@ -277,6 +278,21 @@ func HandleKeywordsRequest(cfg *config.Config, w http.ResponseWriter, r *http.Re
 }
 
 // HandleReportRequest processes content monitoring reports from browser extensions.
+// hostOf extracts the hostname from a URL, or "" if it can't be parsed.
+func hostOf(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		return u.Hostname()
+	}
+	return ""
+}
+
+// isDashboardHost reports whether a host is loopback / the glocker dashboard
+// alias (glocker.localhost, any *.localhost, 127.0.0.1, ::1, localhost).
+func isDashboardHost(h string) bool {
+	h = strings.ToLower(strings.TrimSpace(h))
+	return h == "127.0.0.1" || h == "::1" || h == "localhost" || strings.HasSuffix(h, ".localhost")
+}
+
 func HandleReportRequest(cfg *config.Config, w http.ResponseWriter, r *http.Request) {
 	slog.Info("Got a request here", "method", r.Method, "value", http.MethodPost)
 	if r.Method != http.MethodPost {
@@ -295,6 +311,16 @@ func HandleReportRequest(cfg *config.Config, w http.ResponseWriter, r *http.Requ
 	if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
 		slog.Debug("Failed to parse report JSON", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	// Never record the glocker dashboard as a violation: it displays the very
+	// keywords it records, so a stray scan of glocker.localhost/stats would loop.
+	// (The extension also skips *.localhost; this is a server-side backstop.)
+	if isDashboardHost(report.Domain) || isDashboardHost(hostOf(report.URL)) {
+		slog.Debug("Ignoring content report for the glocker dashboard", "url", report.URL)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
 		return
 	}
 

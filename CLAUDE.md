@@ -374,8 +374,8 @@ Endpoints for browser extension communication (internal/web/handlers.go):
 Server started by internal/web/server.go:StartWebTrackingServer()
 
 **Stats dashboard (`internal/stats/`, mounted at `/stats`, localhost only):**
-- Reachable at `http://glocker.local/stats` — `UpdateHosts` special-cases a
-  `127.0.0.1/::1 glocker.local` alias into the managed /etc/hosts block (see
+- Reachable at `http://glocker.localhost/stats` — `UpdateHosts` special-cases a
+  `127.0.0.1/::1 glocker.localhost` alias into the managed /etc/hosts block (see
   internal/enforcement/hosts.go); resolving to loopback keeps the guard happy.
 - `GET /stats/` - glockpeek dashboard (embedded frontend; a copy of `glockpeek-web/public`)
 - `GET /stats/api/data` - full parsed history (violations/unblocks/lifecycle/unmanaged/usage), same JSON as glockpeek-web

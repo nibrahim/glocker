@@ -108,6 +108,43 @@ func TestHandleReportRequest(t *testing.T) {
 	}
 }
 
+func TestHandleReportRequest_IgnoresDashboard(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "glocker-reports-*.log")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	cfg := &config.Config{
+		ContentMonitoring: config.ContentMonitoringConfig{Enabled: true, LogFile: tmpFile.Name()},
+		ViolationTracking: config.ViolationTrackingConfig{Enabled: false},
+	}
+
+	// A content report for the dashboard itself must be ignored, not logged —
+	// /stats displays the very keywords it records.
+	report := state.ContentReport{
+		URL:       "http://glocker.localhost/stats",
+		Domain:    "glocker.localhost",
+		Trigger:   "content_keyword_match",
+		Timestamp: time.Now().UnixMilli(),
+	}
+	body, _ := json.Marshal(report)
+	req := httptest.NewRequest("POST", "/report", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	HandleReportRequest(cfg, w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+	content, _ := os.ReadFile(tmpFile.Name())
+	if strings.TrimSpace(string(content)) != "" {
+		t.Errorf("dashboard report should not be logged, got: %q", content)
+	}
+}
+
 func TestHandleReportRequest_Disabled(t *testing.T) {
 	cfg := &config.Config{
 		ContentMonitoring: config.ContentMonitoringConfig{

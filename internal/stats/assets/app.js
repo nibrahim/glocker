@@ -60,9 +60,10 @@ async function init() {
   document.getElementById("loading").hidden = true;
   document.getElementById("dash").hidden = false;
 
-  // Delegated hover: the calendar is re-rendered on every range change, but the
-  // container element is stable so one listener suffices.
-  document.getElementById("calendar").addEventListener("mouseover", (e) => {
+  // Delegated click: the calendar is re-rendered on every range change, but the
+  // container element is stable so one listener suffices. Click (not hover) so
+  // moving the mouse toward the detail panel doesn't keep changing the day.
+  document.getElementById("calendar").addEventListener("click", (e) => {
     const cell = e.target.closest(".cal-day[data-ts]");
     if (cell) showDay(Number(cell.dataset.ts));
   });
@@ -676,7 +677,7 @@ function renderMonth(monthStart, counts, max, winStart, winEnd, today) {
 // ── Day inspector (shared by calendar + timeline hover) ──
 function resetDayDetail() {
   document.getElementById("day-detail").innerHTML =
-    `<div class="dd-empty">Hover a day in the calendar or a point on the timeline for a breakdown of that day's violations.</div>`;
+    `<div class="dd-empty">Click a day in the calendar or a point on the timeline for a breakdown of that day's violations.</div>`;
 }
 
 function showDay(dayTs) {
@@ -1458,7 +1459,8 @@ function lineChart(id, labels, data, { onPoint, gridAt } = {}) {
   opts.interaction = { mode: "index", intersect: false };
   opts.plugins.tooltip.enabled = false; // the day inspector replaces the native tooltip
   if (onPoint) {
-    opts.onHover = (_e, els) => onPoint(els.length ? els[0].index : null);
+    // Click (not hover) a point to inspect that day, matching the calendar.
+    opts.onClick = (_e, els) => { if (els.length) onPoint(els[0].index); };
   }
   if (gridAt) {
     // Vertical gridlines only at ticks the predicate selects (keeps 1y readable).

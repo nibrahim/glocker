@@ -740,7 +740,39 @@ function showDay(dayTs) {
     body = `<div class="dd-note clean-note">No violations — clean day ✓</div>`;
   }
 
-  document.getElementById("day-detail").innerHTML = head + body;
+  document.getElementById("day-detail").innerHTML = head + dayHourTimeline(t, hits) + body;
+}
+
+// A 24-hour strip for the day inspector: violations per hour (heat-coloured),
+// unmanaged hours hatched, hours later than "now" dimmed. Echoes the time-of-day
+// view of `glockpeek -detail` at hourly granularity.
+function dayHourTimeline(dayStart, hits) {
+  const counts = new Array(24).fill(0);
+  for (const h of hits) counts[new Date(h.ts).getHours()]++;
+  const max = Math.max(1, ...counts);
+  const periods = state.data.unmanaged;
+  const now = state.data.now;
+
+  const cells = [];
+  for (let h = 0; h < 24; h++) {
+    const hStart = dayStart + h * HOUR_MS;
+    const hEnd = hStart + HOUR_MS;
+    const future = hStart >= now;
+    const count = counts[h];
+    const unm = !future && periods.some((p) => hStart < (p.open ? now : p.end) && hEnd > p.start);
+    const cls = `dd-hcell${future ? " future" : ""}${unm ? " unmanaged" : ""}`;
+    const bg = count > 0 && !future ? `background:${heatColor(count / max)}` : "";
+    const hh = String(h).padStart(2, "0");
+    const title = future
+      ? `${hh}:00 · later today`
+      : `${hh}:00 · ${count} violation${count === 1 ? "" : "s"}${unm ? " · unmanaged" : ""}`;
+    cells.push(`<div class="${cls}" style="${bg}" title="${title}"></div>`);
+  }
+  const axis = Array.from({ length: 24 }, (_, h) => `<span>${h % 6 === 0 ? String(h).padStart(2, "0") : ""}</span>`).join("");
+  return `<div class="dd-hours">
+    <div class="dd-hours-row">${cells.join("")}</div>
+    <div class="dd-hours-axis">${axis}</div>
+  </div>`;
 }
 
 function miniRank(items, color) {

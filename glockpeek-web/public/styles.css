@@ -388,8 +388,9 @@ main { padding: 24px clamp(16px, 3vw, 40px) 64px; min-width: 0; }
   color: var(--ink-dim);
   flex-wrap: wrap;
 }
-.legend-scale { display: flex; align-items: center; gap: 4px; }
+.legend-scale { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .legend-scale i { width: 16px; height: 12px; border-radius: 2px; display: inline-block; }
+.legend-scale .lvl { display: inline-flex; align-items: center; gap: 4px; }
 .legend-key { display: flex; align-items: center; gap: 6px; }
 .legend-key .swatch { width: 13px; height: 13px; border-radius: 3px; display: inline-block; }
 .legend-key .swatch.hatch { background-image: repeating-linear-gradient(45deg, rgba(192,70,143,0.7) 0 3px, transparent 3px 6px); background-color: rgba(192,70,143,0.15); }

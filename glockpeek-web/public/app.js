@@ -353,6 +353,21 @@ function heatColor(ratio) {
   return `rgb(${Math.max(mix(0), lo[0] * 0.6) | 0},${mix(1)},${mix(2)})`;
 }
 
+// Absolute severity colour for a per-day / per-hour violation count — fixed
+// buckets, NOT relative to the window max, so a single violation reads as low
+// rather than maxing out: 0 none · 1–2 low · 3–5 · 6–10 · 10+ hottest.
+const COUNT_LEGEND = [
+  { label: "none", count: 0 },
+  { label: "1–2", count: 1 },
+  { label: "3–5", count: 3 },
+  { label: "6–10", count: 6 },
+  { label: "10+", count: 11 },
+];
+function countColor(count) {
+  const i = count <= 0 ? 0 : count <= 2 ? 1 : count <= 5 ? 2 : count <= 10 ? 3 : 4;
+  return `rgb(${RAMP[i].join(",")})`;
+}
+
 // ── Composite health score ──────────────────────────────
 // score = 100 − penalties, where each penalty is a RATE (not a raw count) so
 // the number is comparable as you switch windows. Weights are the max points
@@ -599,7 +614,6 @@ const HOUR_MS = 3600000;
 function renderCalendar(violations, b) {
   const counts = new Map();
   for (const v of violations) counts.set(dayKey(v.ts), (counts.get(dayKey(v.ts)) || 0) + 1);
-  const max = Math.max(1, ...counts.values());
   const periods = state.data.unmanaged;
   const today = startOfDay(state.data.now);
   const winStart = startOfDay(b.start);
@@ -611,14 +625,12 @@ function renderCalendar(violations, b) {
   m = new Date(m.getFullYear(), m.getMonth(), 1);
   const lastMonth = new Date(winEnd);
   while (m <= lastMonth) {
-    months.push(renderMonth(m, counts, max, winStart, winEnd, today));
+    months.push(renderMonth(m, counts, winStart, winEnd, today));
     m = new Date(m.getFullYear(), m.getMonth() + 1, 1);
   }
 
   const legend = `<div class="cal-legend">
-    <span class="legend-scale">none
-      ${RAMP.map((_, i) => `<i style="background:${heatColor(i / (RAMP.length - 1))}"></i>`).join("")}
-      more</span>
+    <span class="legend-scale">${COUNT_LEGEND.map((s) => `<span class="lvl"><i style="background:${countColor(s.count)}"></i>${s.label}</span>`).join("")}</span>
     <span class="legend-key"><span class="swatch hatch"></span> unmanaged (proportion of day, &gt;1h)</span>
     <span class="legend-key"><span class="swatch" style="box-shadow:0 0 0 1.5px var(--signal)"></span> today</span>
   </div>`;
@@ -626,7 +638,7 @@ function renderCalendar(violations, b) {
   document.getElementById("calendar").innerHTML = months.join("") + legend;
 }
 
-function renderMonth(monthStart, counts, max, winStart, winEnd, today) {
+function renderMonth(monthStart, counts, winStart, winEnd, today) {
   const year = monthStart.getFullYear();
   const month = monthStart.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -656,7 +668,7 @@ function renderMonth(monthStart, counts, max, winStart, winEnd, today) {
       count > 0 && inWindow ? "has" : "",
       t === today ? "today" : "",
     ].filter(Boolean).join(" ");
-    const bg = inWindow && count > 0 ? `background:${heatColor(count / max)}` : "";
+    const bg = inWindow && count > 0 ? `background:${countColor(count)}` : "";
     const label = new Date(t).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     const title = inWindow
       ? `${label} · ${count} violation${count === 1 ? "" : "s"}${unmMs > 0 ? ` · ${fmtDur(unmMs)} unmanaged` : ""}`
@@ -753,7 +765,6 @@ function showDay(dayTs) {
 function dayHourTimeline(dayStart, hits) {
   const counts = new Array(24).fill(0);
   for (const h of hits) counts[new Date(h.ts).getHours()]++;
-  const max = Math.max(1, ...counts);
   const periods = state.data.unmanaged;
   const now = state.data.now;
 
@@ -765,7 +776,7 @@ function dayHourTimeline(dayStart, hits) {
     const count = counts[h];
     const unm = !future && periods.some((p) => hStart < (p.open ? now : p.end) && hEnd > p.start);
     const cls = `dd-hcell${future ? " future" : ""}${unm ? " unmanaged" : ""}`;
-    const bg = count > 0 && !future ? `background:${heatColor(count / max)}` : "";
+    const bg = count > 0 && !future ? `background:${countColor(count)}` : "";
     const hh = String(h).padStart(2, "0");
     const title = future
       ? `${hh}:00 · later today`

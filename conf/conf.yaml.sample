@@ -574,6 +574,8 @@ usage_monitor:
 
   # Where the dashboard stores categorization rules + tag colours (JSON). This
   # is mutable state written at runtime, so it lives under /var/lib, not /etc.
+  # For a starter ruleset, copy conf/usage-rules.sample.json to this path:
+  #   sudo install -Dm644 conf/usage-rules.sample.json /var/lib/glocker/usage-rules.json
   rules_file: "/var/lib/glocker/usage-rules.json"
 
   # Seconds between samples (arbtt defaults to 60).

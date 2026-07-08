@@ -1,0 +1,24 @@
+{
+  "rules": [
+    { "program": "", "title": "YouTube", "tag": "Activity:leisure" },
+    { "program": "", "title": "(Gmail|Proton Mail|Outlook)", "tag": "Activity:comms" },
+    { "program": "", "title": "(GitHub|GitLab|Stack Overflow)", "tag": "Activity:dev" },
+    { "program": "^(Code|code|jetbrains-.*|Emacs|emacs|Neovide)$", "title": "", "tag": "Activity:dev" },
+    { "program": "^(kitty|Alacritty|gnome-terminal|konsole|xterm|st)$", "title": "", "tag": "Activity:dev" },
+    { "program": "^(Claude|claude)$", "title": "", "tag": "Activity:dev" },
+    { "program": "^(Slack|slack|discord|Discord|Signal|telegram-desktop)$", "title": "", "tag": "Activity:comms" },
+    { "program": "^(libreoffice.*|soffice.*)$", "title": "", "tag": "Activity:work" },
+    { "program": "^(firefox|firefox-esr|chromium|Chromium|google-chrome)$", "title": "", "tag": "Activity:browsing" },
+    { "program": "^(steam|Steam|dosbox|DOSBox|lutris|retroarch)$", "title": "", "tag": "Activity:games" },
+    { "program": "^(vlc|mpv|Spotify|spotify)$", "title": "", "tag": "Activity:media" }
+  ],
+  "colors": {
+    "Activity:dev": "#4a90d9",
+    "Activity:work": "#2f9e8f",
+    "Activity:comms": "#f0a020",
+    "Activity:browsing": "#9b6dff",
+    "Activity:leisure": "#c0468f",
+    "Activity:games": "#ff4d4d",
+    "Activity:media": "#7bc86c"
+  }
+}

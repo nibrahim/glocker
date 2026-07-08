@@ -33,6 +33,7 @@ const VIEW_TITLES = {
 init();
 
 async function init() {
+  restoreWindow(); // apply the saved range/offset before building controls
   buildRangeButtons();
   try {
     const res = await fetch("api/data");
@@ -71,6 +72,7 @@ async function init() {
   });
   window.addEventListener("hashchange", () => setView(viewFromHash()));
 
+  clampOffset(); // a saved offset may point past the data we actually have
   setupRules();
   renderFooter();
   render();
@@ -136,6 +138,7 @@ function buildRangeButtons() {
       state.range = r.id;
       state.offset = 0; // reset to the most recent window when resizing
       wrap.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x.dataset.id === r.id));
+      saveWindow();
       render();
     });
     wrap.appendChild(b);
@@ -154,7 +157,46 @@ function shiftWindow(dir) {
   // Don't page past the earliest data we have.
   if (dir < 0 && windowBounds().start <= startOfDay(earliestTs())) return;
   state.offset = next;
+  saveWindow();
   render();
+}
+
+// ── Persisted window (cookie) ───────────────────────────
+// Remember the selected range + offset so a reload lands on the same window.
+const WINDOW_COOKIE = "gp_window";
+
+function saveWindow() {
+  setCookie(WINDOW_COOKIE, `${state.range}|${state.offset}`, 365);
+}
+
+function restoreWindow() {
+  const raw = getCookie(WINDOW_COOKIE);
+  if (!raw) return;
+  const [range, offsetStr] = raw.split("|");
+  if (!RANGES.some((r) => r.id === range)) return; // stale/unknown range id
+  state.range = range;
+  const off = parseInt(offsetStr, 10);
+  state.offset = Number.isFinite(off) && off < 0 ? off : 0;
+}
+
+// Pull a restored offset forward if it points before the earliest data (e.g. a
+// day-old cookie, or data that has since rolled off). Needs state.data.
+function clampOffset() {
+  const r = RANGES.find((x) => x.id === state.range);
+  if (!r || !r.days) { state.offset = 0; return; } // "all" has no offset
+  if (state.offset >= 0) { state.offset = 0; return; }
+  const span = r.days * DAY;
+  const maxBack = Math.floor((startOfDay(state.data.now) - startOfDay(earliestTs())) / span);
+  if (state.offset < -maxBack) state.offset = -maxBack;
+}
+
+function setCookie(name, value, days) {
+  document.cookie = `${name}=${encodeURIComponent(value)};path=/;max-age=${days * 86400};SameSite=Lax`;
+}
+
+function getCookie(name) {
+  const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 function earliestTs() {

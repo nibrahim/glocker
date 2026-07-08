@@ -373,6 +373,13 @@ Endpoints for browser extension communication (internal/web/handlers.go):
 
 Server started by internal/web/server.go:StartWebTrackingServer()
 
+**Stats dashboard (`internal/stats/`, mounted at `/stats`, localhost only):**
+- `GET /stats/` - glockpeek dashboard (embedded frontend; a copy of `glockpeek-web/public`)
+- `GET /stats/api/data` - full parsed history (violations/unblocks/lifecycle/unmanaged/usage), same JSON as glockpeek-web
+- `GET /stats/api/health` - liveness + resolved log paths
+- `GET|PUT /stats/api/rules` - usage categorization config `{rules, colors}`, stored at `/etc/glocker/usage-rules.json`
+- Reads the usage log at `/var/log/glocker-usage.jsonl`. All `/stats` routes reject non-loopback clients (403).
+
 ### Extension Communication Flow
 
 1. Extension loads and fetches keywords: `GET http://127.0.0.1/keywords`

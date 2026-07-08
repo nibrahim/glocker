@@ -1,6 +1,8 @@
 package enforcement
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +10,31 @@ import (
 	"glocker/internal/config"
 	"glocker/internal/state"
 )
+
+func TestUpdateHostsWritesGlockerLocalAlias(t *testing.T) {
+	dir := t.TempDir()
+	hostsPath := filepath.Join(dir, "hosts")
+	if err := os.WriteFile(hostsPath, []byte("127.0.0.1 localhost\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{HostsPath: hostsPath}
+	if err := UpdateHosts(cfg, []string{"example.com"}, false); err != nil {
+		t.Fatalf("UpdateHosts: %v", err)
+	}
+	got, err := os.ReadFile(hostsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	// The special-cased dashboard alias is always present in the managed block.
+	if !strings.Contains(s, "127.0.0.1 glocker.local") || !strings.Contains(s, "::1 glocker.local") {
+		t.Errorf("missing glocker.local alias:\n%s", s)
+	}
+	// Original content and the blocked domain survive alongside it.
+	if !strings.Contains(s, "127.0.0.1 localhost") || !strings.Contains(s, "127.0.0.1 example.com") {
+		t.Errorf("missing expected host entries:\n%s", s)
+	}
+}
 
 func TestGetDomainsToBlock_AlwaysBlock(t *testing.T) {
 	// NEW BEHAVIOR: Domains without time windows are always blocked by default

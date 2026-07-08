@@ -116,6 +116,16 @@ func UpdateHosts(cfg *config.Config, domains []string, dryRun bool) error {
 	}
 	slog.Debug("Wrote glocker start marker")
 
+	// Special-cased local alias for the /stats dashboard: reach it at
+	// http://glocker.local instead of typing 127.0.0.1. It lives inside the
+	// glocker-managed block (protected by the immutable flag, removed on
+	// uninstall), and resolving to loopback keeps the dashboard's
+	// localhost-only guard satisfied.
+	if _, err := file.WriteString("127.0.0.1 glocker.local\n::1 glocker.local\n"); err != nil {
+		slog.Debug("Failed to write glocker.local alias", "error", err)
+		return fmt.Errorf("writing glocker.local alias: %w", err)
+	}
+
 	// Write domains in chunks
 	const chunkSize = 1000
 	totalDomains := len(domains)

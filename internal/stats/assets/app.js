@@ -30,6 +30,10 @@ const VIEW_TITLES = {
   bypasses: "Bypasses",
 };
 
+// Cookie key for the persisted time window. Declared here (before init runs) so
+// restoreWindow() can read it without hitting a temporal-dead-zone error.
+const WINDOW_COOKIE = "gp_window";
+
 init();
 
 async function init() {
@@ -163,8 +167,7 @@ function shiftWindow(dir) {
 
 // ── Persisted window (cookie) ───────────────────────────
 // Remember the selected range + offset so a reload lands on the same window.
-const WINDOW_COOKIE = "gp_window";
-
+// (WINDOW_COOKIE is declared up top so init() can use it before this point.)
 function saveWindow() {
   setCookie(WINDOW_COOKIE, `${state.range}|${state.offset}`, 365);
 }

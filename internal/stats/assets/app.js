@@ -881,8 +881,6 @@ const rankMap = (m) => [...m.entries()].map(([name, ms]) => ({ name, ms })).sort
 function computeUsage(entries) {
   const byApp = new Map();
   const byTitle = new Map();
-  const byDay = new Map();
-  const byHour = new Array(24).fill(0);
   let activeMs = 0, idleMs = 0;
 
   eachSampleDuration(entries, (e, dt, away) => {
@@ -895,8 +893,6 @@ function computeUsage(entries) {
     byApp.set(app, (byApp.get(app) || 0) + dt);
     const title = e.active.title || "—";
     byTitle.set(title, (byTitle.get(title) || 0) + dt);
-    byDay.set(dayKey(e.ts), (byDay.get(dayKey(e.ts)) || 0) + dt);
-    byHour[new Date(e.ts).getHours()] += dt;
   });
 
   return {
@@ -905,8 +901,6 @@ function computeUsage(entries) {
     trackedMs: activeMs + idleMs,
     apps: rankMap(byApp),
     titles: rankMap(byTitle),
-    byDay,
-    byHour,
   };
 }
 
@@ -1022,8 +1016,6 @@ function renderUsage(b) {
   renderUsageReadout(u, available);
   renderDurationRank("usage-apps", u.apps, "var(--signal)", available);
   renderDurationRank("usage-titles", u.titles, "var(--safe)", available);
-  renderUsageTimeline(u, b);
-  renderUsageHourChart(u);
   recategorize();
 }
 
@@ -1360,23 +1352,6 @@ function renderDurationRank(id, items, color, available) {
     .join("");
 }
 
-function renderUsageTimeline(u, b) {
-  const days = Math.round((b.end - b.start) / DAY) + 1;
-  const labels = [], data = [];
-  for (let i = 0; i < days; i++) {
-    const ts = b.start + i * DAY;
-    const d = new Date(ts);
-    labels.push(d.getDate() === 1 || i === 0 ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
-    data.push(Math.round((u.byDay.get(dayKey(ts)) || 0) / 60000));
-  }
-  barChart("chart-usage-timeline", labels, data, "var(--signal)");
-}
-
-function renderUsageHourChart(u) {
-  const data = u.byHour.map((ms) => Math.round(ms / 60000));
-  const labels = Array.from({ length: 24 }, (_, h) => (h % 2 === 0 ? String(h).padStart(2, "0") : ""));
-  barChart("chart-usage-hour", labels, data, "var(--safe)");
-}
 
 function renderFooter() {
   const s = state.data.sources;

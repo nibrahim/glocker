@@ -269,7 +269,9 @@ function render() {
   state.dayIndex = dayIndex;
 
   const heat = buildHeatmap(violations, b);
-  renderScore(violations, unmanaged, b);
+  // Composite health is a standing measure over ALL recorded history, not the
+  // selected window — it doesn't change as you flip the range picker.
+  renderScore(state.data.violations, state.data.unmanaged, { start: startOfDay(earliestTs()), end: state.data.now });
   renderReadout(violations, unblocks, unmanaged, heat, b);
   renderHeatmap(heat);
   renderWeekdayChart(violations);
@@ -430,15 +432,15 @@ function renderScore(violations, unmanaged, b) {
   const pens = [
     {
       label: "Unmanaged", val: h.penalties.exposure, color: "var(--exposed)",
-      help: `Glocker was uninstalled ${(h.exposureFrac * 100).toFixed(1)}% of this window. Exposure is weighted heaviest — up to ${HEALTH_WEIGHTS.exposure} points.`,
+      help: `Glocker was uninstalled ${(h.exposureFrac * 100).toFixed(1)}% of all recorded history. Exposure is weighted heaviest — up to ${HEALTH_WEIGHTS.exposure} points.`,
     },
     {
       label: "Violations", val: h.penalties.violations, color: "var(--danger)",
-      help: `${h.vRate.toFixed(2)} violations/day. ${HEALTH_WEIGHTS.violation} points per violation/day, capped at ${HEALTH_WEIGHTS.violationCap}.`,
+      help: `${h.vRate.toFixed(2)} violations/day across all history. ${HEALTH_WEIGHTS.violation} points per violation/day, capped at ${HEALTH_WEIGHTS.violationCap}.`,
     },
     {
       label: "Deliberate days", val: h.penalties.deliberate, color: "var(--danger-deep)",
-      help: `${h.deliberateDays} of ${h.days} days had >2 hits. Up to ${HEALTH_WEIGHTS.deliberate} points if every day were deliberate.`,
+      help: `${h.deliberateDays} of ${h.days} recorded days had >2 hits. Up to ${HEALTH_WEIGHTS.deliberate} points if every day were deliberate.`,
     },
   ];
 

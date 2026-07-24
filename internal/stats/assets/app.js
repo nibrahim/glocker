@@ -24,7 +24,6 @@ const state = { data: null, range: "30d", offset: 0, view: "overview", charts: {
 const VIEW_TITLES = {
   overview: "Overview",
   history: "History",
-  patterns: "Patterns",
   usage: "Usage",
   sources: "Sources",
   bypasses: "Bypasses",

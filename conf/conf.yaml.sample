@@ -620,6 +620,44 @@ mindful_uninstall:
   #   - "I can wait until tomorrow."
 
 # ----------------------------------------------------------------------------
+# Heartbeat Watchdog (glockdoc — records when glocker is not running)
+# ----------------------------------------------------------------------------
+# `glocker -install` drops a small binary (glockdoc) and a root cron job that
+# runs it every interval_minutes. Each run pings the glocker IPC socket and
+# appends one JSON line to log_file: {"timestamp":"…","alive":true|false}.
+#
+# The whole point is to catch "uninstall and forget": glockdoc and its cron
+# job intentionally SURVIVE `glocker -uninstall`. After a teardown it keeps
+# recording "alive:false" every interval, so the gap between the last false
+# sample and the next true sample (when you reinstall) is the exact duration
+# glocker was gone — an accountability record you can't silently skip.
+#
+# Consequences to be aware of:
+#   - After a PERMANENT uninstall it logs "alive:false" forever until you
+#     remove it by hand: sudo rm /etc/cron.d/glocker-doc /usr/local/bin/glockdoc
+#     (that manual removal is itself a second, deliberate act — by design).
+#   - glockdoc reads NOTHING from this file at runtime; the installer bakes
+#     these values into the cron line as flags, because this config is deleted
+#     on uninstall exactly when the watchdog must keep working. Changing the
+#     cadence therefore requires a reinstall.
+#   - Requires a system cron daemon (present on Debian). Install warns if none
+#     is found.
+
+heartbeat:
+  # Master switch. When false, no watchdog binary or cron job is installed.
+  enabled: true
+
+  # How often the watchdog runs, in minutes (the cron cadence).
+  interval_minutes: 30
+
+  # Where liveness samples are appended (one JSON line per run). Mutable runtime
+  # state, so it lives under /var, not /etc.
+  log_file: "/var/log/glocker-heartbeat.jsonl"
+
+  # How long to wait for the socket ping/pong before calling it down, in seconds.
+  timeout_seconds: 3
+
+# ----------------------------------------------------------------------------
 # Usage Monitor (arbtt-style desktop time tracking)
 # ----------------------------------------------------------------------------
 # Samples the currently focused window (application + title) and idle time at a

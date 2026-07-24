@@ -2,6 +2,7 @@
 /glocker
 /glocklock
 /glockpeek
+/glockdoc
 conf/conf.yaml
 .aider*
 extensions/firefox/web-ext-artifacts/

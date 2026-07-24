@@ -135,6 +135,15 @@ func RestoreSystemChanges(cfg *config.Config) error {
 		log.Println("✓ glockpeek binary removed")
 	}
 
+	// The glockdoc watchdog and its cron job are deliberately left in place: it
+	// keeps pinging the (now absent) socket and recording "alive:false" samples,
+	// so the heartbeat log captures how long glocker stayed uninstalled. To stop
+	// it, remove it by hand — a separate, deliberate act.
+	if _, err := os.Stat(config.HeartbeatCronPath); err == nil {
+		log.Println("Note: heartbeat watchdog (glockdoc) left running to record this downtime.")
+		log.Printf("      To stop it: sudo rm %s %s", config.HeartbeatCronPath, config.GlockdocInstallPath)
+	}
+
 	log.Println("✓ System changes restored successfully")
 	return nil
 }

@@ -148,6 +148,13 @@ func InstallGlocker() error {
 		log.Printf("Note: glockpeek binary not found at %s, skipping", glockpeekSource)
 	}
 
+	// Step 4d: Install the glockdoc watchdog and its root cron job. Unlike the
+	// other sidecars, glockdoc and its cron intentionally survive uninstall so
+	// the gap in heartbeat samples records that glocker was torn down.
+	if err := installHeartbeat(&cfg, exePath); err != nil {
+		log.Printf("Warning: failed to install heartbeat watchdog: %v", err)
+	}
+
 	// Step 5: Create and install Firefox extension
 	if err := CreateFirefoxExtension(); err != nil {
 		log.Printf("Warning: Failed to create Firefox extension: %v", err)
@@ -191,6 +198,74 @@ func InstallGlocker() error {
 	log.Println("🎉 Installation complete!")
 	log.Println("   Run 'glocker -status' to check the current status")
 
+	return nil
+}
+
+// installHeartbeat installs the glockdoc watchdog binary and a root cron job
+// that runs it on a fixed cadence. All parameters are baked into the cron line
+// as flags so the watchdog never depends on the config file (removed on
+// uninstall). The binary and cron file are deliberately left in place by
+// uninstall so the watchdog keeps recording the resulting downtime.
+func installHeartbeat(cfg *config.Config, exePath string) error {
+	if !cfg.Heartbeat.Enabled {
+		log.Println("Heartbeat watchdog disabled in config, skipping")
+		return nil
+	}
+
+	src := filepath.Join(filepath.Dir(exePath), "glockdoc")
+	if _, err := os.Stat(src); err != nil {
+		return fmt.Errorf("glockdoc binary not found at %s (run 'make build-all'): %w", src, err)
+	}
+
+	if err := utils.CopyFile(src, config.GlockdocInstallPath); err != nil {
+		return fmt.Errorf("copying glockdoc binary: %w", err)
+	}
+	if err := os.Chown(config.GlockdocInstallPath, 0, 0); err != nil {
+		log.Printf("Warning: couldn't set glockdoc ownership to root: %v", err)
+	}
+	if err := os.Chmod(config.GlockdocInstallPath, 0o755); err != nil {
+		return fmt.Errorf("setting glockdoc permissions: %w", err)
+	}
+	log.Println("✓ glockdoc binary installed")
+
+	// Resolve parameters, falling back to defaults.
+	interval := cfg.Heartbeat.IntervalMinutes
+	if interval <= 0 {
+		interval = 30
+	}
+	logFile := cfg.Heartbeat.LogFile
+	if logFile == "" {
+		logFile = config.DefaultHeartbeatLogFile
+	}
+	timeout := cfg.Heartbeat.TimeoutSeconds
+	if timeout <= 0 {
+		timeout = 3
+	}
+
+	// Bake every parameter into the cron line so glockdoc needs no config file.
+	// cron.d requires a username field and a trailing newline.
+	cronLine := fmt.Sprintf("*/%d * * * * root %s -socket %s -log %s -timeout %ds\n",
+		interval, config.GlockdocInstallPath, config.GlockerSock, logFile, timeout)
+
+	if err := os.WriteFile(config.HeartbeatCronPath, []byte(cronLine), 0644); err != nil {
+		return fmt.Errorf("writing cron file %s: %w", config.HeartbeatCronPath, err)
+	}
+	// cron.d ignores files that are group/world-writable or not root-owned.
+	if err := os.Chown(config.HeartbeatCronPath, 0, 0); err != nil {
+		log.Printf("Warning: couldn't set cron file ownership to root: %v", err)
+	}
+	if err := os.Chmod(config.HeartbeatCronPath, 0o644); err != nil {
+		log.Printf("Warning: couldn't set cron file mode: %v", err)
+	}
+
+	// Warn (don't fail) if no cron daemon is available to run the job.
+	if _, err := exec.LookPath("cron"); err != nil {
+		if _, err2 := exec.LookPath("crond"); err2 != nil {
+			log.Printf("Warning: no cron/crond found in PATH — the heartbeat watchdog won't run until a cron daemon is installed")
+		}
+	}
+
+	log.Printf("✓ Heartbeat watchdog scheduled every %d min (%s)", interval, config.HeartbeatCronPath)
 	return nil
 }
 

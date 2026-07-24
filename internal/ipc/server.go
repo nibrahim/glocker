@@ -76,6 +76,11 @@ func HandleConnection(cfg *config.Config, conn net.Conn) {
 		slog.Debug("Socket command received", "action", action)
 
 		switch action {
+		case "ping":
+			// Liveness probe used by the glockdoc watchdog: a reply proves the
+			// daemon is running and responsive, not merely that the socket file
+			// exists.
+			conn.Write([]byte("pong\n"))
 		case "status":
 			response := cli.GetStatusResponse(cfg)
 			conn.Write([]byte(response))

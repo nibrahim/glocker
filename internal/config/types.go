@@ -5,6 +5,8 @@ const (
 	InstallPath          = "/usr/local/bin/glocker"
 	GlocklockInstallPath = "/usr/local/bin/glocklock"
 	GlockpeekInstallPath = "/usr/local/bin/glockpeek"
+	GlockdocInstallPath  = "/usr/local/bin/glockdoc"
+	HeartbeatCronPath    = "/etc/cron.d/glocker-doc"
 	GlockerConfigFile    = "/etc/glocker/config.yaml"
 	HostsMarkerStart     = "### GLOCKER START ###"
 	SudoersPath          = "/etc/sudoers"
@@ -158,6 +160,22 @@ type MindfulUninstallConfig struct {
 	RecentLines          int      `yaml:"recent_lines"`           // sentences to chain on a repeat (0 = no escalation)
 }
 
+// DefaultHeartbeatLogFile is where the glockdoc watchdog records liveness
+// samples. Mutable runtime state, so it lives under /var, not /etc.
+const DefaultHeartbeatLogFile = "/var/log/glocker-heartbeat.jsonl"
+
+// HeartbeatConfig controls the glockdoc liveness watchdog. It is consumed at
+// install time to write the root cron job (internal/install). The glockdoc
+// binary itself takes its parameters from CLI flags baked into that cron line,
+// so it never reads the config file — which matters because the config is
+// removed on uninstall, exactly when we still want the watchdog recording.
+type HeartbeatConfig struct {
+	Enabled         bool   `yaml:"enabled"`
+	IntervalMinutes int    `yaml:"interval_minutes"` // cron cadence (0 → 30)
+	LogFile         string `yaml:"log_file"`         // heartbeat JSONL path (empty → DefaultHeartbeatLogFile)
+	TimeoutSeconds  int    `yaml:"timeout_seconds"`  // socket probe timeout (0 → 3)
+}
+
 // ForbiddenProgram represents a program to be killed during blocking periods.
 // KillWindows lists times when the program is KILLED; AllowWindows lists
 // times when it is permitted. Precedence at evaluation time:
@@ -206,6 +224,7 @@ type Config struct {
 	Unblocking              UnblockingConfig        `yaml:"unblocking"`
 	Lifecycle               LifecycleConfig         `yaml:"lifecycle"`
 	MindfulUninstall        MindfulUninstallConfig  `yaml:"mindful_uninstall"`
+	Heartbeat               HeartbeatConfig         `yaml:"heartbeat"`
 	UsageMonitor            UsageMonitorConfig      `yaml:"usage_monitor"`
 	MindfulDelay            int                     `yaml:"mindful_delay"` // Seconds
 	NotificationCommand     string                  `yaml:"notification_command"`

@@ -5,6 +5,7 @@ build-all:
 	go build -o glocker ./cmd/glocker
 	go build -o glocklock ./cmd/glocklock
 	go build -o glockpeek ./cmd/glockpeek
+	go build -o glockdoc ./cmd/glockdoc
 
 # Rebuild and reinstall
 install: build-all

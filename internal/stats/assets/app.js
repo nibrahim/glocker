@@ -486,6 +486,17 @@ function renderReadout(violations, unblocks, unmanaged, heat, b) {
   const cleanDays = days - byDay.size;
 
   const unmanagedMs = unmanaged.reduce((s, p) => s + (p.end - p.start), 0);
+
+  // Computer-on coverage: how much of the window we have usage data for. Both
+  // active and idle samples mean the machine was powered on and being tracked,
+  // so trackedMs (active + idle) is a proxy for "computer was on".
+  const usageAvailable = !!(state.data.sources && state.data.sources.usage);
+  const onMs = usageAvailable
+    ? computeUsage((state.data.usage || []).filter((e) => within(e.ts, b))).trackedMs
+    : 0;
+  const windowMs = b.end - b.start;
+  const onPct = windowMs > 0 ? Math.round((onMs / windowMs) * 100) : 0;
+
   const peakLabel = heat.peak
     ? `${WEEKDAYS[heat.peak.wd]} ${String(heat.peak.hr).padStart(2, "0")}:00`
     : "—";
@@ -514,6 +525,11 @@ function renderReadout(violations, unblocks, unmanaged, heat, b) {
     {
       k: "Unblocks", v: unblocks.length, sub: "deliberate grants",
       help: "Number of temporary unblock grants you requested (e.g. glocker -unblock) in the window.",
+    },
+    {
+      k: "Computer on", v: usageAvailable ? fmtDur(onMs) : "—",
+      sub: usageAvailable ? `${onPct}% of ${fmtDur(windowMs)}` : "no usage data",
+      help: "Time the computer was on and being tracked (active + idle) in the window, from the usage log — i.e. how much of the total window there is activity data for.",
     },
   ];
 

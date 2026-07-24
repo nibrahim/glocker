@@ -29,6 +29,12 @@ import (
 	"glocker/internal/web"
 )
 
+// maintenanceReason is hardcoded (not config) as exempt from the mindful
+// uninstall gate, so routine rebuilds like `make install` -- which uninstall
+// with reason "maintenance" -- aren't gated. Impulsive teardowns use other
+// reasons and still hit the gate.
+const maintenanceReason = "maintenance"
+
 func main() {
 	// Parse command-line flags
 	installFlag := flag.Bool("install", false, "Install glocker as a system service")
@@ -105,8 +111,10 @@ func main() {
 		// Mindful gate: a metronome-paced typing challenge that must be passed
 		// before the uninstall reaches the daemon. Fails closed — if the gate is
 		// enabled but cannot run (no tty, terminal error), the uninstall is
-		// refused rather than silently bypassed.
-		if uninstallCfg.MindfulUninstall.Enabled {
+		// refused rather than silently bypassed. The "maintenance" reason is
+		// hardcoded exempt so dev rebuilds aren't gated.
+		gateExempt := strings.EqualFold(*uninstallReason, maintenanceReason)
+		if uninstallCfg.MindfulUninstall.Enabled && !gateExempt {
 			mc := uninstallCfg.MindfulUninstall
 
 			// Recency escalation: if the ledger shows a recent non-exempt

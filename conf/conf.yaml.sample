@@ -553,6 +553,53 @@ lifecycle:
   reasons: ["maintenance", "hardware", "testing"]
 
 # ----------------------------------------------------------------------------
+# Mindful Uninstall Gate (friction against impulsive removal)
+# ----------------------------------------------------------------------------
+# When enabled, `glocker -uninstall` must first pass a metronome-paced typing
+# challenge before the request reaches the daemon. A random sentence is revealed
+# one character at a time; you must type each character as it appears. A wrong
+# key, falling more than deadline_ms behind the beat, or the terminal losing
+# focus resets the challenge to a *fresh* random sentence — so it can never
+# collapse into muscle memory, and paste-from-memory is useless.
+#
+# Purpose: unlike a plain delay (which you can start and walk away from), this
+# pins you to the keyboard for the full duration, forcing presence and breaking
+# the automatic "reach for uninstall" reflex during a weak moment.
+#
+# Runs client-side in your terminal. It fails CLOSED: if enabled but the
+# challenge cannot run (no tty, terminal error), the uninstall is refused rather
+# than silently bypassed.
+
+mindful_uninstall:
+  # Master switch for the gate.
+  enabled: true
+
+  # Per-character reveal cadence, in milliseconds. Lower = faster, less friction.
+  # 1000 (one character per second) is a good default.
+  interval_ms: 1000
+
+  # How long after a character is revealed you have to type it before the
+  # challenge resets, in milliseconds. Should exceed interval_ms so you may lag
+  # a character or two but cannot wander off. Tighten toward 1200 for more bite.
+  deadline_ms: 2000
+
+  # Pause before the first character is revealed, in milliseconds, so the opening
+  # character doesn't catch you off guard.
+  grace_ms: 1200
+
+  # Number of sentences chained into a single challenge. This is the friction
+  # "tier": raise it for a longer challenge. (Later this can be driven
+  # automatically by how recently you last uninstalled.)
+  lines: 1
+
+  # Optional custom sentence pool. Keep them short and ASCII. If omitted, a
+  # built-in mix of accountability and neutral lines is used.
+  # sentences:
+  #   - "I am removing my own guardrails."
+  #   - "This uninstall will be recorded."
+  #   - "I can wait until tomorrow."
+
+# ----------------------------------------------------------------------------
 # Usage Monitor (arbtt-style desktop time tracking)
 # ----------------------------------------------------------------------------
 # Samples the currently focused window (application + title) and idle time at a

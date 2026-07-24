@@ -134,6 +134,22 @@ type LifecycleConfig struct {
 	Reasons []string `yaml:"reasons"`
 }
 
+// MindfulUninstallConfig gates `glocker -uninstall` behind a metronome-paced
+// typing challenge (see internal/mindful): characters of a random sentence are
+// revealed one at a time and must be typed as they appear, which forces
+// presence and breaks the automatic "reach for uninstall" habit path. Enabled
+// is the top-level switch; the remaining fields tune the challenge. Any field
+// left at zero falls back to the internal/mindful defaults (interval 1s,
+// deadline 2s, grace 1.2s, 1 line).
+type MindfulUninstallConfig struct {
+	Enabled    bool     `yaml:"enabled"`
+	IntervalMs int      `yaml:"interval_ms"`         // per-character reveal cadence
+	DeadlineMs int      `yaml:"deadline_ms"`         // grace after a char is revealed before a miss resets
+	GraceMs    int      `yaml:"grace_ms"`            // pause before the first character is revealed
+	Lines      int      `yaml:"lines"`               // sentences chained into one target (friction tier)
+	Sentences  []string `yaml:"sentences,omitempty"` // optional custom sentence pool (empty = built-in pool)
+}
+
 // ForbiddenProgram represents a program to be killed during blocking periods.
 // KillWindows lists times when the program is KILLED; AllowWindows lists
 // times when it is permitted. Precedence at evaluation time:
@@ -181,6 +197,7 @@ type Config struct {
 	ViolationTracking       ViolationTrackingConfig `yaml:"violation_tracking"`
 	Unblocking              UnblockingConfig        `yaml:"unblocking"`
 	Lifecycle               LifecycleConfig         `yaml:"lifecycle"`
+	MindfulUninstall        MindfulUninstallConfig  `yaml:"mindful_uninstall"`
 	UsageMonitor            UsageMonitorConfig      `yaml:"usage_monitor"`
 	MindfulDelay            int                     `yaml:"mindful_delay"` // Seconds
 	NotificationCommand     string                  `yaml:"notification_command"`

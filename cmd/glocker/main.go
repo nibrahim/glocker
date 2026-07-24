@@ -21,6 +21,7 @@ import (
 	"glocker/internal/enforcement"
 	"glocker/internal/install"
 	"glocker/internal/ipc"
+	"glocker/internal/mindful"
 	"glocker/internal/monitoring"
 	"glocker/internal/state"
 	"glocker/internal/usage"
@@ -73,6 +74,53 @@ func main() {
 		// Check if glocker is actually installed
 		if _, err := os.Stat("/usr/local/bin/glocker"); os.IsNotExist(err) {
 			log.Fatal("Glocker is not installed. Nothing to uninstall.")
+		}
+
+		// Load config so we can validate the reason and decide whether the
+		// mindful uninstall gate applies. Fails closed: if the config can't be
+		// read, we refuse rather than uninstall without its guardrails.
+		uninstallCfg, err := config.LoadConfig()
+		if err != nil {
+			log.Fatalf("Failed to load config: %v", err)
+		}
+
+		// Validate the reason locally before making the user work for it, so an
+		// invalid reason fails fast rather than after the mindful challenge. The
+		// daemon re-validates authoritatively. An empty reasons list accepts any.
+		if len(uninstallCfg.Lifecycle.Reasons) > 0 {
+			valid := false
+			for _, r := range uninstallCfg.Lifecycle.Reasons {
+				if strings.EqualFold(*uninstallReason, r) {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				log.Fatalf("Invalid uninstall reason %q. Valid reasons: %s",
+					*uninstallReason, strings.Join(uninstallCfg.Lifecycle.Reasons, ", "))
+			}
+		}
+
+		// Mindful gate: a metronome-paced typing challenge that must be passed
+		// before the uninstall reaches the daemon. Fails closed — if the gate is
+		// enabled but cannot run (no tty, terminal error), the uninstall is
+		// refused rather than silently bypassed.
+		if uninstallCfg.MindfulUninstall.Enabled {
+			mc := uninstallCfg.MindfulUninstall
+			passed, err := mindful.Run(mindful.Options{
+				Sentences: mc.Sentences,
+				Lines:     mc.Lines,
+				Interval:  time.Duration(mc.IntervalMs) * time.Millisecond,
+				Deadline:  time.Duration(mc.DeadlineMs) * time.Millisecond,
+				Grace:     time.Duration(mc.GraceMs) * time.Millisecond,
+			})
+			if err != nil {
+				log.Fatalf("Mindful gate could not run (uninstall refused): %v", err)
+			}
+			if !passed {
+				log.Println("Uninstall aborted at the mindful gate.")
+				os.Exit(1)
+			}
 		}
 
 		// Send uninstall request to daemon via socket

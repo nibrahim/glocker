@@ -9,6 +9,8 @@ export const DEFAULT_PATHS = {
   lifecycle: process.env.GLOCKER_LIFECYCLE_LOG || "/var/log/glocker-lifecycle.log",
   // Written by internal/usage (the usage-tracker); one JSON sample per line.
   usage: process.env.GLOCKER_USAGE_LOG || "/var/log/glocker-usage.jsonl",
+  // Written by the glockdoc watchdog; one liveness sample per line.
+  heartbeat: process.env.GLOCKER_HEARTBEAT_LOG || "/var/log/glocker-heartbeat.jsonl",
 };
 
 // Periods shorter than this are treated as upgrades, not real exposure.
@@ -181,13 +183,57 @@ export function unmanagedPeriods(lifecycle, now = Date.now()) {
   return periods;
 }
 
+// Parse the glockdoc heartbeat log: one JSON liveness sample per line.
+// Mirrors ParseHeartbeatLog() in internal/reports/reports.go.
+export async function parseHeartbeat(path = DEFAULT_PATHS.heartbeat) {
+  const lines = await readLines(path);
+  if (lines === null) return { available: false, entries: [] };
+  const entries = [];
+  for (const line of lines) {
+    let o;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const ts = Date.parse(o.timestamp);
+    if (Number.isNaN(ts)) continue;
+    entries.push({ ts, alive: !!o.alive });
+  }
+  entries.sort((a, b) => a.ts - b.ts);
+  return { available: true, entries };
+}
+
+// Collapse runs of alive:false samples into observed-down spans. An open span
+// (still down at the last sample) ends at `now`. Mirrors DowntimePeriods() in
+// internal/reports/reports.go.
+export function downtimePeriods(samples, now = Date.now()) {
+  const periods = [];
+  let start = null;
+  for (const s of samples) {
+    if (!s.alive) {
+      if (start === null) start = s.ts;
+      continue;
+    }
+    if (start !== null) {
+      if (s.ts - start >= MIN_UNMANAGED_MS) periods.push({ start, end: s.ts, open: false });
+      start = null;
+    }
+  }
+  if (start !== null && now - start >= MIN_UNMANAGED_MS) {
+    periods.push({ start, end: now, open: true });
+  }
+  return periods;
+}
+
 // Read and parse everything in one shot.
 export async function loadAll(paths = DEFAULT_PATHS, now = Date.now()) {
-  const [reports, unblocks, lifecycle, usage] = await Promise.all([
+  const [reports, unblocks, lifecycle, usage, heartbeat] = await Promise.all([
     parseReports(paths.reports),
     parseUnblocks(paths.unblocks),
     parseLifecycle(paths.lifecycle),
     parseUsage(paths.usage),
+    parseHeartbeat(paths.heartbeat),
   ]);
   return {
     now,
@@ -196,11 +242,13 @@ export async function loadAll(paths = DEFAULT_PATHS, now = Date.now()) {
       unblocks: unblocks.available,
       lifecycle: lifecycle.available,
       usage: usage.available,
+      heartbeat: heartbeat.available,
     },
     violations: reports.entries,
     unblocks: unblocks.entries,
     lifecycle: lifecycle.entries,
     unmanaged: unmanagedPeriods(lifecycle.entries, now),
+    downtime: downtimePeriods(heartbeat.entries, now),
     usage: usage.entries,
   };
 }

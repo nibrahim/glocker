@@ -113,6 +113,8 @@ components:
           type: boolean
         usage:
           type: boolean
+        heartbeat:
+          type: boolean
     Violation:
       type: object
       description: One content/URL keyword violation report.
@@ -178,6 +180,23 @@ components:
           type: string
         note:
           type: string
+    Downtime:
+      type: object
+      description: >
+        A span the glockdoc heartbeat watchdog observed glocker to be down (a run
+        of alive:false liveness samples). Unlike Unmanaged (derived from clean
+        uninstall/install events), this reflects observed liveness, so it also
+        captures crashes and unclean stops.
+      properties:
+        start:
+          type: integer
+          format: int64
+        end:
+          type: integer
+          format: int64
+        open:
+          type: boolean
+          description: True if glocker was still down at the last sample (span ends at now).
     UsageSample:
       type: object
       description: >
@@ -264,6 +283,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Unmanaged"
+        downtime:
+          type: array
+          items:
+            $ref: "#/components/schemas/Downtime"
         usage:
           type: array
           items:

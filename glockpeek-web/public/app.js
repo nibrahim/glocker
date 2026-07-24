@@ -258,6 +258,9 @@ function render() {
   const unmanaged = state.data.unmanaged
     .map((p) => ({ ...p, start: Math.max(p.start, b.start), end: Math.min(p.end, b.end) }))
     .filter((p) => p.end > p.start);
+  const downtime = (state.data.downtime || [])
+    .map((p) => ({ ...p, start: Math.max(p.start, b.start), end: Math.min(p.end, b.end) }))
+    .filter((p) => p.end > p.start);
 
   // Per-day index shared by the calendar, timeline, and day inspector.
   const dayIndex = new Map();
@@ -283,6 +286,7 @@ function render() {
   renderRanklist("top-domains", tally(violations, "domain"), "var(--signal)");
   renderRanklist("unblock-reasons", tally(unblocks, "reason"), "var(--safe)");
   renderUnmanaged(unmanaged);
+  renderDowntime(downtime);
   renderUsage(b);
 }
 
@@ -841,6 +845,34 @@ function renderUnmanaged(unmanaged) {
       return `<div class="um ${p.open ? "open" : ""}">
         <span class="when">${when}</span>
         <span class="why">${esc(why)}</span>
+        <span class="dur">${fmtDur(p.end - p.start)}</span>
+      </div>`;
+    })
+    .join("");
+}
+
+// Observed downtime from the glockdoc heartbeat watchdog. Unlike "unmanaged"
+// (derived from clean uninstall/install events), these are spans the watchdog
+// actually saw glocker not answering — so they also catch crashes and unclean
+// stops, and can register even when no uninstall was recorded.
+function renderDowntime(downtime) {
+  const el = document.getElementById("downtime-list");
+  if (!el) return;
+  if (!state.data.sources || !state.data.sources.heartbeat) {
+    el.innerHTML = `<div class="empty">no watchdog data yet</div>`;
+    return;
+  }
+  if (!downtime.length) {
+    el.innerHTML = `<div class="empty">none observed — watchdog saw glocker up ✓</div>`;
+    return;
+  }
+  el.innerHTML = [...downtime]
+    .sort((a, b) => b.start - a.start)
+    .map((p) => {
+      const when = new Date(p.start).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      return `<div class="um ${p.open ? "open" : ""}">
+        <span class="when">${when}</span>
+        <span class="why">${p.open ? "still down" : "watchdog observed down"}</span>
         <span class="dur">${fmtDur(p.end - p.start)}</span>
       </div>`;
     })

@@ -42,11 +42,21 @@ type unmanagedJSON struct {
 	Note   string `json:"note"`
 }
 
+// downtimeJSON is a span the glockdoc watchdog observed glocker to be down.
+// Unlike unmanaged (derived from clean uninstall/install events), this reflects
+// real observed liveness, so it also catches crashes and unclean stops.
+type downtimeJSON struct {
+	Start int64 `json:"start"`
+	End   int64 `json:"end"`
+	Open  bool  `json:"open"`
+}
+
 type sourcesJSON struct {
 	Reports   bool `json:"reports"`
 	Unblocks  bool `json:"unblocks"`
 	Lifecycle bool `json:"lifecycle"`
 	Usage     bool `json:"usage"`
+	Heartbeat bool `json:"heartbeat"`
 }
 
 type dataResponse struct {
@@ -56,6 +66,7 @@ type dataResponse struct {
 	Unblocks   []unblockJSON   `json:"unblocks"`
 	Lifecycle  []lifecycleJSON `json:"lifecycle"`
 	Unmanaged  []unmanagedJSON `json:"unmanaged"`
+	Downtime   []downtimeJSON  `json:"downtime"`
 	Usage      []usageSample   `json:"usage"`
 }
 
@@ -69,6 +80,7 @@ func buildData(p logPaths, now time.Time) dataResponse {
 		Unblocks:   []unblockJSON{},
 		Lifecycle:  []lifecycleJSON{},
 		Unmanaged:  []unmanagedJSON{},
+		Downtime:   []downtimeJSON{},
 		Usage:      []usageSample{},
 	}
 
@@ -115,6 +127,15 @@ func buildData(p logPaths, now time.Time) dataResponse {
 		sort.Slice(resp.Lifecycle, func(i, j int) bool { return resp.Lifecycle[i].TS < resp.Lifecycle[j].TS })
 	}
 	resp.Unmanaged = unmanagedPeriods(lifecycle, now)
+
+	if samples, err := reports.ParseHeartbeatLog(p.heartbeat); err == nil {
+		resp.Sources.Heartbeat = true
+		for _, d := range reports.DowntimePeriods(samples, now, minUnmanagedDuration) {
+			resp.Downtime = append(resp.Downtime, downtimeJSON{
+				Start: d.Start.UnixMilli(), End: d.End.UnixMilli(), Open: d.Open,
+			})
+		}
+	}
 
 	if samples, ok, _ := readUsageLog(p.usage); ok {
 		resp.Sources.Usage = true

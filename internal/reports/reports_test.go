@@ -235,3 +235,70 @@ func TestRecentUninstalls(t *testing.T) {
 		t.Errorf("missing file should return (nil, nil), got (%v, %v)", g, err)
 	}
 }
+
+func TestDowntimePeriods(t *testing.T) {
+	base := time.Date(2026, 7, 24, 10, 0, 0, 0, time.UTC)
+	at := func(min int) time.Time { return base.Add(time.Duration(min) * time.Minute) }
+	sample := func(min int, alive bool) HeartbeatSample {
+		return HeartbeatSample{Timestamp: at(min), Alive: alive}
+	}
+
+	// up, up, DOWN, DOWN, up (recovered), up, DOWN (still down at end).
+	samples := []HeartbeatSample{
+		sample(0, true),
+		sample(30, true),
+		sample(60, false),
+		sample(90, false),
+		sample(120, true),
+		sample(150, true),
+		sample(180, false),
+	}
+	now := at(210)
+
+	got := DowntimePeriods(samples, now, 2*time.Minute)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 downtime periods, got %d", len(got))
+	}
+
+	// First: down at 60, recovered by 120, closed.
+	if !got[0].Start.Equal(at(60)) || !got[0].End.Equal(at(120)) || got[0].Open {
+		t.Errorf("period 0 = %+v, want start=60m end=120m open=false", got[0])
+	}
+	// Second: down at 180, still down -> open, extended to now.
+	if !got[1].Start.Equal(at(180)) || !got[1].End.Equal(now) || !got[1].Open {
+		t.Errorf("period 1 = %+v, want start=180m end=now open=true", got[1])
+	}
+
+	// minDuration drops blips: a lone down sample recovered on the very next.
+	blip := []HeartbeatSample{sample(0, true), sample(1, false), sample(2, true)}
+	if p := DowntimePeriods(blip, at(3), 5*time.Minute); len(p) != 0 {
+		t.Errorf("expected sub-minDuration blip dropped, got %d periods", len(p))
+	}
+
+	// No samples -> no periods.
+	if p := DowntimePeriods(nil, now, time.Minute); len(p) != 0 {
+		t.Errorf("expected 0 periods for no samples, got %d", len(p))
+	}
+}
+
+func TestParseHeartbeatLog(t *testing.T) {
+	content := `{"timestamp":"2026-07-24T10:00:00Z","alive":true}
+not json, skip me
+{"timestamp":"2026-07-24T10:30:00Z","alive":false}
+`
+	tmp := filepath.Join(t.TempDir(), "hb.jsonl")
+	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ParseHeartbeatLog(tmp)
+	if err != nil {
+		t.Fatalf("ParseHeartbeatLog: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 samples (malformed skipped), got %d", len(got))
+	}
+	if !got[0].Alive || got[1].Alive {
+		t.Errorf("expected [alive, down], got [%v, %v]", got[0].Alive, got[1].Alive)
+	}
+}

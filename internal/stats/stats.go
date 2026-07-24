@@ -50,6 +50,7 @@ type logPaths struct {
 	reports   string
 	unblocks  string
 	lifecycle string
+	heartbeat string
 	usage     string
 	rules     string
 }
@@ -59,6 +60,7 @@ func resolvePaths() logPaths {
 		reports:   envOr("GLOCKER_REPORTS_LOG", reports.DefaultReportsLogPath),
 		unblocks:  envOr("GLOCKER_UNBLOCKS_LOG", reports.DefaultUnblocksLogPath),
 		lifecycle: envOr("GLOCKER_LIFECYCLE_LOG", reports.DefaultLifecycleLogPath),
+		heartbeat: envOr("GLOCKER_HEARTBEAT_LOG", reports.DefaultHeartbeatLogPath),
 		usage:     pick(opts.UsageLog, "GLOCKER_USAGE_LOG", DefaultUsageLogPath),
 		rules:     pick(opts.RulesFile, "GLOCKER_USAGE_RULES", DefaultRulesPath),
 	}
@@ -115,7 +117,8 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		"sources": data.Sources,
 		"paths": map[string]string{
 			"reports": p.reports, "unblocks": p.unblocks,
-			"lifecycle": p.lifecycle, "usage": p.usage, "rules": p.rules,
+			"lifecycle": p.lifecycle, "heartbeat": p.heartbeat,
+			"usage": p.usage, "rules": p.rules,
 		},
 	})
 }

@@ -15,6 +15,7 @@ const (
 	DefaultUnblocksLogPath   = "/var/log/glocker-unblocks.log"
 	DefaultReportsLogPath    = "/var/log/glocker-reports.log"
 	DefaultLifecycleLogPath  = "/var/log/glocker-lifecycle.log"
+	DefaultHeartbeatLogPath  = "/var/log/glocker-heartbeat.jsonl"
 )
 
 // UnblockEntry represents a single unblock log entry.
@@ -288,6 +289,84 @@ func RecentUninstalls(path string, since time.Time, exempt []string) ([]Lifecycl
 		out = append(out, e)
 	}
 	return out, nil
+}
+
+// HeartbeatSample is one liveness observation from the glockdoc watchdog log.
+type HeartbeatSample struct {
+	Timestamp time.Time `json:"timestamp"`
+	Alive     bool      `json:"alive"`
+}
+
+// DowntimePeriod is a contiguous span during which the watchdog observed
+// glocker to be down (a run of alive:false samples). Open means glocker was
+// still down as of the most recent sample.
+type DowntimePeriod struct {
+	Start time.Time
+	End   time.Time
+	Open  bool
+}
+
+// ParseHeartbeatLog reads and parses the glockdoc heartbeat log (one JSON
+// sample per line). Malformed lines are skipped.
+func ParseHeartbeatLog(path string) ([]HeartbeatSample, error) {
+	if path == "" {
+		path = DefaultHeartbeatLogPath
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var samples []HeartbeatSample
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var s HeartbeatSample
+		if err := json.Unmarshal([]byte(line), &s); err != nil {
+			continue
+		}
+		samples = append(samples, s)
+	}
+	if err := scanner.Err(); err != nil {
+		return samples, err
+	}
+	return samples, nil
+}
+
+// DowntimePeriods collapses runs of consecutive alive:false samples into spans.
+// A span starts at the first down sample and ends when the next up sample is
+// observed (the "recovered by" bound); a run still down at the end of the log is
+// left Open and extended to now. Spans shorter than minDuration are dropped as
+// restart blips. Samples are assumed in log (chronological) order.
+func DowntimePeriods(samples []HeartbeatSample, now time.Time, minDuration time.Duration) []DowntimePeriod {
+	out := []DowntimePeriod{}
+	var start *time.Time
+	for i := range samples {
+		s := samples[i]
+		if !s.Alive {
+			if start == nil {
+				t := s.Timestamp
+				start = &t
+			}
+			continue
+		}
+		// Alive: close any open down-run at this recovery sample.
+		if start != nil {
+			if s.Timestamp.Sub(*start) >= minDuration {
+				out = append(out, DowntimePeriod{Start: *start, End: s.Timestamp})
+			}
+			start = nil
+		}
+	}
+	if start != nil && now.Sub(*start) >= minDuration {
+		out = append(out, DowntimePeriod{Start: *start, End: now, Open: true})
+	}
+	return out
 }
 
 // LifecycleFilter filters lifecycle entries based on criteria.

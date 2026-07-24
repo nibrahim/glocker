@@ -65,6 +65,7 @@ app.listen(PORT, () => {
   console.log(`  reports:   ${DEFAULT_PATHS.reports}`);
   console.log(`  unblocks:  ${DEFAULT_PATHS.unblocks}`);
   console.log(`  lifecycle: ${DEFAULT_PATHS.lifecycle}`);
+  console.log(`  heartbeat: ${DEFAULT_PATHS.heartbeat}`);
   console.log(`  usage:     ${DEFAULT_PATHS.usage}`);
   console.log(`  rules:     ${DEFAULT_RULES_PATH}`);
 });

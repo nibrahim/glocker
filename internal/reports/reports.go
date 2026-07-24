@@ -255,6 +255,41 @@ func ParseLifecycleLog(path string) ([]LifecycleEntry, error) {
 	return entries, nil
 }
 
+// RecentUninstalls returns uninstall entries at or after `since`, excluding any
+// whose reason (case-insensitive, trimmed) is listed in exempt. It is used to
+// gauge how habitual recent teardowns have been so the mindful uninstall gate
+// can escalate. A missing log file is treated as no history (nil, nil).
+// Entries are returned in log order, so the last element is the most recent.
+func RecentUninstalls(path string, since time.Time, exempt []string) ([]LifecycleEntry, error) {
+	entries, err := ParseLifecycleLog(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	exemptSet := make(map[string]bool, len(exempt))
+	for _, r := range exempt {
+		exemptSet[strings.ToLower(strings.TrimSpace(r))] = true
+	}
+
+	var out []LifecycleEntry
+	for _, e := range entries {
+		if e.Type != "uninstall" {
+			continue
+		}
+		if e.Timestamp.Before(since) {
+			continue
+		}
+		if exemptSet[strings.ToLower(strings.TrimSpace(e.Reason))] {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, nil
+}
+
 // LifecycleFilter filters lifecycle entries based on criteria.
 type LifecycleFilter struct {
 	Type      string     // Filter by type ("install" or "uninstall")

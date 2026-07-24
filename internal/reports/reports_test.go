@@ -1,8 +1,10 @@
 package reports
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -175,5 +177,61 @@ func TestTopN(t *testing.T) {
 
 	if top[1].Name != "a" || top[1].Count != 10 {
 		t.Errorf("Expected a:10 second, got %s:%d", top[1].Name, top[1].Count)
+	}
+}
+
+func TestRecentUninstalls(t *testing.T) {
+	now := time.Now()
+	mk := func(ago time.Duration, typ, reason string) LifecycleEntry {
+		return LifecycleEntry{Timestamp: now.Add(-ago), Type: typ, Reason: reason}
+	}
+	entries := []LifecycleEntry{
+		mk(50*time.Hour, "uninstall", "work"),         // too old
+		mk(30*time.Hour, "install", ""),               // wrong type
+		mk(10*time.Hour, "uninstall", "maintenance"),  // exempt
+		mk(5*time.Hour, "uninstall", "work"),          // counts
+		mk(1*time.Hour, "uninstall", "entertainment"), // counts, most recent
+	}
+
+	var buf strings.Builder
+	for _, e := range entries {
+		b, err := json.Marshal(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf.Write(b)
+		buf.WriteByte('\n')
+	}
+	tmp := filepath.Join(t.TempDir(), "lifecycle.log")
+	if err := os.WriteFile(tmp, []byte(buf.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	since := now.Add(-24 * time.Hour)
+	got, err := RecentUninstalls(tmp, since, []string{"maintenance"})
+	if err != nil {
+		t.Fatalf("RecentUninstalls: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 recent non-exempt uninstalls, got %d", len(got))
+	}
+	if got[len(got)-1].Reason != "entertainment" {
+		t.Errorf("expected most recent (last) reason 'entertainment', got %q", got[len(got)-1].Reason)
+	}
+
+	// Exempt matching is case-insensitive.
+	if g, _ := RecentUninstalls(tmp, since, []string{"MAINTENANCE"}); len(g) != 2 {
+		t.Errorf("case-insensitive exempt failed: got %d, want 2", len(g))
+	}
+
+	// No exemptions -> the maintenance entry also counts.
+	if g, _ := RecentUninstalls(tmp, since, nil); len(g) != 3 {
+		t.Errorf("with no exemptions expected 3, got %d", len(g))
+	}
+
+	// A missing log file is treated as no history, not an error.
+	g, err := RecentUninstalls(filepath.Join(t.TempDir(), "nope.log"), since, nil)
+	if err != nil || g != nil {
+		t.Errorf("missing file should return (nil, nil), got (%v, %v)", g, err)
 	}
 }

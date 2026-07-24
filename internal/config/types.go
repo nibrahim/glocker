@@ -146,8 +146,16 @@ type MindfulUninstallConfig struct {
 	IntervalMs int      `yaml:"interval_ms"`         // per-character reveal cadence
 	DeadlineMs int      `yaml:"deadline_ms"`         // grace after a char is revealed before a miss resets
 	GraceMs    int      `yaml:"grace_ms"`            // pause before the first character is revealed
-	Lines      int      `yaml:"lines"`               // sentences chained into one target (friction tier)
+	Lines      int      `yaml:"lines"`               // base sentences chained into one target (friction tier)
 	Sentences  []string `yaml:"sentences,omitempty"` // optional custom sentence pool (empty = built-in pool)
+
+	// Recency escalation: when there is a prior non-exempt uninstall within
+	// RecencyHours in the lifecycle ledger, the current uninstall is treated as
+	// a repeat and the challenge is raised to RecentLines. This is what makes
+	// "once is fine, twice is hard" work.
+	RecencyHours         int      `yaml:"recency_hours"`          // lookback window; 0 disables escalation
+	RecencyExemptReasons []string `yaml:"recency_exempt_reasons"` // reasons that don't count as a repeat (e.g. maintenance)
+	RecentLines          int      `yaml:"recent_lines"`           // sentences to chain on a repeat (0 = no escalation)
 }
 
 // ForbiddenProgram represents a program to be killed during blocking periods.

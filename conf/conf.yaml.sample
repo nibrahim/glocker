@@ -587,10 +587,30 @@ mindful_uninstall:
   # character doesn't catch you off guard.
   grace_ms: 1200
 
-  # Number of sentences chained into a single challenge. This is the friction
-  # "tier": raise it for a longer challenge. (Later this can be driven
-  # automatically by how recently you last uninstalled.)
+  # Base number of sentences chained into a single challenge. This is the
+  # friction "tier" for a first, non-repeat uninstall.
   lines: 1
+
+  # Recency escalation — "once is fine, twice is hard".
+  # Before presenting the gate, glocker scans the lifecycle ledger
+  # (log_file above) for prior uninstalls. If it finds a non-exempt uninstall
+  # within recency_hours, the current one is treated as a repeat and the
+  # challenge is raised from `lines` to `recent_lines`.
+  #
+  # The current uninstall is only logged after the gate is passed, so this
+  # only ever counts *earlier* teardowns — the first uninstall of the window
+  # gets the base challenge, the next one within the window gets the harder one.
+
+  # How far back to look, in hours. 0 disables escalation (always base).
+  recency_hours: 24
+
+  # Reasons that do NOT count as a repeat (case-insensitive). Genuine, quick
+  # maintenance teardowns shouldn't make the next real uninstall harder.
+  recency_exempt_reasons: ["maintenance"]
+
+  # Sentences to chain when a repeat is detected. Should exceed `lines`.
+  # 0 means "don't escalate" (falls back to `lines`).
+  recent_lines: 3
 
   # Optional custom sentence pool. Keep them short and ASCII. If omitted, a
   # built-in mix of accountability and neutral lines is used.

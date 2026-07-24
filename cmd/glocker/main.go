@@ -23,6 +23,7 @@ import (
 	"glocker/internal/ipc"
 	"glocker/internal/mindful"
 	"glocker/internal/monitoring"
+	"glocker/internal/reports"
 	"glocker/internal/state"
 	"glocker/internal/usage"
 	"glocker/internal/web"
@@ -107,9 +108,28 @@ func main() {
 		// refused rather than silently bypassed.
 		if uninstallCfg.MindfulUninstall.Enabled {
 			mc := uninstallCfg.MindfulUninstall
+
+			// Recency escalation: if the ledger shows a recent non-exempt
+			// uninstall, treat this as a repeat and raise the challenge. The
+			// current uninstall isn't logged until the daemon processes it after
+			// the gate, so this only ever sees prior teardowns.
+			lines := mc.Lines
+			if mc.RecencyHours > 0 && mc.RecentLines > 0 {
+				since := time.Now().Add(-time.Duration(mc.RecencyHours) * time.Hour)
+				recent, rerr := reports.RecentUninstalls(uninstallCfg.Lifecycle.LogFile, since, mc.RecencyExemptReasons)
+				if rerr != nil {
+					log.Printf("Warning: couldn't read uninstall history (using base friction): %v", rerr)
+				} else if len(recent) > 0 {
+					lines = mc.RecentLines
+					last := recent[len(recent)-1]
+					log.Printf("Repeat uninstall: %d in the last %dh (most recent %q, %s ago). Raising the mindful gate.",
+						len(recent), mc.RecencyHours, last.Reason, time.Since(last.Timestamp).Round(time.Minute))
+				}
+			}
+
 			passed, err := mindful.Run(mindful.Options{
 				Sentences: mc.Sentences,
-				Lines:     mc.Lines,
+				Lines:     lines,
 				Interval:  time.Duration(mc.IntervalMs) * time.Millisecond,
 				Deadline:  time.Duration(mc.DeadlineMs) * time.Millisecond,
 				Grace:     time.Duration(mc.GraceMs) * time.Millisecond,

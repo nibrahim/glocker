@@ -291,6 +291,17 @@ func RecentUninstalls(path string, since time.Time, exempt []string) ([]Lifecycl
 	return out, nil
 }
 
+// LastLifecycleEntry returns the most recent entry in the lifecycle log, or
+// ok=false if the log is empty or absent. Entries are in log order, so the last
+// one is the newest.
+func LastLifecycleEntry(path string) (LifecycleEntry, bool) {
+	entries, err := ParseLifecycleLog(path)
+	if err != nil || len(entries) == 0 {
+		return LifecycleEntry{}, false
+	}
+	return entries[len(entries)-1], true
+}
+
 // HeartbeatSample is one liveness observation from the glockdoc watchdog log.
 type HeartbeatSample struct {
 	Timestamp time.Time `json:"timestamp"`

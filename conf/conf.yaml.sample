@@ -552,6 +552,18 @@ lifecycle:
   #   - "testing" — developer/iteration use only
   reasons: ["maintenance", "hardware", "testing"]
 
+  # Maintenance-label loophole guard. The "maintenance" reason is hardcoded
+  # exempt from the mindful uninstall gate (so routine `make install` rebuilds
+  # aren't gated). To keep that exemption honest, a "maintenance" uninstall that
+  # isn't reversed within this many minutes is flagged by an accountability
+  # email at the NEXT install — an overstay suggests the label was used to skip
+  # the gate rather than for real maintenance. Requires accountability email to
+  # be enabled. 0 disables the check.
+  #
+  # Checked at reinstall (not while down) because the config and Mailgun creds
+  # only exist while glocker is installed.
+  maintenance_grace_minutes: 30
+
 # ----------------------------------------------------------------------------
 # Mindful Uninstall Gate (friction against impulsive removal)
 # ----------------------------------------------------------------------------

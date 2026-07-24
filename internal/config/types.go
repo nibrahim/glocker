@@ -15,6 +15,12 @@ const (
 	SystemdFile          = "./extras/glocker.service"
 	GlockerSock          = "/tmp/glocker.sock"
 	EmailCooldownMinutes = 15 // Minimum time between emails for the same event type
+
+	// MaintenanceReason is the one uninstall reason hardcoded (not config) as
+	// exempt from the mindful uninstall gate, so routine rebuilds like
+	// `make install` aren't gated. Its overstay is instead flagged at reinstall
+	// (see Lifecycle.MaintenanceGraceMinutes).
+	MaintenanceReason = "maintenance"
 )
 
 // TimeWindow represents a time-based blocking window with specific days.
@@ -134,6 +140,11 @@ type UnblockingConfig struct {
 type LifecycleConfig struct {
 	LogFile string   `yaml:"log_file"`
 	Reasons []string `yaml:"reasons"`
+	// MaintenanceGraceMinutes closes the maintenance-label loophole: because a
+	// "maintenance" uninstall skips the mindful gate, one that isn't reversed
+	// within this many minutes gets flagged by an accountability email at the
+	// next install. 0 disables the check.
+	MaintenanceGraceMinutes int `yaml:"maintenance_grace_minutes"`
 }
 
 // MindfulUninstallConfig gates `glocker -uninstall` behind a metronome-paced

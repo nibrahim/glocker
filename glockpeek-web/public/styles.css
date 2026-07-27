@@ -346,6 +346,7 @@ main { padding: 24px clamp(16px, 3vw, 40px) 64px; min-width: 0; }
 .stat .sub { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); margin-top: 2px; }
 .stat.alarm .v { color: var(--danger); }
 .stat.peak .v { color: var(--signal); }
+.stat.safe .v { color: var(--safe); }
 
 /* ── Heatmap ──────────────────────────────────────────── */
 .heatmap {

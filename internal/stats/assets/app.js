@@ -274,6 +274,7 @@ function render() {
   // Composite health is a standing measure over ALL recorded history, not the
   // selected window — it doesn't change as you flip the range picker.
   renderScore(state.data.violations, state.data.unmanaged, { start: startOfDay(earliestTs()), end: state.data.now });
+  renderStreak(state.data.violations); // standing, all-history — not windowed
   renderReadout(violations, unblocks, unmanaged, heat, b);
   renderHeatmap(heat);
   renderWeekdayChart(violations);
@@ -473,6 +474,46 @@ function renderScore(violations, unmanaged, b) {
       <div class="score-band" style="color:${color}">${h.band.label}</div>
       <p class="score-verdict">${esc(verdict(h))}</p>
       <div class="score-breakdown">${breakdown}</div>
+    </div>`;
+}
+
+// Consecutive clean days (days with no violations), computed over ALL history —
+// a standing streak, independent of the selected window (like the health score).
+// Current = clean days ending today (0 if there was a violation today); best =
+// the longest clean run ever. Days are counted from the first violation, so
+// ambiguous pre-tracking days don't inflate the streak.
+function computeStreaks(violations, now) {
+  const today = startOfDay(now);
+  if (!violations.length) {
+    const n = Math.floor((today - startOfDay(earliestTs())) / DAY) + 1;
+    return { current: n, best: n, none: true };
+  }
+  const vdays = new Set(violations.map((v) => dayKey(v.ts)));
+  let best = 0, run = 0;
+  for (let d = startOfDay(violations[0].ts); d <= today; d += DAY) {
+    if (vdays.has(dayKey(d))) run = 0;
+    else { run++; if (run > best) best = run; }
+  }
+  return { current: run, best, none: false };
+}
+
+function renderStreak(violations) {
+  const el = document.getElementById("streak");
+  if (!el) return;
+  const s = computeStreaks(violations, state.data.now);
+  const dLabel = (n) => `${n}<small> day${n === 1 ? "" : "s"}</small>`;
+  const clean = s.current > 0;
+  const currentSub = s.none ? "no violations recorded" : clean ? "since last violation" : "violation today";
+  el.innerHTML = `
+    <div class="stat ${clean ? "safe" : "alarm"}" title="Consecutive days with no violations, ending today. Standing metric over all history — not affected by the window picker.">
+      <div class="k">Current streak</div>
+      <div class="v">${dLabel(s.current)}</div>
+      <div class="sub">${currentSub}</div>
+    </div>
+    <div class="stat" title="Longest run of consecutive clean days ever recorded.">
+      <div class="k">Best streak</div>
+      <div class="v">${dLabel(s.best)}</div>
+      <div class="sub">all-time best</div>
     </div>`;
 }
 

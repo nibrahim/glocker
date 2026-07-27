@@ -540,15 +540,17 @@ function renderStreak(violations) {
   const clean = s.current > 0;
   const currentSub = clean ? "current clean run" : s.violationToday ? "violation today" : "glocker off today";
   el.innerHTML = `
-    <div class="stat ${clean ? "safe" : "alarm"}" title="Consecutive clean days ending today — a day counts only if it had no violations and glocker ran for more than half of it. Standing metric over all history, not the window picker.">
+    <div class="stat ${clean ? "safe" : "alarm"}">
       <div class="k">Current streak</div>
       <div class="v">${dLabel(s.current)}</div>
       <div class="sub">${currentSub}</div>
+      <div class="desc">Consecutive clean days ending today — a day counts only if it had no violations and glocker ran more than half of it. Over all history, not the window.</div>
     </div>
-    <div class="stat" title="Longest run of consecutive clean days ever recorded (no violations, glocker mostly running).">
+    <div class="stat">
       <div class="k">Best streak</div>
       <div class="v">${dLabel(s.best)}</div>
       <div class="sub">all-time best</div>
+      <div class="desc">Longest run of consecutive clean days ever recorded.</div>
     </div>`;
 }
 
@@ -610,10 +612,11 @@ function renderReadout(violations, unblocks, unmanaged, heat, b) {
 
   document.getElementById("readout").innerHTML = stats
     .map(
-      (s) => `<div class="stat ${s.cls || ""}" title="${esc(s.help)}">
+      (s) => `<div class="stat ${s.cls || ""}">
         <div class="k">${s.k}</div>
         <div class="v" ${s.big === false ? 'style="font-size:20px"' : ""}>${s.v}</div>
         <div class="sub">${s.sub}</div>
+        <div class="desc">${esc(s.help)}</div>
       </div>`
     )
     .join("");

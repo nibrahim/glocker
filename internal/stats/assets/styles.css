@@ -369,6 +369,7 @@ main { padding: 24px clamp(16px, 3vw, 40px) 64px; min-width: 0; }
 }
 .stat .v small { font-size: 13px; font-weight: 600; color: var(--ink-dim); }
 .stat .sub { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); margin-top: 2px; }
+.stat .desc { font-size: 11px; color: var(--ink-faint); line-height: 1.4; margin-top: 9px; }
 .stat.alarm .v { color: var(--danger); }
 .stat.peak .v { color: var(--signal); }
 .stat.safe .v { color: var(--safe); }

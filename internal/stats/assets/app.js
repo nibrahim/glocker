@@ -731,6 +731,7 @@ function renderCalendar(violations, b) {
 
   const legend = `<div class="cal-legend">
     <span class="legend-scale">${COUNT_LEGEND.map((s) => `<span class="lvl"><i style="background:${countColor(s.count)}"></i>${s.label}</span>`).join("")}</span>
+    <span class="legend-key"><span class="swatch clean-swatch"></span> clean &amp; managed</span>
     <span class="legend-key"><span class="swatch hatch"></span> unmanaged (proportion of day, &gt;1h)</span>
     <span class="legend-key"><span class="swatch" style="box-shadow:0 0 0 1.5px var(--signal)"></span> today</span>
   </div>`;
@@ -761,17 +762,21 @@ function renderMonth(monthStart, counts, winStart, winEnd, today) {
     const unmMs = inWindow ? dayUnmanagedMs(t) : 0;
     const hatched = unmMs > HOUR_MS;
     const frac = Math.min(1, unmMs / DAY);
+    // A fully good day: in-window, no violations, and glocker was managing it
+    // (no more than a brief upgrade blip of unmanaged time).
+    const clean = inWindow && count === 0 && unmMs <= HOUR_MS;
 
     const cls = [
       "cal-day",
       inWindow ? "" : "out",
       count > 0 && inWindow ? "has" : "",
+      clean ? "clean" : "",
       t === today ? "today" : "",
     ].filter(Boolean).join(" ");
     const bg = inWindow && count > 0 ? `background:${countColor(count)}` : "";
     const label = new Date(t).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     const title = inWindow
-      ? `${label} · ${count} violation${count === 1 ? "" : "s"}${unmMs > 0 ? ` · ${fmtDur(unmMs)} unmanaged` : ""}`
+      ? `${label} · ${count} violation${count === 1 ? "" : "s"}${unmMs > 0 ? ` · ${fmtDur(unmMs)} unmanaged` : ""}${clean ? " · clean & managed ✓" : ""}`
       : `${label} · outside selected window`;
     const data = inWindow ? ` data-ts="${t}"` : "";
     const hatch = hatched ? `<span class="cal-hatch" style="height:${Math.round(frac * 100)}%"></span>` : "";

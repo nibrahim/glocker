@@ -477,24 +477,25 @@ function renderScore(violations, unmanaged, b) {
     </div>`;
 }
 
-// Consecutive clean days (days with no violations), computed over ALL history —
-// a standing streak, independent of the selected window (like the health score).
-// Current = clean days ending today (0 if there was a violation today); best =
-// the longest clean run ever. Days are counted from the first violation, so
-// ambiguous pre-tracking days don't inflate the streak.
+// Consecutive clean days, computed over ALL history — a standing streak,
+// independent of the selected window (like the health score). A day is "clean"
+// only if it had no violations AND glocker was unmanaged (uninstalled) for less
+// than half of it; a violation or a majority-unmanaged day breaks the streak.
+// Current = clean days ending today; best = the longest clean run ever.
 function computeStreaks(violations, now) {
   const today = startOfDay(now);
-  if (!violations.length) {
-    const n = Math.floor((today - startOfDay(earliestTs())) / DAY) + 1;
-    return { current: n, best: n, none: true };
-  }
   const vdays = new Set(violations.map((v) => dayKey(v.ts)));
+  const broke = (d) => {
+    if (vdays.has(dayKey(d))) return true;
+    const span = Math.min(DAY, now - d); // 24h for past days, elapsed so far for today
+    return span > 0 && dayUnmanagedMs(d) > span / 2;
+  };
   let best = 0, run = 0;
-  for (let d = startOfDay(violations[0].ts); d <= today; d += DAY) {
-    if (vdays.has(dayKey(d))) run = 0;
+  for (let d = startOfDay(earliestTs()); d <= today; d += DAY) {
+    if (broke(d)) run = 0;
     else { run++; if (run > best) best = run; }
   }
-  return { current: run, best, none: false };
+  return { current: run, best, violationToday: vdays.has(dayKey(today)) };
 }
 
 function renderStreak(violations) {
@@ -503,14 +504,14 @@ function renderStreak(violations) {
   const s = computeStreaks(violations, state.data.now);
   const dLabel = (n) => `${n}<small> day${n === 1 ? "" : "s"}</small>`;
   const clean = s.current > 0;
-  const currentSub = s.none ? "no violations recorded" : clean ? "since last violation" : "violation today";
+  const currentSub = clean ? "current clean run" : s.violationToday ? "violation today" : "glocker off today";
   el.innerHTML = `
-    <div class="stat ${clean ? "safe" : "alarm"}" title="Consecutive days with no violations, ending today. Standing metric over all history — not affected by the window picker.">
+    <div class="stat ${clean ? "safe" : "alarm"}" title="Consecutive clean days ending today — a day counts only if it had no violations and glocker ran for more than half of it. Standing metric over all history, not the window picker.">
       <div class="k">Current streak</div>
       <div class="v">${dLabel(s.current)}</div>
       <div class="sub">${currentSub}</div>
     </div>
-    <div class="stat" title="Longest run of consecutive clean days ever recorded.">
+    <div class="stat" title="Longest run of consecutive clean days ever recorded (no violations, glocker mostly running).">
       <div class="k">Best streak</div>
       <div class="v">${dLabel(s.best)}</div>
       <div class="sub">all-time best</div>

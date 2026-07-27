@@ -267,6 +267,13 @@ main { padding: 24px clamp(16px, 3vw, 40px) 64px; min-width: 0; }
 
 /* ── Composite health score (leading metric) ──────────── */
 .score-hero { border-color: var(--line-2); }
+.score-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 30px;
+  align-items: start;
+}
+@media (max-width: 900px) { .score-split { grid-template-columns: 1fr; } }
 .score-body {
   display: grid;
   grid-template-columns: 168px 1fr;
@@ -274,6 +281,24 @@ main { padding: 24px clamp(16px, 3vw, 40px) 64px; min-width: 0; }
   align-items: center;
 }
 @media (max-width: 620px) { .score-body { grid-template-columns: 1fr; justify-items: center; } }
+
+/* Deterministic "how it's calculated / how to improve" explainer. */
+.score-explain { border-left: 1px solid var(--line); padding-left: 26px; }
+@media (max-width: 900px) {
+  .score-explain { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: 18px; }
+}
+.score-explain h3 {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-faint); margin: 0 0 7px;
+}
+.score-explain h3:not(:first-child) { margin-top: 16px; }
+.se-formula { font-size: 12.5px; color: var(--ink-dim); margin: 0; line-height: 1.5; }
+.se-formula span { display: block; color: var(--ink-faint); font-size: 11.5px; margin-top: 3px; }
+.se-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.se-list li { font-size: 12.5px; color: var(--ink-dim); line-height: 1.45; }
+.se-list b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
+.se-gain { color: var(--safe); font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+.se-note { font-size: 11.5px; color: var(--ink-faint); margin: 14px 0 0; line-height: 1.45; }
 
 .score-gauge { position: relative; width: 168px; height: 168px; }
 .score-gauge svg { width: 100%; height: 100%; transform: rotate(-90deg); }

@@ -458,6 +458,8 @@ function renderScore(violations, unmanaged, b) {
     )
     .join("");
 
+  renderScoreExplain(h);
+
   document.getElementById("score").innerHTML = `
     <div class="score-gauge" title="${h.score} out of 100">
       <svg viewBox="0 0 120 120" aria-hidden="true">
@@ -475,6 +477,38 @@ function renderScore(violations, unmanaged, b) {
       <p class="score-verdict">${esc(verdict(h))}</p>
       <div class="score-breakdown">${breakdown}</div>
     </div>`;
+}
+
+// Deterministic explainer for the composite score (no LLM): the formula, the
+// live per-penalty breakdown, and improvement levers ranked by how many points
+// each currently costs. All values come straight from computeHealth().
+function renderScoreExplain(h) {
+  const el = document.getElementById("score-explain");
+  if (!el) return;
+  const pts = (n) => n.toFixed(0);
+
+  const levers = [
+    { val: h.penalties.exposure, tip: `Keep glocker installed — it was uninstalled ${(h.exposureFrac * 100).toFixed(0)}% of all recorded time.` },
+    { val: h.penalties.violations, tip: `Fewer violations — you're averaging ${h.vRate.toFixed(2)} per day across all history.` },
+    { val: h.penalties.deliberate, tip: `Avoid days with more than 2 hits — ${h.deliberateDays} of ${h.days} recorded days qualify.` },
+  ].filter((l) => l.val >= 1).sort((a, b) => b.val - a.val);
+
+  const improve = levers.length
+    ? levers.map((l) => `<li>${esc(l.tip)} <span class="se-gain">up to +${pts(l.val)} pts</span></li>`).join("")
+    : `<li>You're near the ceiling — sustain the streak to hold it.</li>`;
+
+  el.innerHTML = `
+    <h3>How it's calculated</h3>
+    <p class="se-formula">score = 100 − exposure − violations − deliberate
+      <span>Each penalty is a rate over all recorded history, so the number doesn't move with the window picker.</span></p>
+    <ul class="se-list">
+      <li><b>Exposure &minus;${pts(h.penalties.exposure)}</b> — glocker uninstalled ${(h.exposureFrac * 100).toFixed(0)}% of all time (max ${HEALTH_WEIGHTS.exposure}).</li>
+      <li><b>Violations &minus;${pts(h.penalties.violations)}</b> — ${h.vRate.toFixed(2)}/day (${HEALTH_WEIGHTS.violation} pts per /day, capped ${HEALTH_WEIGHTS.violationCap}).</li>
+      <li><b>Deliberate &minus;${pts(h.penalties.deliberate)}</b> — ${h.deliberateDays} of ${h.days} days with >2 hits (max ${HEALTH_WEIGHTS.deliberate}).</li>
+    </ul>
+    <h3>How to improve</h3>
+    <ul class="se-list se-improve">${improve}</ul>
+    <p class="se-note">Improves by dilution — every clean day lowers these rates. Past events aren't erased, but their weight fades as clean history grows.</p>`;
 }
 
 // Consecutive clean days, computed over ALL history — a standing streak,

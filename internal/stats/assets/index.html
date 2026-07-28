@@ -132,6 +132,15 @@
         <section class="view" data-view="usage">
           <section class="readout" id="usage-readout"></section>
 
+          <!-- Per-day activity -->
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Activity per day</h2>
+              <p class="panel-sub">Active time each day in the window, stacked by tag. The number above each bar is how much of that day the computer was active.</p>
+            </div>
+            <div id="usage-perday-wrap" class="tall-chart"><canvas id="chart-usage-perday"></canvas></div>
+          </section>
+
           <!-- Tag breakdowns -->
           <div class="grid-2">
             <section class="panel">
@@ -147,24 +156,6 @@
                 <p class="panel-sub">Active hours in each hour-of-day slot (00&ndash;23), stacked by tag.</p>
               </div>
               <div id="usage-taghours-wrap" class="tall-chart"><canvas id="chart-usage-taghours"></canvas></div>
-            </section>
-          </div>
-
-          <!-- Row 3: raw app/window breakdown -->
-          <div class="grid-2">
-            <section class="panel">
-              <div class="panel-head">
-                <h2>Time by application</h2>
-                <p class="panel-sub">Where your active time went, by focused window class.</p>
-              </div>
-              <div id="usage-apps" class="ranklist"></div>
-            </section>
-            <section class="panel">
-              <div class="panel-head">
-                <h2>Top windows</h2>
-                <p class="panel-sub">Individual window titles you spent the most active time in.</p>
-              </div>
-              <div id="usage-titles" class="ranklist"></div>
             </section>
           </div>
 

@@ -1073,6 +1073,7 @@ const UNTAGGED = "(untagged)";
 function computeTagUsage(entries, compiled) {
   const byTag = new Map();
   const hourByTag = new Map(); // tag -> [24] ms, for the stacked hour-of-day chart
+  const dayByTag = new Map();  // tag -> Map(dayKey -> ms), for the per-day stack
   const untaggedByWindow = new Map(); // "program\x00title" -> { program, title, ms }
   let untagged = 0, active = 0;
 
@@ -1081,18 +1082,26 @@ function computeTagUsage(entries, compiled) {
     if (!a) { a = new Array(24).fill(0); hourByTag.set(name, a); }
     a[hr] += dt;
   };
+  const addDay = (name, dk, dt) => {
+    let m = dayByTag.get(name);
+    if (!m) { m = new Map(); dayByTag.set(name, m); }
+    m.set(dk, (m.get(dk) || 0) + dt);
+  };
 
   eachSampleDuration(entries, (e, dt, away) => {
     if (away) return;
     active += dt;
     const hr = new Date(e.ts).getHours();
+    const dk = dayKey(e.ts);
     const tag = tagForSample(e, compiled);
     if (tag) {
       byTag.set(tag, (byTag.get(tag) || 0) + dt);
       addHour(tag, hr, dt);
+      addDay(tag, dk, dt);
     } else {
       untagged += dt;
       addHour(UNTAGGED, hr, dt);
+      addDay(UNTAGGED, dk, dt);
       // Track each untagged window (program + title) separately so the user can
       // see and tag individual windows, not a collapsed per-program summary.
       const program = (e.active.class || "").trim() || "unknown";
@@ -1107,7 +1116,7 @@ function computeTagUsage(entries, compiled) {
   // Rank individual untagged windows by active time (most-used first).
   const untaggedItems = [...untaggedByWindow.values()].sort((a, b) => b.ms - a.ms);
 
-  return { tags: rankMap(byTag), untagged, active, hourByTag, untaggedItems };
+  return { tags: rankMap(byTag), untagged, active, hourByTag, dayByTag, untaggedItems };
 }
 
 // Canonical ordering shared by the tag pie and the stacked hour chart, so a tag
@@ -1141,12 +1150,10 @@ function renderUsage(b) {
   const entries = (state.data.usage || []).filter((e) => within(e.ts, b));
   // Stash the in-window samples so rule edits can recategorize without a
   // full re-render of the rest of the view.
-  state.usageWindow = { entries, available };
+  state.usageWindow = { entries, available, b };
   const u = computeUsage(entries);
 
   renderUsageReadout(u, available);
-  renderDurationRank("usage-apps", u.apps, "var(--signal)", available);
-  renderDurationRank("usage-titles", u.titles, "var(--safe)", available);
   recategorize();
 }
 
@@ -1156,6 +1163,7 @@ function recategorize({ colorsOnly = false } = {}) {
   const win = state.usageWindow;
   if (!win) return;
   const tu = computeTagUsage(win.entries, compileRules(state.rules));
+  renderUsagePerDay(tu, win.available, win.b);
   renderUsageTags(tu, win.available);
   renderUsageTagHours(tu, win.available);
   renderUntagged(tu, win.available);
@@ -1295,6 +1303,59 @@ function renderUsageTagHours(tu, available) {
     maxBarThickness: 22,
   }));
   stackedBarChart("chart-usage-taghours", labels, datasets);
+}
+
+// One bar per day in the window, stacked by tag (what you were doing that day).
+// The number above each bar is how much of that day the computer was active —
+// total active time / the day's elapsed span. Top labels are dropped when there
+// are too many days to fit them, but the bars still render.
+function renderUsagePerDay(tu, available, b) {
+  const wrap = document.getElementById("usage-perday-wrap");
+  if (!wrap) return;
+  const items = orderedTagItems(tu);
+  if (!available || !items.length || !b) {
+    destroy("chart-usage-perday");
+    wrap.innerHTML = `<div class="empty">${available ? "no active time in window" : "usage tracking is off"}</div>`;
+    return;
+  }
+  if (!document.getElementById("chart-usage-perday")) {
+    wrap.innerHTML = `<canvas id="chart-usage-perday"></canvas>`;
+  }
+
+  const start = startOfDay(b.start);
+  const end = Math.min(startOfDay(b.end), startOfDay(state.data.now));
+  const days = [];
+  for (let t = start; t <= end; t += DAY) days.push(t);
+
+  const colors = tagColorMap(items);
+  const datasets = items.map((it) => {
+    const m = tu.dayByTag.get(it.name) || new Map();
+    return {
+      label: it.name,
+      data: days.map((t) => (m.get(dayKey(t)) || 0) / 3600000),
+      backgroundColor: colors.get(it.name),
+      stack: "day",
+      borderWidth: 0,
+      maxBarThickness: 40,
+    };
+  });
+
+  // Active fraction of each day (of its elapsed span) → the number on top.
+  const now = state.data.now;
+  const topLabels = days.map((t) => {
+    const activeMs = items.reduce((s, it) => s + ((tu.dayByTag.get(it.name) || new Map()).get(dayKey(t)) || 0), 0);
+    const span = Math.min(DAY, now - t);
+    if (span <= 0 || activeMs <= 0) return "";
+    return Math.round((activeMs / span) * 100) + "%";
+  });
+
+  const xLabels = days.map((t) => {
+    const d = new Date(t);
+    return d.getDate() === 1 ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : String(d.getDate());
+  });
+
+  // Labels overlap once bars get thin; show them only for reasonably short windows.
+  stackedBarChart("chart-usage-perday", xLabels, datasets, days.length <= 40 ? topLabels : null);
 }
 
 // ── Rule editor ─────────────────────────────────────────
@@ -1459,30 +1520,6 @@ function renderUsageReadout(u, available) {
 }
 
 // Like renderRanklist, but the value is a duration rather than a count.
-function renderDurationRank(id, items, color, available) {
-  const el = document.getElementById(id);
-  if (!available) {
-    el.innerHTML = `<div class="empty">usage tracking is off</div>`;
-    return;
-  }
-  if (!items.length) {
-    el.innerHTML = `<div class="empty">no usage in window</div>`;
-    return;
-  }
-  const max = items[0].ms;
-  el.innerHTML = items
-    .slice(0, 8)
-    .map((it) => {
-      const pct = max ? Math.round((it.ms / max) * 100) : 0;
-      return `<div class="rank">
-        <span class="label" title="${esc(it.name)}">${esc(it.name)}</span>
-        <span class="count">${esc(fmtDur(it.ms))}</span>
-        <span class="track"><span class="fill" style="width:${pct}%;background:${color}"></span></span>
-      </div>`;
-    })
-    .join("");
-}
-
 
 function renderFooter() {
   const s = state.data.sources;
@@ -1533,7 +1570,9 @@ function hbarChart(id, { labels, pct, ms, colors }) {
   });
 }
 
-function stackedBarChart(id, labels, datasets) {
+// topLabels (optional): a string per bar index, drawn above each stack (used by
+// the per-day chart for the active-% annotation). Pass null/undefined to omit.
+function stackedBarChart(id, labels, datasets, topLabels) {
   destroy(id);
   const opts = baseOpts();
   opts.interaction = { mode: "index", intersect: false };
@@ -1551,11 +1590,36 @@ function stackedBarChart(id, labels, datasets) {
     filter: (item) => item.parsed.y > 0, // hide the many zero-height segments
     callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}h` },
   };
-  state.charts[id] = new Chart(document.getElementById(id), {
-    type: "bar",
-    data: { labels, datasets },
-    options: opts,
-  });
+
+  const cfg = { type: "bar", data: { labels, datasets }, options: opts };
+
+  if (topLabels) {
+    opts.layout = { padding: { top: 18 } }; // room for the labels above the tallest bar
+    cfg.plugins = [{
+      id: "topPct",
+      afterDatasetsDraw(chart) {
+        const { ctx } = chart;
+        ctx.save();
+        ctx.fillStyle = cssVar("var(--ink-dim)");
+        ctx.font = "10px IBM Plex Mono, monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        for (let i = 0; i < topLabels.length; i++) {
+          if (!topLabels[i]) continue;
+          let topY = Infinity, x = null;
+          for (let di = 0; di < datasets.length; di++) {
+            const bar = chart.getDatasetMeta(di).data[i];
+            if (!bar || !datasets[di].data[i]) continue;
+            if (bar.y < topY) { topY = bar.y; x = bar.x; }
+          }
+          if (x != null) ctx.fillText(topLabels[i], x, topY - 3);
+        }
+        ctx.restore();
+      },
+    }];
+  }
+
+  state.charts[id] = new Chart(document.getElementById(id), cfg);
 }
 
 function barChart(id, labels, data, colorVar) {

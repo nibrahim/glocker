@@ -1349,13 +1349,18 @@ function renderUsagePerDay(tu, available, b) {
     return Math.round((activeMs / span) * 100) + "%";
   });
 
+  // Two-line axis label: weekday on top, date below (month added on the 1st).
   const xLabels = days.map((t) => {
     const d = new Date(t);
-    return d.getDate() === 1 ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : String(d.getDate());
+    const wd = d.toLocaleDateString(undefined, { weekday: "short" });
+    const date = d.getDate() === 1 ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : String(d.getDate());
+    return [wd, date];
   });
+  // Full weekday + date for the tooltip, which the abbreviated axis label lacks.
+  const titles = days.map((t) => new Date(t).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }));
 
   // Labels overlap once bars get thin; show them only for reasonably short windows.
-  stackedBarChart("chart-usage-perday", xLabels, datasets, days.length <= 40 ? topLabels : null);
+  stackedBarChart("chart-usage-perday", xLabels, datasets, days.length <= 40 ? topLabels : null, titles);
 }
 
 // ── Rule editor ─────────────────────────────────────────
@@ -1572,7 +1577,9 @@ function hbarChart(id, { labels, pct, ms, colors }) {
 
 // topLabels (optional): a string per bar index, drawn above each stack (used by
 // the per-day chart for the active-% annotation). Pass null/undefined to omit.
-function stackedBarChart(id, labels, datasets, topLabels) {
+// titles (optional): a string per bar index used as the tooltip title (e.g. the
+// full weekday + date), since the axis label is abbreviated.
+function stackedBarChart(id, labels, datasets, topLabels, titles) {
   destroy(id);
   const opts = baseOpts();
   opts.interaction = { mode: "index", intersect: false };
@@ -1590,6 +1597,9 @@ function stackedBarChart(id, labels, datasets, topLabels) {
     filter: (item) => item.parsed.y > 0, // hide the many zero-height segments
     callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}h` },
   };
+  if (titles) {
+    opts.plugins.tooltip.callbacks.title = (items) => (items.length ? titles[items[0].dataIndex] : "");
+  }
 
   const cfg = { type: "bar", data: { labels, datasets }, options: opts };
 

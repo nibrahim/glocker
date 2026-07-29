@@ -146,7 +146,7 @@
             <section class="panel">
               <div class="panel-head">
                 <h2>Time by tag</h2>
-                <p class="panel-sub">Active time recategorized by your rules. Untagged time is shown so you can see coverage.</p>
+                <p class="panel-sub">Active time recategorized by your rules. Untagged time is shown so you can see coverage. Click a tag to see what fed it.</p>
               </div>
               <div id="usage-tags-wrap" class="tall-chart"><canvas id="chart-usage-tags"></canvas></div>
             </section>
@@ -158,6 +158,15 @@
               <div id="usage-taghours-wrap" class="tall-chart"><canvas id="chart-usage-taghours"></canvas></div>
             </section>
           </div>
+
+          <!-- Tag drill-down: which windows fed the selected tag -->
+          <section class="panel">
+            <div class="panel-head">
+              <h2 id="usage-tag-detail-head">Tag contributors</h2>
+              <p class="panel-sub">Click a tag in &ldquo;Time by tag&rdquo; above to see the top windows that fed it.</p>
+            </div>
+            <div id="usage-tag-detail" class="untag-list"></div>
+          </section>
 
           <!-- Untagged items feed rule creation -->
           <section class="panel">

@@ -1087,6 +1087,19 @@ function computeTagUsage(entries, compiled) {
     if (!m) { m = new Map(); dayByTag.set(name, m); }
     m.set(dk, (m.get(dk) || 0) + dt);
   };
+  // Per-tag contributing windows (program + title), for the tag drill-down.
+  const windowsByTag = new Map(); // tag -> Map(key -> { program, title, ms })
+  const noTitle = "—";
+  const addWindow = (name, e, dt) => {
+    const program = (e.active.class || "").trim() || "unknown";
+    const title = e.active.title || noTitle;
+    const wkey = program + " " + title;
+    let m = windowsByTag.get(name);
+    if (!m) { m = new Map(); windowsByTag.set(name, m); }
+    let w = m.get(wkey);
+    if (!w) { w = { program, title, ms: 0 }; m.set(wkey, w); }
+    w.ms += dt;
+  };
 
   eachSampleDuration(entries, (e, dt, away) => {
     if (away) return;
@@ -1098,10 +1111,12 @@ function computeTagUsage(entries, compiled) {
       byTag.set(tag, (byTag.get(tag) || 0) + dt);
       addHour(tag, hr, dt);
       addDay(tag, dk, dt);
+      addWindow(tag, e, dt);
     } else {
       untagged += dt;
       addHour(UNTAGGED, hr, dt);
       addDay(UNTAGGED, dk, dt);
+      addWindow(UNTAGGED, e, dt);
       // Track each untagged window (program + title) separately so the user can
       // see and tag individual windows, not a collapsed per-program summary.
       const program = (e.active.class || "").trim() || "unknown";
@@ -1116,7 +1131,7 @@ function computeTagUsage(entries, compiled) {
   // Rank individual untagged windows by active time (most-used first).
   const untaggedItems = [...untaggedByWindow.values()].sort((a, b) => b.ms - a.ms);
 
-  return { tags: rankMap(byTag), untagged, active, hourByTag, dayByTag, untaggedItems };
+  return { tags: rankMap(byTag), untagged, active, hourByTag, dayByTag, windowsByTag, untaggedItems };
 }
 
 // Canonical ordering shared by the tag pie and the stacked hour chart, so a tag
@@ -1263,6 +1278,7 @@ function renderUsageTags(tu, available) {
   if (!available || !items.length) {
     destroy("chart-usage-tags");
     wrap.innerHTML = `<div class="empty">${available ? "no active time in window" : "usage tracking is off"}</div>`;
+    renderTagContributors(null, tu);
     return;
   }
   // Re-create the canvas if a previous empty state replaced it.
@@ -1276,7 +1292,44 @@ function renderUsageTags(tu, available) {
     pct: items.map((it) => (100 * it.ms) / total),
     ms: items.map((it) => it.ms),
     colors: items.map((it) => colors.get(it.name)),
+    onSelect: (i) => renderTagContributors(items[i].name, tu),
   });
+  // Default drill-down: keep the current selection if still present, else top tag.
+  const names = items.map((it) => it.name);
+  renderTagContributors(names.includes(state.selectedTag) ? state.selectedTag : names[0], tu);
+}
+
+// Drill-down for "Time by tag": the top windows (program + title) that were
+// categorized into `tagName`, so you can see which apps fed a tag.
+function renderTagContributors(tagName, tu) {
+  const el = document.getElementById("usage-tag-detail");
+  const head = document.getElementById("usage-tag-detail-head");
+  if (!el) return;
+  if (!tagName) {
+    if (head) head.textContent = "Tag contributors";
+    el.innerHTML = `<div class="empty">no tags yet</div>`;
+    return;
+  }
+  state.selectedTag = tagName;
+  const m = (tu.windowsByTag && tu.windowsByTag.get(tagName)) || new Map();
+  const items = [...m.values()].sort((a, b) => b.ms - a.ms);
+  if (head) head.textContent = `Top windows in "${tagName}"`;
+  if (!items.length) {
+    el.innerHTML = `<div class="empty">no windows</div>`;
+    return;
+  }
+  const max = items[0].ms || 1;
+  el.innerHTML = items.slice(0, 12).map((it) => {
+    const pct = Math.round((it.ms / max) * 100);
+    return `<div class="untag">
+      <div class="untag-info">
+        <span class="untag-prog">${esc(it.program)}</span>
+        <span class="untag-title" title="${esc(it.title)}">${esc(it.title)}</span>
+      </div>
+      <span class="untag-time">${esc(fmtDur(it.ms))}</span>
+      <span class="untag-bar"><span style="width:${pct}%"></span></span>
+    </div>`;
+  }).join("");
 }
 
 // Hour-of-day (00–23) on X, hours on Y, one stacked segment per tag. Shows when
@@ -1546,10 +1599,14 @@ function destroy(id) {
 
 // Horizontal bar: percentage on X, category (tag) on Y, one coloured bar each.
 // Pass parallel arrays; ms is used only for the tooltip.
-function hbarChart(id, { labels, pct, ms, colors }) {
+function hbarChart(id, { labels, pct, ms, colors, onSelect }) {
   destroy(id);
   const opts = baseOpts();
   opts.indexAxis = "y";
+  if (onSelect) {
+    opts.onClick = (_e, els) => { if (els.length) onSelect(els[0].index); };
+    opts.onHover = (evt, els) => { evt.native.target.style.cursor = els.length ? "pointer" : "default"; };
+  }
   opts.scales = {
     x: {
       beginAtZero: true,

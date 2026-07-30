@@ -19,7 +19,7 @@ const RANGES = [
 
 // offset counts fixed windows back from the most recent: 0 = latest window
 // ending now, -1 = the window immediately before it, etc.
-const state = { data: null, range: "30d", offset: 0, view: "overview", charts: {}, rules: [], tagColors: {}, usageWindow: null, selectedTag: null, expandedApps: new Set(), lastTagUsage: null };
+const state = { data: null, range: "30d", offset: 0, view: "overview", charts: {}, rules: [], tagColors: {}, usageWindow: null, selectedTag: null, expandedApps: new Set(), selectedProgram: null, lastTagUsage: null };
 
 const VIEW_TITLES = {
   overview: "Overview",
@@ -76,13 +76,15 @@ async function init() {
   });
   window.addEventListener("hashchange", () => setView(viewFromHash()));
 
-  // Tag-contributor tree: click an app row to expand/collapse its windows.
+  // Tag-contributor tree: click an app row to expand/collapse its windows and
+  // show its common-title-words pie beside the list.
   document.getElementById("usage-tag-detail").addEventListener("click", (e) => {
     const row = e.target.closest(".tt-app[data-app]");
     if (!row) return;
     const app = row.dataset.app;
     if (state.expandedApps.has(app)) state.expandedApps.delete(app);
     else state.expandedApps.add(app);
+    state.selectedProgram = app;
     renderTagContributors(state.selectedTag, state.lastTagUsage);
   });
 
@@ -1191,7 +1193,6 @@ function recategorize({ colorsOnly = false } = {}) {
   renderUsagePerDay(tu, win.available, win.b);
   renderUsageTags(tu, win.available);
   renderUsageTagHours(tu, win.available);
-  renderTitleKeywords(tu, win.available);
   renderUntagged(tu, win.available);
   // Skip re-rendering the colour pickers when a picker itself triggered this,
   // so the open colour dialog / focus isn't disturbed mid-drag.
@@ -1324,8 +1325,8 @@ function renderTagContributors(tagName, tu) {
     el.innerHTML = `<div class="empty">no tags yet</div>`;
     return;
   }
-  // Collapse everything when switching to a different tag.
-  if (tagName !== state.selectedTag) state.expandedApps = new Set();
+  // Collapse and clear the selected program when switching to a different tag.
+  if (tagName !== state.selectedTag) { state.expandedApps = new Set(); state.selectedProgram = null; }
   state.selectedTag = tagName;
   if (head) head.textContent = `Apps in "${tagName}"`;
 
@@ -1343,12 +1344,14 @@ function renderTagContributors(tagName, tu) {
 
   if (!apps.length) {
     el.innerHTML = `<div class="empty">nothing recorded</div>`;
+    renderProgramWordsPie(null, null);
     return;
   }
 
   const max = apps[0].ms || 1;
   el.innerHTML = apps.map((app) => {
     const open = state.expandedApps.has(app.program);
+    const selected = app.program === state.selectedProgram;
     const pct = Math.round((app.ms / max) * 100);
     const wins = app.wins.slice().sort((a, b) => b.ms - a.ms);
     const children = open
@@ -1358,7 +1361,7 @@ function renderTagContributors(tagName, tu) {
         </div>`).join("")
       : "";
     return `<div class="tt-group${open ? " open" : ""}">
-      <div class="tt-app" data-app="${esc(app.program)}">
+      <div class="tt-app${selected ? " selected" : ""}" data-app="${esc(app.program)}">
         <span class="tt-caret">▸</span>
         <div class="tt-info">
           <span class="tt-name">${esc(app.program)}</span>
@@ -1370,6 +1373,10 @@ function renderTagContributors(tagName, tu) {
       ${children}
     </div>`;
   }).join("");
+
+  // Drive the pie of common title words for the selected program.
+  const sel = apps.find((a) => a.program === state.selectedProgram);
+  renderProgramWordsPie(sel ? sel.program : null, sel ? sel.wins : null);
 }
 
 // Rudimentary keyword analysis over window titles: tokenize every title, drop
@@ -1385,50 +1392,71 @@ function tokenizeTitle(s) {
   return (s || "").split(/[^A-Za-z0-9]+/).filter(Boolean);
 }
 
-function computeTitleKeywords(tu) {
-  const byWord = new Map(); // lowercased -> { display, ms, count }
-  if (!tu || !tu.windowsByTag) return [];
-  for (const windows of tu.windowsByTag.values()) {
-    for (const w of windows.values()) {
-      const progWords = new Set(tokenizeTitle(w.program).map((t) => t.toLowerCase()));
-      const seen = new Set(); // each window contributes its time once per distinct word
-      for (const raw of tokenizeTitle(w.title)) {
-        const lw = raw.toLowerCase();
-        if (lw.length < 3 || /^\d+$/.test(lw) || TITLE_STOPWORDS.has(lw) || progWords.has(lw)) continue;
-        if (seen.has(lw)) continue;
-        seen.add(lw);
-        let e = byWord.get(lw);
-        if (!e) { e = { display: raw, ms: 0, count: 0 }; byWord.set(lw, e); }
-        e.ms += w.ms;
-        e.count += 1;
-      }
+// Rank the keywords in one program's window titles, weighted by active time.
+// Scoping to a single program means a browser surfaces sites (YouTube, Reddit)
+// while a native app's fixed-title chrome stays confined to that app.
+function programWordFreq(program, wins) {
+  const progWords = new Set(tokenizeTitle(program).map((t) => t.toLowerCase()));
+  const byWord = new Map(); // lowercased -> { display, ms }
+  for (const w of wins || []) {
+    const seen = new Set(); // each window contributes its time once per distinct word
+    for (const raw of tokenizeTitle(w.title)) {
+      const lw = raw.toLowerCase();
+      if (lw.length < 3 || /^\d+$/.test(lw) || TITLE_STOPWORDS.has(lw) || progWords.has(lw)) continue;
+      if (seen.has(lw)) continue;
+      seen.add(lw);
+      let e = byWord.get(lw);
+      if (!e) { e = { display: raw, ms: 0 }; byWord.set(lw, e); }
+      e.ms += w.ms;
     }
   }
   return [...byWord.values()].sort((a, b) => b.ms - a.ms);
 }
 
-function renderTitleKeywords(tu, available) {
-  const el = document.getElementById("title-keywords");
-  if (!el) return;
-  if (!available) {
-    el.innerHTML = `<div class="empty">usage tracking is off</div>`;
+// Doughnut of the selected program's common title words, shown beside the tree.
+function renderProgramWordsPie(program, wins) {
+  const head = document.getElementById("tagc-pie-head");
+  const body = document.getElementById("tagc-pie-body");
+  if (!body) return;
+  destroy("chart-tagc-words");
+  if (!program) {
+    if (head) head.textContent = "Common words";
+    body.innerHTML = `<div class="empty">click an app to see its common title words</div>`;
     return;
   }
-  const items = computeTitleKeywords(tu);
-  if (!items.length) {
-    el.innerHTML = `<div class="empty">no active time in window</div>`;
+  if (head) head.textContent = `Common words · ${program}`;
+  const words = programWordFreq(program, wins);
+  if (!words.length) {
+    body.innerHTML = `<div class="empty">no distinctive words</div>`;
     return;
   }
-  const max = items[0].ms || 1;
-  el.innerHTML = items.slice(0, 15).map((it) => {
-    const pct = Math.round((it.ms / max) * 100);
-    const tip = `${it.display} · ${it.count} window${it.count === 1 ? "" : "s"}`;
-    return `<div class="rank">
-      <span class="label" title="${esc(tip)}">${esc(it.display)}</span>
-      <span class="count">${esc(fmtDur(it.ms))}</span>
-      <span class="track"><span class="fill" style="width:${pct}%;background:var(--signal)"></span></span>
-    </div>`;
-  }).join("");
+  const TOP = 8;
+  const top = words.slice(0, TOP);
+  const labels = top.map((w) => w.display);
+  const data = top.map((w) => w.ms);
+  const colors = top.map((_, i) => TAG_COLORS[i % TAG_COLORS.length]);
+  const restMs = words.slice(TOP).reduce((s, w) => s + w.ms, 0);
+  if (restMs > 0) { labels.push("other"); data.push(restMs); colors.push(cssVar("var(--ink-faint)")); }
+
+  body.innerHTML = `<canvas id="chart-tagc-words"></canvas>`;
+  doughnutChart("chart-tagc-words", labels, data, colors);
+}
+
+function doughnutChart(id, labels, msValues, colors) {
+  destroy(id);
+  state.charts[id] = new Chart(document.getElementById(id), {
+    type: "doughnut",
+    data: { labels, datasets: [{ data: msValues, backgroundColor: colors, borderWidth: 0 }] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "55%",
+      plugins: {
+        legend: { position: "right", labels: { color: TICK, font: { family: "IBM Plex Sans", size: 11 }, boxWidth: 10, padding: 6 } },
+        tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${fmtDur(ctx.parsed)}` } },
+      },
+    },
+  });
 }
 
 // Hour-of-day (00–23) on X, hours on Y, one stacked segment per tag. Shows when

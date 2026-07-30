@@ -693,6 +693,14 @@ canvas { max-height: 260px; }
 .tall-chart canvas { max-height: 320px; }
 
 /* ── Untagged windows list ─────────────────────────────── */
+/* Tag-contributor drill-down: tree on the left, per-app word pie on the right. */
+.tagc-split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 22px; align-items: start; }
+@media (max-width: 860px) { .tagc-split { grid-template-columns: 1fr; } }
+.tagc-pie { min-width: 0; }
+.tagc-pie-head { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#tagc-pie-body { position: relative; height: 220px; }
+#tagc-pie-body canvas { max-height: 220px; }
+
 /* Tag-contributor tree: apps expand to their windows. */
 .tagtree { display: flex; flex-direction: column; gap: 4px; }
 .tt-group { display: flex; flex-direction: column; }
@@ -707,6 +715,7 @@ canvas { max-height: 260px; }
   cursor: pointer;
 }
 .tt-app:hover { background: var(--panel-2); }
+.tt-app.selected { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--signal); }
 .tt-caret { grid-area: caret; color: var(--ink-faint); font-size: 9px; transition: transform 0.12s; }
 .tt-group.open .tt-caret { transform: rotate(90deg); }
 .tt-info { grid-area: info; min-width: 0; display: flex; align-items: baseline; gap: 8px; }

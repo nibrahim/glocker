@@ -693,11 +693,37 @@ canvas { max-height: 260px; }
 .tall-chart canvas { max-height: 320px; }
 
 /* ── Untagged windows list ─────────────────────────────── */
-/* Segmented toggle (e.g. tag drill-down: By app / By window). */
-.seg { display: inline-flex; gap: 2px; margin-bottom: 14px; padding: 2px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; }
-.seg button { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); background: transparent; border: 0; border-radius: 4px; padding: 4px 11px; cursor: pointer; }
-.seg button:hover { color: var(--ink); }
-.seg button.active { color: var(--ink); background: var(--panel-2); }
+/* Tag-contributor tree: apps expand to their windows. */
+.tagtree { display: flex; flex-direction: column; gap: 4px; }
+.tt-group { display: flex; flex-direction: column; }
+.tt-app {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  grid-template-areas: "caret info time" "bar bar bar";
+  gap: 3px 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.tt-app:hover { background: var(--panel-2); }
+.tt-caret { grid-area: caret; color: var(--ink-faint); font-size: 9px; transition: transform 0.12s; }
+.tt-group.open .tt-caret { transform: rotate(90deg); }
+.tt-info { grid-area: info; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.tt-app .tt-name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+.tt-app .tt-sub { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
+.tt-app .tt-time { grid-area: time; font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
+.tt-bar { grid-area: bar; height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.tt-bar > span { display: block; height: 100%; background: var(--ink-faint); border-radius: 3px; }
+.tt-win {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 3px 8px 3px 32px;
+}
+.tt-wtitle { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-wtime { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
 
 .untag-list { display: flex; flex-direction: column; gap: 10px; }
 .untag {

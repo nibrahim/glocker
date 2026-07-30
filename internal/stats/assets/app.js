@@ -19,7 +19,7 @@ const RANGES = [
 
 // offset counts fixed windows back from the most recent: 0 = latest window
 // ending now, -1 = the window immediately before it, etc.
-const state = { data: null, range: "30d", offset: 0, view: "overview", charts: {}, rules: [], tagColors: {}, usageWindow: null, selectedTag: null, tagDetailMode: "app", lastTagUsage: null };
+const state = { data: null, range: "30d", offset: 0, view: "overview", charts: {}, rules: [], tagColors: {}, usageWindow: null, selectedTag: null, expandedApps: new Set(), lastTagUsage: null };
 
 const VIEW_TITLES = {
   overview: "Overview",
@@ -76,12 +76,13 @@ async function init() {
   });
   window.addEventListener("hashchange", () => setView(viewFromHash()));
 
-  // Tag-contributor drill-down: group by app or by individual window.
-  document.getElementById("tagc-mode").addEventListener("click", (e) => {
-    const btn = e.target.closest("button[data-tagc-mode]");
-    if (!btn) return;
-    state.tagDetailMode = btn.dataset.tagcMode;
-    document.querySelectorAll("#tagc-mode button").forEach((b) => b.classList.toggle("active", b === btn));
+  // Tag-contributor tree: click an app row to expand/collapse its windows.
+  document.getElementById("usage-tag-detail").addEventListener("click", (e) => {
+    const row = e.target.closest(".tt-app[data-app]");
+    if (!row) return;
+    const app = row.dataset.app;
+    if (state.expandedApps.has(app)) state.expandedApps.delete(app);
+    else state.expandedApps.add(app);
     renderTagContributors(state.selectedTag, state.lastTagUsage);
   });
 
@@ -1308,9 +1309,10 @@ function renderUsageTags(tu, available) {
   renderTagContributors(names.includes(state.selectedTag) ? state.selectedTag : names[0], tu);
 }
 
-// Drill-down for "Time by tag": what fed `tagName`. Two modes (state.tagDetailMode):
-// "app" groups by program (so one app's many window titles collapse into a
-// single total — e.g. all of dosbox-x), "window" lists individual windows.
+// Drill-down for "Time by tag": a tree of what fed `tagName`. Top level is apps
+// (programs) grouped with their total time; clicking an app expands its window
+// titles inline below it, so you can see exactly what an app's time went on and
+// decide what to re-tag. Expanded apps are tracked in state.expandedApps.
 function renderTagContributors(tagName, tu) {
   const el = document.getElementById("usage-tag-detail");
   const head = document.getElementById("usage-tag-detail-head");
@@ -1321,44 +1323,50 @@ function renderTagContributors(tagName, tu) {
     el.innerHTML = `<div class="empty">no tags yet</div>`;
     return;
   }
+  // Collapse everything when switching to a different tag.
+  if (tagName !== state.selectedTag) state.expandedApps = new Set();
   state.selectedTag = tagName;
+  if (head) head.textContent = `Apps in "${tagName}"`;
+
   const windows = (tu && tu.windowsByTag && tu.windowsByTag.get(tagName)) || new Map();
-  const byApp = state.tagDetailMode === "app";
-  if (head) head.textContent = `Top ${byApp ? "apps" : "windows"} in "${tagName}"`;
 
-  let items;
-  if (byApp) {
-    // Collapse all windows of a program into one row, summing time.
-    const progs = new Map();
-    for (const w of windows.values()) {
-      let p = progs.get(w.program);
-      if (!p) { p = { primary: w.program, ms: 0, count: 0 }; progs.set(w.program, p); }
-      p.ms += w.ms;
-      p.count += 1;
-    }
-    items = [...progs.values()]
-      .map((p) => ({ primary: p.primary, secondary: `${p.count} window${p.count === 1 ? "" : "s"}`, ms: p.ms }))
-      .sort((a, b) => b.ms - a.ms);
-  } else {
-    items = [...windows.values()]
-      .map((w) => ({ primary: w.program, secondary: w.title, ms: w.ms }))
-      .sort((a, b) => b.ms - a.ms);
+  // Group windows by program, keeping each program's own window list.
+  const progs = new Map();
+  for (const w of windows.values()) {
+    let p = progs.get(w.program);
+    if (!p) { p = { program: w.program, ms: 0, wins: [] }; progs.set(w.program, p); }
+    p.ms += w.ms;
+    p.wins.push(w);
   }
+  const apps = [...progs.values()].sort((a, b) => b.ms - a.ms);
 
-  if (!items.length) {
+  if (!apps.length) {
     el.innerHTML = `<div class="empty">nothing recorded</div>`;
     return;
   }
-  const max = items[0].ms || 1;
-  el.innerHTML = items.slice(0, 12).map((it) => {
-    const pct = Math.round((it.ms / max) * 100);
-    return `<div class="untag">
-      <div class="untag-info">
-        <span class="untag-prog">${esc(it.primary)}</span>
-        <span class="untag-title" title="${esc(it.secondary)}">${esc(it.secondary)}</span>
+
+  const max = apps[0].ms || 1;
+  el.innerHTML = apps.map((app) => {
+    const open = state.expandedApps.has(app.program);
+    const pct = Math.round((app.ms / max) * 100);
+    const wins = app.wins.slice().sort((a, b) => b.ms - a.ms);
+    const children = open
+      ? wins.map((w) => `<div class="tt-win">
+          <span class="tt-wtitle" title="${esc(w.title)}">${esc(w.title)}</span>
+          <span class="tt-wtime">${esc(fmtDur(w.ms))}</span>
+        </div>`).join("")
+      : "";
+    return `<div class="tt-group${open ? " open" : ""}">
+      <div class="tt-app" data-app="${esc(app.program)}">
+        <span class="tt-caret">▸</span>
+        <div class="tt-info">
+          <span class="tt-name">${esc(app.program)}</span>
+          <span class="tt-sub">${app.wins.length} window${app.wins.length === 1 ? "" : "s"}</span>
+        </div>
+        <span class="tt-time">${esc(fmtDur(app.ms))}</span>
+        <span class="tt-bar"><span style="width:${pct}%"></span></span>
       </div>
-      <span class="untag-time">${esc(fmtDur(it.ms))}</span>
-      <span class="untag-bar"><span style="width:${pct}%"></span></span>
+      ${children}
     </div>`;
   }).join("");
 }

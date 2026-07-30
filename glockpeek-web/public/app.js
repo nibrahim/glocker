@@ -1397,7 +1397,7 @@ function tokenizeTitle(s) {
 // while a native app's fixed-title chrome stays confined to that app.
 function programWordFreq(program, wins) {
   const progWords = new Set(tokenizeTitle(program).map((t) => t.toLowerCase()));
-  const byWord = new Map(); // lowercased -> { display, ms }
+  const byWord = new Map(); // lowercased -> { display, ms, count }
   for (const w of wins || []) {
     const seen = new Set(); // each window contributes its time once per distinct word
     for (const raw of tokenizeTitle(w.title)) {
@@ -1406,8 +1406,9 @@ function programWordFreq(program, wins) {
       if (seen.has(lw)) continue;
       seen.add(lw);
       let e = byWord.get(lw);
-      if (!e) { e = { display: raw, ms: 0 }; byWord.set(lw, e); }
+      if (!e) { e = { display: raw, ms: 0, count: 0 }; byWord.set(lw, e); }
       e.ms += w.ms;
+      e.count += 1;
     }
   }
   return [...byWord.values()].sort((a, b) => b.ms - a.ms);
@@ -1425,18 +1426,27 @@ function renderProgramWordsPie(program, wins) {
     return;
   }
   if (head) head.textContent = `Common words · ${program}`;
-  const words = programWordFreq(program, wins);
-  if (!words.length) {
+  const all = programWordFreq(program, wins);
+  if (!all.length) {
     body.innerHTML = `<div class="empty">no distinctive words</div>`;
     return;
   }
-  const TOP = 8;
+  // Cut the one-off long-tail (each YouTube title spawns ~10 unique content
+  // words) so it doesn't pile into a giant "other" and dilute the real themes.
+  // Keep a word if it recurs (>=2 windows) OR is a meaningful share of the
+  // program's time; fall back to everything if that leaves too little.
+  const total = (wins || []).reduce((s, w) => s + w.ms, 0) || 1;
+  const MIN_SHARE = 0.08;
+  const kept = all.filter((w) => w.count >= 2 || w.ms >= MIN_SHARE * total);
+  const words = kept.length >= 3 ? kept : all;
+
+  // Show only the top words — no "other" slice, which otherwise balloons with the
+  // denoised-but-numerous tail and dilutes the real themes.
+  const TOP = 10;
   const top = words.slice(0, TOP);
   const labels = top.map((w) => w.display);
   const data = top.map((w) => w.ms);
   const colors = top.map((_, i) => TAG_COLORS[i % TAG_COLORS.length]);
-  const restMs = words.slice(TOP).reduce((s, w) => s + w.ms, 0);
-  if (restMs > 0) { labels.push("other"); data.push(restMs); colors.push(cssVar("var(--ink-faint)")); }
 
   body.innerHTML = `<canvas id="chart-tagc-words"></canvas>`;
   // Hovering a slice lights up the selected program's window rows whose titles

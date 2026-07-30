@@ -693,6 +693,12 @@ canvas { max-height: 260px; }
 .tall-chart canvas { max-height: 320px; }
 
 /* ── Untagged windows list ─────────────────────────────── */
+/* Segmented toggle (e.g. tag drill-down: By app / By window). */
+.seg { display: inline-flex; gap: 2px; margin-bottom: 14px; padding: 2px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; }
+.seg button { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); background: transparent; border: 0; border-radius: 4px; padding: 4px 11px; cursor: pointer; }
+.seg button:hover { color: var(--ink); }
+.seg button.active { color: var(--ink); background: var(--panel-2); }
+
 .untag-list { display: flex; flex-direction: column; gap: 10px; }
 .untag {
   display: grid;

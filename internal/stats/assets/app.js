@@ -1191,6 +1191,7 @@ function recategorize({ colorsOnly = false } = {}) {
   renderUsagePerDay(tu, win.available, win.b);
   renderUsageTags(tu, win.available);
   renderUsageTagHours(tu, win.available);
+  renderTitleKeywords(tu, win.available);
   renderUntagged(tu, win.available);
   // Skip re-rendering the colour pickers when a picker itself triggered this,
   // so the open colour dialog / focus isn't disturbed mid-drag.
@@ -1367,6 +1368,65 @@ function renderTagContributors(tagName, tu) {
         <span class="tt-bar"><span style="width:${pct}%"></span></span>
       </div>
       ${children}
+    </div>`;
+  }).join("");
+}
+
+// Rudimentary keyword analysis over window titles: tokenize every title, drop
+// the app's own name, stopwords, and short/numeric tokens, then rank what's left
+// by the active time of the windows it appears in. Surfaces recurring themes
+// (YouTube, Reddit, …) that individual window titles bury.
+const TITLE_STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "with", "at", "by",
+  "from", "new", "tab", "home", "private", "browsing", "mozilla", "google", "www", "com",
+]);
+
+function tokenizeTitle(s) {
+  return (s || "").split(/[^A-Za-z0-9]+/).filter(Boolean);
+}
+
+function computeTitleKeywords(tu) {
+  const byWord = new Map(); // lowercased -> { display, ms, count }
+  if (!tu || !tu.windowsByTag) return [];
+  for (const windows of tu.windowsByTag.values()) {
+    for (const w of windows.values()) {
+      const progWords = new Set(tokenizeTitle(w.program).map((t) => t.toLowerCase()));
+      const seen = new Set(); // each window contributes its time once per distinct word
+      for (const raw of tokenizeTitle(w.title)) {
+        const lw = raw.toLowerCase();
+        if (lw.length < 3 || /^\d+$/.test(lw) || TITLE_STOPWORDS.has(lw) || progWords.has(lw)) continue;
+        if (seen.has(lw)) continue;
+        seen.add(lw);
+        let e = byWord.get(lw);
+        if (!e) { e = { display: raw, ms: 0, count: 0 }; byWord.set(lw, e); }
+        e.ms += w.ms;
+        e.count += 1;
+      }
+    }
+  }
+  return [...byWord.values()].sort((a, b) => b.ms - a.ms);
+}
+
+function renderTitleKeywords(tu, available) {
+  const el = document.getElementById("title-keywords");
+  if (!el) return;
+  if (!available) {
+    el.innerHTML = `<div class="empty">usage tracking is off</div>`;
+    return;
+  }
+  const items = computeTitleKeywords(tu);
+  if (!items.length) {
+    el.innerHTML = `<div class="empty">no active time in window</div>`;
+    return;
+  }
+  const max = items[0].ms || 1;
+  el.innerHTML = items.slice(0, 15).map((it) => {
+    const pct = Math.round((it.ms / max) * 100);
+    const tip = `${it.display} · ${it.count} window${it.count === 1 ? "" : "s"}`;
+    return `<div class="rank">
+      <span class="label" title="${esc(tip)}">${esc(it.display)}</span>
+      <span class="count">${esc(fmtDur(it.ms))}</span>
+      <span class="track"><span class="fill" style="width:${pct}%;background:var(--signal)"></span></span>
     </div>`;
   }).join("");
 }

@@ -43,8 +43,9 @@ glocker -uninstall
 - **`loader.go`** - YAML loading
   - `LoadConfig()` - Loads from `/etc/glocker/config.yaml`
   - `SetupLogging()` - Configures log output
-- **`persist.go`** - Writes config changes back to disk (preserving comments/structure)
-  - `SaveDomainsToConfig()` / `SaveForbiddenProgramsToConfig()` - back `-block` / `-block-app`
+- **`persist.go`** - Input validators for names accepted over the socket
+  - `ValidateDomainName()` / `ValidateProgramName()` - used by `-block` / `-block-app`
+  - Note: runtime commands (`-block`, `-block-app`, `-add-keyword`) apply **in memory only**; they do NOT write the config file. `conf/conf.yaml` is the single source of truth (regenerated onto `/etc/glocker/config.yaml` by `make full-install`).
 - **`validator.go`** - `ValidateConfig()` - validates time windows and required fields
 
 ### CLI Commands (`internal/cli/`)
@@ -52,7 +53,7 @@ glocker -uninstall
   - `GetStatusResponse()` - Generates formatted status output (lines 15-145)
   - `ProcessReloadRequest()` - Handles config reload (lines 148-173)
   - `ProcessUnblockRequest()` - Temporary domain unblocking (lines 76-100)
-  - `ProcessBlockRequest()` - Permanent domain blocking (lines 103-124)
+  - `ProcessBlockRequest()` - In-memory domain blocking (not persisted; via enforcement.AddRuntimeDomains)
   - `ProcessPanicRequest()` - Panic mode activation (lines 127-140)
   - `formatTimeWindows()` - Helper for time window display
 - **`commands_test.go`** - Unit tests for CLI commands
@@ -74,7 +75,7 @@ glocker -uninstall
     - `status` - Live status query (lines 75-77)
     - `reload` - Config reload (lines 78-80)
     - `unblock` - Temporary unblock (lines 81-99)
-    - `block` - Permanent domain block (lines 100-107)
+    - `block` - Domain block, in memory only (lines 100-107)
     - `block-app` - Add program to forbidden-programs list (killed on sight, 24/7)
     - `panic` - Panic mode (lines 111-123)
     - `lock` - Force sudoers lock (lines 124-126)
@@ -174,7 +175,7 @@ sudo glocker -reload
 # Temporarily unblock domains with reason
 sudo glocker -unblock "reddit.com,youtube.com:work"
 
-# Add domains to permanent block list
+# Add domains to the block list (in memory only, until restart/reinstall)
 sudo glocker -block "example.com,another.com"
 
 # Add keywords to monitoring lists

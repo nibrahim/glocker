@@ -402,19 +402,16 @@ func ProcessBlockRequest(cfg *config.Config, hostsStr string) {
 		return
 	}
 
-	// Persist to config file so ForceEnforcement picks them up on reload
-	if err := config.SaveDomainsToConfig(validDomains); err != nil {
-		log.Printf("ERROR: Failed to save domains to config: %v", err)
-		// Still add to in-memory config as fallback
-		for _, host := range validDomains {
-			cfg.Domains = append(cfg.Domains, config.Domain{Name: host})
-			log.Printf("BLOCKED (in-memory only): %s", host)
-		}
-	} else {
-		for _, host := range validDomains {
-			log.Printf("BLOCKED: %s", host)
-		}
+	// Register in memory only — never written to the config file (which
+	// `make full-install` regenerates from conf/conf.yaml). ForceEnforcement
+	// re-merges these onto the reloaded config on every enforcement cycle, so
+	// they last for the life of the daemon but vanish on restart/reinstall.
+	runtimeDomains := make([]config.Domain, 0, len(validDomains))
+	for _, host := range validDomains {
+		runtimeDomains = append(runtimeDomains, config.Domain{Name: host})
+		log.Printf("BLOCKED (in-memory): %s", host)
 	}
+	enforcement.AddRuntimeDomains(runtimeDomains)
 
 	// Force enforcement to apply changes immediately so /etc/hosts has the new
 	// entries before we kill browsers — they re-resolve against the updated file.
@@ -457,14 +454,10 @@ func ProcessBlockAppRequest(cfg *config.Config, programsStr string) {
 		existing[p.Name] = true
 	}
 
-	// Persist to the config file so the block survives a restart.
-	if err := config.SaveForbiddenProgramsToConfig(validNames); err != nil {
-		log.Printf("ERROR: Failed to save forbidden programs to config: %v", err)
-	}
-
-	// Append to the in-memory config the running monitor goroutine reads. This
-	// is what makes newly blocked programs take effect immediately —
-	// ForceEnforcement reloads domains from disk but not forbidden programs.
+	// Append to the in-memory config the running monitor goroutine reads — this
+	// is what makes newly blocked programs take effect. Kept in memory only,
+	// never written to the config file (which `make full-install` regenerates),
+	// so it lasts for the life of the daemon but vanishes on restart/reinstall.
 	for _, name := range validNames {
 		if existing[name] {
 			log.Printf("Program %s already blocked, skipping", name)

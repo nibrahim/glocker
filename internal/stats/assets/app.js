@@ -1439,10 +1439,27 @@ function renderProgramWordsPie(program, wins) {
   if (restMs > 0) { labels.push("other"); data.push(restMs); colors.push(cssVar("var(--ink-faint)")); }
 
   body.innerHTML = `<canvas id="chart-tagc-words"></canvas>`;
-  doughnutChart("chart-tagc-words", labels, data, colors);
+  // Hovering a slice lights up the selected program's window rows whose titles
+  // contain that word ("other" and off-slice hovers clear it).
+  doughnutChart("chart-tagc-words", labels, data, colors,
+    (label) => highlightWordRows(label && label !== "other" ? label : null));
 }
 
-function doughnutChart(id, labels, msValues, colors) {
+// Highlight the expanded, selected program's window rows whose title contains
+// `word` (token match, case-insensitive). Pass null to clear.
+function highlightWordRows(word) {
+  const lw = word ? word.toLowerCase() : null;
+  document.querySelectorAll("#usage-tag-detail .tt-group").forEach((g) => {
+    const inSelected = g.querySelector(".tt-app")?.dataset.app === state.selectedProgram;
+    g.querySelectorAll(".tt-win").forEach((r) => {
+      if (!lw || !inSelected) { r.classList.remove("hl"); return; }
+      const title = r.querySelector(".tt-wtitle")?.textContent || "";
+      r.classList.toggle("hl", tokenizeTitle(title).some((t) => t.toLowerCase() === lw));
+    });
+  });
+}
+
+function doughnutChart(id, labels, msValues, colors, onHoverLabel) {
   destroy(id);
   state.charts[id] = new Chart(document.getElementById(id), {
     type: "doughnut",
@@ -1451,6 +1468,9 @@ function doughnutChart(id, labels, msValues, colors) {
       responsive: true,
       maintainAspectRatio: false,
       cutout: "55%",
+      onHover: onHoverLabel
+        ? (_e, els) => onHoverLabel(els.length ? labels[els[0].index] : null)
+        : undefined,
       plugins: {
         legend: { position: "right", labels: { color: TICK, font: { family: "IBM Plex Sans", size: 11 }, boxWidth: 10, padding: 6 } },
         tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${fmtDur(ctx.parsed)}` } },

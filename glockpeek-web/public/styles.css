@@ -733,6 +733,9 @@ canvas { max-height: 260px; }
 }
 .tt-wtitle { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tt-wtime { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
+/* A window row lit up by hovering its word in the pie. */
+.tt-win.hl { background: rgba(240, 160, 32, 0.14); border-radius: 4px; }
+.tt-win.hl .tt-wtitle { color: var(--ink); }
 
 .untag-list { display: flex; flex-direction: column; gap: 10px; }
 .untag {

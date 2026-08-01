@@ -86,7 +86,13 @@ func buildData(p logPaths, now time.Time) dataResponse {
 
 	if entries, err := reports.ParseReportsLog(p.reports); err == nil {
 		resp.Sources.Reports = true
+		// Exclude violations the user marked as false positives (non-destructive:
+		// the raw log is untouched; this overlay just hides them everywhere).
+		ignored := loadIgnoredSet(p.ignored)
 		for _, e := range entries {
+			if ignored[ignoreKey(e.Timestamp.UnixMilli(), e.Keyword, e.URL)] {
+				continue
+			}
 			domain := e.Domain
 			if domain == "" {
 				domain = hostFromURL(e.URL)

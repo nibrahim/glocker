@@ -74,6 +74,49 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/ignored:
+    get:
+      summary: Violations marked as false positives (hidden from all stats)
+      operationId: getIgnored
+      responses:
+        "200":
+          description: Current ignore list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IgnoredConfig"
+        "500":
+          description: Server error reading the ignore file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: Replace the whole false-positive ignore list
+      operationId: putIgnored
+      description: >
+        Body is `{ ignored: [...] }`. Each entry (ts + keyword + url) identifies a
+        single recorded violation to hide from counts. Non-destructive — the raw
+        reports log is never modified.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IgnoredConfig"
+      responses:
+        "200":
+          description: The deduped ignore list that was saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IgnoredConfig"
+        "500":
+          description: Server error writing the ignore file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/health:
     get:
       summary: Liveness and which log files were found
@@ -100,6 +143,29 @@ components:
       type: object
       properties:
         error:
+          type: string
+    IgnoredConfig:
+      type: object
+      properties:
+        ignored:
+          type: array
+          items:
+            $ref: "#/components/schemas/IgnoredViolation"
+    IgnoredViolation:
+      type: object
+      description: >
+        One recorded violation marked as a false positive. Matched by ts +
+        keyword + url; domain is stored only for display.
+      properties:
+        ts:
+          type: integer
+          format: int64
+          description: Event time in epoch milliseconds (matches Violation.ts).
+        keyword:
+          type: string
+        url:
+          type: string
+        domain:
           type: string
     Sources:
       type: object

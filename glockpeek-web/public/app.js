@@ -19,7 +19,7 @@ const RANGES = [
 
 // offset counts fixed windows back from the most recent: 0 = latest window
 // ending now, -1 = the window immediately before it, etc.
-const state = { data: null, range: "30d", offset: 0, view: "overview", charts: {}, rules: [], tagColors: {}, usageWindow: null, selectedTag: null, expandedApps: new Set(), selectedProgram: null, lastTagUsage: null };
+const state = { data: null, range: "30d", offset: 0, view: "overview", charts: {}, rules: [], tagColors: {}, usageWindow: null, selectedTag: null, expandedApps: new Set(), selectedProgram: null, lastTagUsage: null, ignored: [], openDay: null };
 
 const VIEW_TITLES = {
   overview: "Overview",
@@ -56,6 +56,12 @@ async function init() {
     }
   } catch { /* keep empty rules/colours */ }
 
+  // False-positive ignore list (non-fatal if missing).
+  try {
+    const gres = await fetch("api/ignored");
+    if (gres.ok) state.ignored = (await gres.json()).ignored || [];
+  } catch { /* keep empty ignore list */ }
+
   document.getElementById("loading").hidden = true;
   document.getElementById("dash").hidden = false;
 
@@ -75,6 +81,23 @@ async function init() {
     if (btn) routeTo(btn.dataset.view);
   });
   window.addEventListener("hashchange", () => setView(viewFromHash()));
+
+  // Mark a violation as a false positive from the day-detail hit list.
+  document.getElementById("day-detail").addEventListener("click", (e) => {
+    const btn = e.target.closest(".hit-x");
+    if (!btn) return;
+    ignoreViolation({
+      ts: Number(btn.dataset.ts), keyword: btn.dataset.kw,
+      url: btn.dataset.url, domain: btn.dataset.dom,
+    });
+  });
+
+  // Restore a previously-ignored violation.
+  document.getElementById("ignored-list").addEventListener("click", (e) => {
+    const btn = e.target.closest(".ign-restore");
+    if (!btn) return;
+    restoreViolation({ ts: Number(btn.dataset.ts), keyword: btn.dataset.kw, url: btn.dataset.url });
+  });
 
   // Tag-contributor tree: click an app row to expand/collapse its windows and
   // show its common-title-words pie beside the list.
@@ -300,6 +323,7 @@ function render() {
   renderUnmanaged(unmanaged);
   renderDowntime(downtime);
   renderUsage(b);
+  renderIgnored();
 }
 
 // ── Aggregation ─────────────────────────────────────────
@@ -809,7 +833,70 @@ function resetDayDetail() {
     `<div class="dd-empty">Click a day in the calendar or a point on the timeline for a breakdown of that day's violations.</div>`;
 }
 
+// ── False-positive (ignored violation) handling ─────────
+// Non-destructive: entries are hidden via /api/ignored; the raw reports log is
+// never touched. Identity is ts + keyword + url (matches the server).
+const ignoreKeyOf = (e) => `${e.ts} ${e.keyword} ${e.url}`;
+
+async function putIgnored() {
+  try {
+    const res = await fetch("api/ignored", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ignored: state.ignored }),
+    });
+    if (res.ok) state.ignored = (await res.json()).ignored || [];
+  } catch { /* keep local list; a reload will reconcile */ }
+}
+
+// Refetch the data (now filtered) and re-render, re-opening the same day.
+async function reloadData() {
+  try {
+    const res = await fetch("api/data");
+    if (!res.ok) return;
+    state.data = await res.json();
+    render();
+    if (state.openDay != null) showDay(state.openDay);
+  } catch { /* keep current view */ }
+}
+
+async function ignoreViolation(entry) {
+  const key = ignoreKeyOf(entry);
+  if (!state.ignored.some((e) => ignoreKeyOf(e) === key)) state.ignored.push(entry);
+  await putIgnored();
+  await reloadData();
+}
+
+async function restoreViolation(entry) {
+  const key = ignoreKeyOf(entry);
+  state.ignored = state.ignored.filter((e) => ignoreKeyOf(e) !== key);
+  await putIgnored();
+  await reloadData();
+}
+
+function renderIgnored() {
+  const el = document.getElementById("ignored-list");
+  if (!el) return;
+  if (!state.ignored.length) {
+    el.innerHTML = `<div class="empty">none — mark a hit &ldquo;not a violation&rdquo; in a day's detail to hide it here</div>`;
+    return;
+  }
+  el.innerHTML = [...state.ignored]
+    .sort((a, b) => b.ts - a.ts)
+    .map((e) => {
+      const when = new Date(e.ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      return `<div class="ign">
+        <span class="ign-when">${when}</span>
+        <span class="ign-kw">${esc(e.keyword)}</span>
+        <span class="ign-dom" title="${esc(e.url)}">${esc(e.domain || "—")}</span>
+        <button class="ign-restore" type="button" title="Restore this violation" data-ts="${e.ts}" data-kw="${esc(e.keyword)}" data-url="${esc(e.url)}">&#8635;</button>
+      </div>`;
+    })
+    .join("");
+}
+
 function showDay(dayTs) {
+  state.openDay = dayTs; // remembered so re-fetches can re-open the same day
   const k = dayKey(dayTs);
   const hits = (state.dayIndex.get(k) || []).slice().sort((a, b) => a.ts - b.ts);
   const dateLabel = new Date(dayTs).toLocaleDateString(undefined, {
@@ -855,6 +942,7 @@ function showDay(dayTs) {
           <span class="ht">${time}</span>
           <span class="hk">${esc(h.keyword)}</span>
           <span class="hd" title="${esc(h.url)}">${esc(h.domain || "—")} <em>${kind}</em></span>
+          <button class="hit-x" type="button" title="Not a violation — hide it" data-ts="${h.ts}" data-kw="${esc(h.keyword)}" data-url="${esc(h.url)}" data-dom="${esc(h.domain || "")}">&times;</button>
         </div>`;
       })
       .join("");

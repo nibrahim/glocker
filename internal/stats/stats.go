@@ -34,6 +34,9 @@ const (
 	// Rules are mutable state written by the dashboard, so they live under
 	// /var/lib (app state), not /etc (static config).
 	DefaultRulesPath = "/var/lib/glocker/usage-rules.json"
+	// Ignored violations (false positives marked from the dashboard) are also
+	// mutable dashboard state, kept alongside the rules.
+	DefaultIgnoredPath = "/var/lib/glocker/ignored-violations.json"
 )
 
 // Options lets the caller (the daemon, from config) pin the usage log and rules
@@ -53,6 +56,7 @@ type logPaths struct {
 	heartbeat string
 	usage     string
 	rules     string
+	ignored   string
 }
 
 func resolvePaths() logPaths {
@@ -63,6 +67,7 @@ func resolvePaths() logPaths {
 		heartbeat: envOr("GLOCKER_HEARTBEAT_LOG", reports.DefaultHeartbeatLogPath),
 		usage:     pick(opts.UsageLog, "GLOCKER_USAGE_LOG", DefaultUsageLogPath),
 		rules:     pick(opts.RulesFile, "GLOCKER_USAGE_RULES", DefaultRulesPath),
+		ignored:   envOr("GLOCKER_IGNORED_VIOLATIONS", DefaultIgnoredPath),
 	}
 }
 
@@ -103,6 +108,43 @@ func Register(mux *http.ServeMux, o Options) {
 	mux.Handle("/stats/api/data", localGuard(http.HandlerFunc(handleData)))
 	mux.Handle("/stats/api/health", localGuard(http.HandlerFunc(handleHealth)))
 	mux.Handle("/stats/api/rules", localGuard(http.HandlerFunc(handleRules)))
+	mux.Handle("/stats/api/ignored", localGuard(http.HandlerFunc(handleIgnored)))
+}
+
+// handleIgnored serves the false-positive ignore list: GET returns it, PUT
+// replaces it. The dashboard sends the full list on every change.
+func handleIgnored(w http.ResponseWriter, r *http.Request) {
+	path := resolvePaths().ignored
+	switch r.Method {
+	case http.MethodGet:
+		list, err := loadIgnored(path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ignored": list})
+	case http.MethodPut:
+		body, err := io.ReadAll(io.LimitReader(r.Body, 512*1024))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		var in struct {
+			Ignored []IgnoredEntry `json:"ignored"`
+		}
+		if err := json.Unmarshal(body, &in); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		saved, err := saveIgnored(in.Ignored, path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ignored": saved})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func handleData(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +160,7 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		"paths": map[string]string{
 			"reports": p.reports, "unblocks": p.unblocks,
 			"lifecycle": p.lifecycle, "heartbeat": p.heartbeat,
-			"usage": p.usage, "rules": p.rules,
+			"usage": p.usage, "rules": p.rules, "ignored": p.ignored,
 		},
 	})
 }

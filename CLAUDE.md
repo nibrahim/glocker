@@ -382,6 +382,7 @@ Server started by internal/web/server.go:StartWebTrackingServer()
 - `GET /stats/api/data` - full parsed history (violations/unblocks/lifecycle/unmanaged/usage), same JSON as glockpeek-web
 - `GET /stats/api/health` - liveness + resolved log paths
 - `GET|PUT /stats/api/rules` - usage categorization config `{rules, colors}`, stored at `/var/lib/glocker/usage-rules.json` (mutable state, not /etc)
+- `GET|PUT /stats/api/ignored` - false-positive violations `{ignored:[{ts,keyword,url,domain}]}`, stored at `/var/lib/glocker/ignored-violations.json`. `buildData` filters these out of the violations it returns (non-destructive; the raw reports log is untouched). Marked/restored from the day-detail hit list in the History view.
 - Reads the usage log at `/var/log/glocker-usage.jsonl`. All `/stats` routes reject non-loopback clients (403).
 
 ### Extension Communication Flow

@@ -19,7 +19,9 @@ import (
 )
 
 const (
-	SystemdServiceFile = "extras/glocker.service"
+	SystemdServiceFile   = "extras/glocker.service"
+	GlockpeekServiceFile = "extras/glockpeek.service"
+	GlockpeekServicePath = "/etc/systemd/system/glockpeek.service"
 )
 
 // InstallGlocker performs the complete installation of Glocker on the system.
@@ -192,6 +194,21 @@ func InstallGlocker() error {
 	exec.Command("chattr", "+i", servicePath).Run()
 
 	log.Println("✓ Systemd service installed and started")
+
+	// Step 6b: Install the standalone glockpeek dashboard service. It's an
+	// unprivileged localhost reader, so it isn't made immutable — clean to
+	// remove on uninstall.
+	log.Println("Installing glockpeek dashboard service...")
+	if err := utils.CopyFile(GlockpeekServiceFile, GlockpeekServicePath); err != nil {
+		log.Printf("Warning: failed to install glockpeek service: %v", err)
+	} else {
+		exec.Command("systemctl", "daemon-reload").Run()
+		if err := exec.Command("systemctl", "enable", "--now", "glockpeek.service").Run(); err != nil {
+			log.Printf("Warning: failed to enable/start glockpeek service: %v", err)
+		} else {
+			log.Println("✓ glockpeek dashboard service installed and started")
+		}
+	}
 
 	// Accountability: flag a "maintenance" uninstall that overstayed its grace
 	// window before this reinstall. Done here, not at uninstall time, because the

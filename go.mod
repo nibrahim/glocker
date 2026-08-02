@@ -7,7 +7,6 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/jezek/xgb v1.2.0
 	github.com/mailgun/mailgun-go/v4 v4.23.0
-	github.com/tj/go-naturaldate v1.3.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

@@ -4,6 +4,8 @@
 /glockpeek
 /glockdoc
 conf/conf.yaml
+# Personal planning notes — kept local, not tracked
+ROADMAP.md
 .aider*
 extensions/firefox/web-ext-artifacts/
 extensions/firefox/.amo-upload-uuid

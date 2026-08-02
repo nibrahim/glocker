@@ -374,10 +374,16 @@ Endpoints for browser extension communication (internal/web/handlers.go):
 
 Server started by internal/web/server.go:StartWebTrackingServer()
 
-**Stats dashboard (`internal/stats/`, mounted at `/stats`, localhost only):**
-- Reachable at `http://glocker.localhost/stats` — `UpdateHosts` special-cases a
-  `127.0.0.1/::1 glocker.localhost` alias into the managed /etc/hosts block (see
-  internal/enforcement/hosts.go); resolving to loopback keeps the guard happy.
+**Stats dashboard (`internal/stats/`, served by the standalone `glockpeek`
+process, localhost only):**
+- Served by **`cmd/glockpeek`** as its own binary + systemd service
+  (`extras/glockpeek.service`), NOT by the glocker daemon. It reads
+  `/etc/glocker/config.yaml` for the usage/rules paths + listen address
+  (`glockpeek_listen`, default `127.0.0.1:4317`) and reads the log files
+  directly. `stats.Register(mux, opts)` mounts the routes below.
+- Default URL `http://127.0.0.1:4317/stats/`. (The old `glocker.localhost/stats`
+  alias in internal/enforcement/hosts.go is now vestigial — the daemon no longer
+  serves /stats.)
 - `GET /stats/` - glockpeek dashboard (embedded frontend; a copy of `glockpeek-web/public`)
 - `GET /stats/api/data` - full parsed history (violations/unblocks/lifecycle/unmanaged/usage), same JSON as glockpeek-web
 - `GET /stats/api/health` - liveness + resolved log paths

@@ -27,6 +27,11 @@ dev: false
 #   error - Only critical errors
 log_level: "info"
 
+# Listen address for the standalone glockpeek stats dashboard.
+# glockpeek runs as its own service and serves /stats over the log files.
+# Localhost only. Default (if unset): 127.0.0.1:4317
+glockpeek_listen: "127.0.0.1:4317"
+
 # ----------------------------------------------------------------------------
 # Core Enforcement Mechanisms
 # ----------------------------------------------------------------------------

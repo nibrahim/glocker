@@ -242,4 +242,7 @@ type Config struct {
 	PanicCommand            string                  `yaml:"panic_command"`
 	Dev                     bool                    `yaml:"dev"`
 	LogLevel                string                  `yaml:"log_level"`
+	// GlockpeekListen is the address the standalone glockpeek dashboard process
+	// serves on (localhost only). Empty falls back to the built-in default.
+	GlockpeekListen string `yaml:"glockpeek_listen"`
 }

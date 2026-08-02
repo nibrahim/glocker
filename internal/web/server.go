@@ -9,7 +9,6 @@ import (
 	"os/exec"
 
 	"glocker/internal/config"
-	"glocker/internal/stats"
 )
 
 // StartWebTrackingServer starts HTTP and HTTPS servers for web tracking and browser extension communication.
@@ -38,11 +37,9 @@ func StartWebTrackingServer(cfg *config.Config) {
 		HandleBlockedPageRequest(w, r)
 	})
 
-	// The glockpeek dashboard + its JSON API, mounted at /stats (localhost only).
-	stats.Register(http.DefaultServeMux, stats.Options{
-		UsageLog:  cfg.UsageMonitor.LogFile,
-		RulesFile: cfg.UsageMonitor.RulesFile,
-	})
+	// The /stats dashboard is now served by the standalone glockpeek process
+	// (cmd/glockpeek), not the daemon. The daemon's web server only handles
+	// browser-extension traffic here.
 
 	// Start HTTP server
 	go func() {

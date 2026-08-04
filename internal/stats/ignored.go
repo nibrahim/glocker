@@ -22,9 +22,9 @@ func ignoreKey(ts int64, keyword, url string) string {
 	return fmt.Sprintf("%d\x00%s\x00%s", ts, keyword, url)
 }
 
-// loadIgnored reads the ignore list from the DB.
-func loadIgnored(db *store.DB) ([]IgnoredEntry, error) {
-	rows, err := db.IgnoredViolations()
+// loadIgnored reads the account's ignore list from the DB.
+func loadIgnored(db *store.DB, userID uint) ([]IgnoredEntry, error) {
+	rows, err := db.IgnoredViolations(userID)
 	if err != nil {
 		return []IgnoredEntry{}, err
 	}
@@ -35,9 +35,9 @@ func loadIgnored(db *store.DB) ([]IgnoredEntry, error) {
 	return out, nil
 }
 
-// ignoredSet returns the ignore list as a lookup set of match keys.
-func ignoredSet(db *store.DB) map[string]bool {
-	list, _ := loadIgnored(db)
+// ignoredSet returns the account's ignore list as a lookup set of match keys.
+func ignoredSet(db *store.DB, userID uint) map[string]bool {
+	list, _ := loadIgnored(db, userID)
 	set := make(map[string]bool, len(list))
 	for _, e := range list {
 		set[ignoreKey(e.TS, e.Keyword, e.URL)] = true
@@ -64,14 +64,15 @@ func dedupeIgnored(in []IgnoredEntry) []IgnoredEntry {
 	return out
 }
 
-// saveIgnored replaces the ignore list in the DB and returns the cleaned set.
-func saveIgnored(in []IgnoredEntry, db *store.DB) ([]IgnoredEntry, error) {
+// saveIgnored replaces the account's ignore list in the DB and returns the
+// cleaned set.
+func saveIgnored(in []IgnoredEntry, db *store.DB, userID uint) ([]IgnoredEntry, error) {
 	clean := dedupeIgnored(in)
 	rows := make([]store.IgnoredViolation, 0, len(clean))
 	for _, e := range clean {
 		rows = append(rows, store.IgnoredViolation{TS: e.TS, Keyword: e.Keyword, URL: e.URL, Domain: e.Domain})
 	}
-	if err := db.SetIgnored(rows); err != nil {
+	if err := db.SetIgnored(userID, rows); err != nil {
 		return clean, err
 	}
 	return clean, nil

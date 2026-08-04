@@ -7,18 +7,59 @@
 // the dashboard read path map onto them with minimal translation. Timestamps are
 // epoch milliseconds, matching the rest of the stack.
 //
+// Multi-tenant: every stats row carries a UserID and all reads/writes are scoped
+// to the authenticated account (the hosted model), so one glockpeek instance can
+// serve many users without their data mixing. Natural-key unique indexes are
+// therefore prefixed with user_id.
+//
 // Records that the dashboard derives (unmanaged spans from lifecycle events,
 // downtime spans from heartbeats) are NOT stored — they stay computed.
 package store
 
-// Violation is one content/URL-keyword report (from the reports log). The
-// (TS, Keyword, URL) triple uniquely identifies a report line — the same key the
-// ignore overlay uses — so ingest can upsert idempotently.
+import "time"
+
+// ── Accounts & credentials ──────────────────────────────
+
+// User is a dashboard account. Passwords are stored as an argon2id-encoded hash
+// (never plaintext); see auth.go.
+type User struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	Username     string    `gorm:"uniqueIndex;not null" json:"username"`
+	PasswordHash string    `gorm:"not null" json:"-"`
+	CreatedAt    time.Time `json:"createdAt"`
+}
+
+// Session is a browser login session (opaque random token in an httpOnly
+// cookie). Expired rows are ignored and pruned lazily.
+type Session struct {
+	Token     string    `gorm:"primaryKey" json:"-"` // random, opaque
+	UserID    uint      `gorm:"index;not null" json:"-"`
+	ExpiresAt time.Time `gorm:"index" json:"-"`
+	CreatedAt time.Time `json:"-"`
+}
+
+// APIToken is a long-lived bearer credential the glocker syncer uses to ingest.
+// Only the hash is stored; the plaintext is shown once at creation. The token
+// identifies which account the pushed data belongs to.
+type APIToken struct {
+	ID         uint       `gorm:"primaryKey" json:"id"`
+	Name       string     `json:"name"`
+	TokenHash  string     `gorm:"uniqueIndex;not null" json:"-"`
+	UserID     uint       `gorm:"index;not null" json:"userId"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt"`
+}
+
+// ── Per-account stats (all scoped by UserID) ─────────────
+
+// Violation is one content/URL-keyword report. (UserID, TS, Keyword, URL) is the
+// idempotency key so re-ingesting a report line is a no-op.
 type Violation struct {
 	ID      uint   `gorm:"primaryKey" json:"-"`
-	TS      int64  `gorm:"index;uniqueIndex:ux_violation,priority:1" json:"ts"`
-	Keyword string `gorm:"uniqueIndex:ux_violation,priority:2" json:"keyword"`
-	URL     string `gorm:"uniqueIndex:ux_violation,priority:3" json:"url"`
+	UserID  uint   `gorm:"index;uniqueIndex:ux_violation,priority:1" json:"-"`
+	TS      int64  `gorm:"index;uniqueIndex:ux_violation,priority:2" json:"ts"`
+	Keyword string `gorm:"uniqueIndex:ux_violation,priority:3" json:"keyword"`
+	URL     string `gorm:"uniqueIndex:ux_violation,priority:4" json:"url"`
 	Type    string `json:"type"`
 	Domain  string `json:"domain"`
 }
@@ -26,8 +67,9 @@ type Violation struct {
 // Unblock is one temporary-unblock event; RestoreTS is nil while still open.
 type Unblock struct {
 	ID        uint   `gorm:"primaryKey" json:"-"`
-	TS        int64  `gorm:"index;uniqueIndex:ux_unblock,priority:1" json:"ts"`
-	Domain    string `gorm:"uniqueIndex:ux_unblock,priority:2" json:"domain"`
+	UserID    uint   `gorm:"index;uniqueIndex:ux_unblock,priority:1" json:"-"`
+	TS        int64  `gorm:"index;uniqueIndex:ux_unblock,priority:2" json:"ts"`
+	Domain    string `gorm:"uniqueIndex:ux_unblock,priority:3" json:"domain"`
 	RestoreTS *int64 `json:"restoreTs"`
 	Reason    string `json:"reason"`
 }
@@ -35,18 +77,20 @@ type Unblock struct {
 // LifecycleEvent is an install/uninstall record (drives the UNMANAGED overlay).
 type LifecycleEvent struct {
 	ID     uint   `gorm:"primaryKey" json:"-"`
-	TS     int64  `gorm:"index;uniqueIndex:ux_lifecycle,priority:1" json:"ts"`
-	Type   string `gorm:"uniqueIndex:ux_lifecycle,priority:2" json:"type"`
+	UserID uint   `gorm:"index;uniqueIndex:ux_lifecycle,priority:1" json:"-"`
+	TS     int64  `gorm:"index;uniqueIndex:ux_lifecycle,priority:2" json:"ts"`
+	Type   string `gorm:"uniqueIndex:ux_lifecycle,priority:3" json:"type"`
 	Reason string `json:"reason"`
 	Note   string `json:"note"`
 }
 
 // UsageSample is one focused-window sample from the usage tracker. One row per
-// timestamp (the active window is flattened in; the full window list is dropped,
-// same as the file-based reader).
+// (user, timestamp); the active window is flattened in and the full window list
+// is dropped, same as the file-based reader.
 type UsageSample struct {
 	ID             uint   `gorm:"primaryKey" json:"-"`
-	TS             int64  `gorm:"uniqueIndex" json:"ts"`
+	UserID         uint   `gorm:"index;uniqueIndex:ux_usage,priority:1" json:"-"`
+	TS             int64  `gorm:"uniqueIndex:ux_usage,priority:2" json:"ts"`
 	IdleMS         int64  `json:"idleMs"`
 	ActiveClass    string `json:"activeClass"`
 	ActiveInstance string `json:"activeInstance"`
@@ -56,47 +100,47 @@ type UsageSample struct {
 
 // Heartbeat is one liveness sample recorded by glockdoc (drives downtime spans).
 type Heartbeat struct {
-	ID    uint  `gorm:"primaryKey" json:"-"`
-	TS    int64 `gorm:"uniqueIndex" json:"ts"`
-	Alive bool  `json:"alive"`
+	ID     uint  `gorm:"primaryKey" json:"-"`
+	UserID uint  `gorm:"index;uniqueIndex:ux_heartbeat,priority:1" json:"-"`
+	TS     int64 `gorm:"uniqueIndex:ux_heartbeat,priority:2" json:"ts"`
+	Alive  bool  `json:"alive"`
 }
 
 // Rule is one usage-categorization rule (optional program/title regex -> tag).
 // Dashboard-local state (created on glockpeek, not synced from glocker).
 type Rule struct {
 	ID      uint   `gorm:"primaryKey" json:"-"`
+	UserID  uint   `gorm:"index" json:"-"`
 	Program string `json:"program"`
 	Title   string `json:"title"`
 	Tag     string `json:"tag"`
 }
 
-// TagColor maps a tag to its display colour (#rrggbb). Tag is the key.
+// TagColor maps a tag to its display colour (#rrggbb), per account.
 type TagColor struct {
-	Tag   string `gorm:"primaryKey" json:"tag"`
-	Color string `json:"color"`
+	ID     uint   `gorm:"primaryKey" json:"-"`
+	UserID uint   `gorm:"index;uniqueIndex:ux_tagcolor,priority:1" json:"-"`
+	Tag    string `gorm:"uniqueIndex:ux_tagcolor,priority:2" json:"tag"`
+	Color  string `json:"color"`
 }
 
 // IgnoredViolation marks a report line as a false positive so the dashboard
-// stops counting it. Matched on (TS, Keyword, URL), same identity as Violation.
+// stops counting it. Matched on (UserID, TS, Keyword, URL).
 type IgnoredViolation struct {
 	ID      uint   `gorm:"primaryKey" json:"-"`
-	TS      int64  `gorm:"uniqueIndex:ux_ignored,priority:1" json:"ts"`
-	Keyword string `gorm:"uniqueIndex:ux_ignored,priority:2" json:"keyword"`
-	URL     string `gorm:"uniqueIndex:ux_ignored,priority:3" json:"url"`
+	UserID  uint   `gorm:"index;uniqueIndex:ux_ignored,priority:1" json:"-"`
+	TS      int64  `gorm:"uniqueIndex:ux_ignored,priority:2" json:"ts"`
+	Keyword string `gorm:"uniqueIndex:ux_ignored,priority:3" json:"keyword"`
+	URL     string `gorm:"uniqueIndex:ux_ignored,priority:4" json:"url"`
 	Domain  string `json:"domain"`
 }
 
-// AllModels is the migration set, in dependency order (none depend on each other
-// yet). Kept in one place so Migrate and tests stay in sync.
+// AllModels is the migration set. Kept in one place so Migrate and tests stay in
+// sync.
 func AllModels() []any {
 	return []any{
-		&Violation{},
-		&Unblock{},
-		&LifecycleEvent{},
-		&UsageSample{},
-		&Heartbeat{},
-		&Rule{},
-		&TagColor{},
-		&IgnoredViolation{},
+		&User{}, &Session{}, &APIToken{},
+		&Violation{}, &Unblock{}, &LifecycleEvent{}, &UsageSample{},
+		&Heartbeat{}, &Rule{}, &TagColor{}, &IgnoredViolation{},
 	}
 }

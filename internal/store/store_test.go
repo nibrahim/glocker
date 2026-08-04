@@ -3,16 +3,11 @@ package store
 import (
 	"path/filepath"
 	"testing"
-
-	"gorm.io/gorm/clause"
 )
 
-// openMem opens a fresh in-memory sqlite store for a test.
+// openMem opens a fresh temp-file sqlite store for a test.
 func openMem(t *testing.T) *DB {
 	t.Helper()
-	// A file in the temp dir (rather than :memory:) keeps a single shared
-	// connection's schema visible across pooled connections without extra DSN
-	// params, and is cleaned up automatically.
 	db, err := Open(Options{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "test.db")})
 	if err != nil {
 		t.Fatalf("open: %v", err)
@@ -39,53 +34,121 @@ func TestDefaultsAndBadDriver(t *testing.T) {
 	}
 }
 
-func TestViolationRoundTripAndUpsert(t *testing.T) {
+func TestIngestIdempotent(t *testing.T) {
 	db := openMem(t)
-
-	v := Violation{TS: 1763373946000, Keyword: "porn", URL: "https://x/?q=porn", Type: "url-keyword", Domain: "x"}
-	if err := db.Create(&v).Error; err != nil {
-		t.Fatalf("create: %v", err)
+	const uid = 1
+	v := []Violation{{TS: 1000, Keyword: "porn", URL: "https://x/?q=porn", Type: "url-keyword", Domain: "x"}}
+	if err := db.IngestViolations(uid, v); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	// Re-ingesting the same (user,ts,keyword,url) must not duplicate.
+	if err := db.IngestViolations(uid, []Violation{{TS: 1000, Keyword: "porn", URL: "https://x/?q=porn"}}); err != nil {
+		t.Fatalf("re-ingest: %v", err)
+	}
+	got, _ := db.Violations(uid)
+	if len(got) != 1 {
+		t.Fatalf("want 1 violation after dup ingest, got %d", len(got))
 	}
 
-	// Re-ingesting the same (TS, Keyword, URL) must not duplicate. An upsert that
-	// does nothing on conflict keeps ingest idempotent for the syncer.
-	dup := Violation{TS: v.TS, Keyword: v.Keyword, URL: v.URL, Type: "url-keyword", Domain: "x"}
-	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&dup).Error; err != nil {
-		t.Fatalf("upsert: %v", err)
+	// Usage + heartbeat unique on (user, ts).
+	if err := db.IngestUsage(uid, []UsageSample{{TS: 5, ActiveClass: "kitty"}}); err != nil {
+		t.Fatal(err)
 	}
-
-	var n int64
-	db.Model(&Violation{}).Count(&n)
-	if n != 1 {
-		t.Fatalf("want 1 violation after dup ingest, got %d", n)
+	if err := db.IngestUsage(uid, []UsageSample{{TS: 5, ActiveClass: "firefox"}}); err != nil {
+		t.Fatal(err)
 	}
-
-	var got Violation
-	if err := db.First(&got, "keyword = ?", "porn").Error; err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	if got.Domain != "x" || got.TS != v.TS {
-		t.Errorf("round trip mismatch: %+v", got)
+	us, _ := db.UsageSamples(uid)
+	if len(us) != 1 {
+		t.Errorf("want 1 usage sample, got %d", len(us))
 	}
 }
 
-func TestUsageAndHeartbeatUniqueTS(t *testing.T) {
+// TestTenantIsolation is the crux of the multi-tenant model: one account never
+// sees another's rows, even with identical natural keys.
+func TestTenantIsolation(t *testing.T) {
 	db := openMem(t)
-	if err := db.Create(&UsageSample{TS: 100, ActiveClass: "kitty", WindowCount: 2}).Error; err != nil {
-		t.Fatalf("usage create: %v", err)
+	const alice, bob = 1, 2
+
+	same := Violation{TS: 1000, Keyword: "porn", URL: "https://x/?q=porn", Domain: "x"}
+	if err := db.IngestViolations(alice, []Violation{same}); err != nil {
+		t.Fatal(err)
 	}
-	// Duplicate TS should conflict on the unique index; DoNothing swallows it.
-	if err := db.Clauses(clause.OnConflict{DoNothing: true}).
-		Create(&UsageSample{TS: 100, ActiveClass: "firefox"}).Error; err != nil {
-		t.Fatalf("usage upsert: %v", err)
-	}
-	var n int64
-	db.Model(&UsageSample{}).Count(&n)
-	if n != 1 {
-		t.Errorf("want 1 usage sample, got %d", n)
+	// Bob ingests the identical record — must NOT collide with Alice's (the
+	// unique key is per-user), and must land in Bob's data only.
+	if err := db.IngestViolations(bob, []Violation{same}); err != nil {
+		t.Fatalf("bob ingest identical record: %v", err)
 	}
 
-	if err := db.Create(&Heartbeat{TS: 200, Alive: true}).Error; err != nil {
-		t.Fatalf("heartbeat: %v", err)
+	av, _ := db.Violations(alice)
+	bv, _ := db.Violations(bob)
+	if len(av) != 1 || len(bv) != 1 {
+		t.Fatalf("each account should see exactly its own: alice=%d bob=%d", len(av), len(bv))
+	}
+
+	// Bob's ignore overlay must not affect Alice.
+	if err := db.SetIgnored(bob, []IgnoredViolation{{TS: 1000, Keyword: "porn", URL: "https://x/?q=porn"}}); err != nil {
+		t.Fatal(err)
+	}
+	ai, _ := db.IgnoredViolations(alice)
+	bi, _ := db.IgnoredViolations(bob)
+	if len(ai) != 0 || len(bi) != 1 {
+		t.Errorf("ignore overlay leaked across tenants: alice=%d bob=%d", len(ai), len(bi))
+	}
+
+	// Rules are per-account too.
+	if err := db.SetRulesConfig(alice, []Rule{{Program: "Emacs", Tag: "work"}}, map[string]string{"work": "#4c9f70"}); err != nil {
+		t.Fatal(err)
+	}
+	ar, _ := db.Rules(alice)
+	br, _ := db.Rules(bob)
+	if len(ar) != 1 || len(br) != 0 {
+		t.Errorf("rules leaked across tenants: alice=%d bob=%d", len(ar), len(br))
+	}
+}
+
+func TestUsersSessionsTokens(t *testing.T) {
+	db := openMem(t)
+
+	u, err := db.CreateUser("noufal", "correct horse battery staple")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// Good + bad password.
+	if _, err := db.Authenticate("noufal", "correct horse battery staple"); err != nil {
+		t.Errorf("valid login rejected: %v", err)
+	}
+	if _, err := db.Authenticate("noufal", "wrong"); err != ErrInvalidCredentials {
+		t.Errorf("bad password: want ErrInvalidCredentials, got %v", err)
+	}
+	if _, err := db.Authenticate("ghost", "x"); err != ErrInvalidCredentials {
+		t.Errorf("unknown user: want ErrInvalidCredentials, got %v", err)
+	}
+
+	// Session round trip + logout.
+	tok, err := db.CreateSession(u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := db.UserBySession(tok); err != nil || got.ID != u.ID {
+		t.Errorf("session lookup: %v (user %+v)", err, got)
+	}
+	if err := db.DeleteSession(tok); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.UserBySession(tok); err != ErrInvalidCredentials {
+		t.Errorf("deleted session should be invalid, got %v", err)
+	}
+
+	// API token round trip; wrong token rejected.
+	api, err := db.CreateAPIToken(u.ID, "syncer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := db.UserByAPIToken(api); err != nil || got.ID != u.ID {
+		t.Errorf("api token lookup: %v (user %+v)", err, got)
+	}
+	if _, err := db.UserByAPIToken("nope"); err != ErrInvalidCredentials {
+		t.Errorf("bad api token: want ErrInvalidCredentials, got %v", err)
 	}
 }

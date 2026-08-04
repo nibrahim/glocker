@@ -254,6 +254,10 @@ type Config struct {
 	// Database configures glockpeek's store. Dialect-agnostic (via GORM): sqlite
 	// locally, postgres for a hosted instance. Empty fields fall back to defaults.
 	Database DatabaseConfig `yaml:"database"`
+	// GlockpeekSecureCookies marks the dashboard's session cookie Secure. Set
+	// true for a hosted instance served over HTTPS (including behind a
+	// TLS-terminating proxy). Leave false for plain-http local use.
+	GlockpeekSecureCookies bool `yaml:"glockpeek_secure_cookies"`
 }
 
 // DatabaseConfig selects glockpeek's DB backend. The abstraction is GORM, so

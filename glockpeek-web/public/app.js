@@ -35,11 +35,64 @@ const WINDOW_COOKIE = "gp_window";
 
 init();
 
+// init gates on authentication: if there's no valid session, show the login
+// screen; otherwise boot the dashboard. Login success calls bootDashboard()
+// directly (no full reload).
 async function init() {
+  let authed = false;
+  try {
+    authed = (await fetch("api/me")).ok;
+  } catch { /* network error -> treat as unauthenticated */ }
+  if (!authed) {
+    showLogin();
+    return;
+  }
+  bootDashboard();
+}
+
+// showLogin reveals the login form and wires submit -> POST api/login.
+function showLogin() {
+  document.getElementById("loading").hidden = true;
+  document.getElementById("dash").hidden = true;
+  const screen = document.getElementById("login");
+  screen.hidden = false;
+  const form = document.getElementById("login-form");
+  const errEl = document.getElementById("login-error");
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    errEl.hidden = true;
+    const username = document.getElementById("login-user").value;
+    const password = document.getElementById("login-pass").value;
+    let res;
+    try {
+      res = await fetch("api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+    } catch (err) {
+      errEl.textContent = `Could not reach the server: ${err.message}`;
+      errEl.hidden = false;
+      return;
+    }
+    if (!res.ok) {
+      errEl.textContent = res.status === 401 ? "Invalid username or password" : `Sign-in failed (${res.status})`;
+      errEl.hidden = false;
+      return;
+    }
+    document.getElementById("login-pass").value = "";
+    screen.hidden = true;
+    document.getElementById("loading").hidden = false;
+    bootDashboard();
+  };
+}
+
+async function bootDashboard() {
   restoreWindow(); // apply the saved range/offset before building controls
   buildRangeButtons();
   try {
     const res = await fetch("api/data");
+    if (res.status === 401) { showLogin(); return; }
     if (!res.ok) throw new Error(`server returned ${res.status}`);
     state.data = await res.json();
   } catch (err) {
@@ -64,6 +117,14 @@ async function init() {
 
   document.getElementById("loading").hidden = true;
   document.getElementById("dash").hidden = false;
+
+  // Sign-out: end the session server-side, then drop back to the login screen.
+  const logoutBtn = document.getElementById("logout-btn");
+  logoutBtn.hidden = false;
+  logoutBtn.onclick = async () => {
+    try { await fetch("api/logout", { method: "POST" }); } catch { /* fall through */ }
+    location.reload();
+  };
 
   // Delegated click: the calendar is re-rendered on every range change, but the
   // container element is stable so one listener suffices. Click (not hover) so

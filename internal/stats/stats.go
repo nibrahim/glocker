@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
-	"net"
 	"net/http"
 	"time"
 
@@ -29,12 +28,22 @@ var assetsFS embed.FS
 // db is the store the handlers read/write. Set by Register.
 var db *store.DB
 
+// Options configures the served dashboard.
+type Options struct {
+	// SecureCookies marks session cookies Secure (set true when the instance is
+	// reached over HTTPS, including behind a TLS-terminating proxy).
+	SecureCookies bool
+}
+
 // Register mounts the dashboard and its API onto mux, backed by database.
 // glockpeek owns the whole listener, so the dashboard is served at the root
-// ("/"). The legacy "/stats/" prefix (from when this was mounted inside the
-// daemon's web server) 301-redirects to "/". All routes are loopback-only.
-func Register(mux *http.ServeMux, database *store.DB) {
+// ("/"); legacy "/stats/" 301-redirects there. Static assets and the login route
+// are public (so the login page can load); the dashboard data/settings APIs
+// require a browser session; the ingest API requires an API bearer token. This
+// replaces the old loopback-only guard so the instance can be hosted remotely.
+func Register(mux *http.ServeMux, database *store.DB, o Options) {
 	db = database
+	secureCookies = o.SecureCookies
 	sub, err := fs.Sub(assetsFS, "assets")
 	if err != nil {
 		return // embed failure is a build-time bug; nothing to serve
@@ -45,24 +54,31 @@ func Register(mux *http.ServeMux, database *store.DB) {
 	redirectToRoot := func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusMovedPermanently)
 	}
-	mux.Handle("/stats", localGuard(http.HandlerFunc(redirectToRoot)))
-	mux.Handle("/stats/", localGuard(http.HandlerFunc(redirectToRoot)))
+	mux.HandleFunc("/stats", redirectToRoot)
+	mux.HandleFunc("/stats/", redirectToRoot)
 
-	// Dashboard + API at the root.
-	mux.Handle("/", localGuard(fileServer))
-	mux.Handle("/api/data", localGuard(http.HandlerFunc(handleData)))
-	mux.Handle("/api/health", localGuard(http.HandlerFunc(handleHealth)))
-	mux.Handle("/api/rules", localGuard(http.HandlerFunc(handleRules)))
-	mux.Handle("/api/ignored", localGuard(http.HandlerFunc(handleIgnored)))
-	mux.Handle("/api/ingest", localGuard(http.HandlerFunc(handleIngest)))
+	// Public: static dashboard assets + login.
+	mux.Handle("/", fileServer)
+	mux.HandleFunc("/api/login", handleLogin)
+
+	// Session-gated: everything that shows or edits account data.
+	mux.HandleFunc("/api/me", requireUser(handleMe))
+	mux.HandleFunc("/api/logout", requireUser(handleLogout))
+	mux.HandleFunc("/api/data", requireUser(handleData))
+	mux.HandleFunc("/api/health", requireUser(handleHealth))
+	mux.HandleFunc("/api/rules", requireUser(handleRules))
+	mux.HandleFunc("/api/ignored", requireUser(handleIgnored))
+
+	// Token-gated: the syncer's ingest endpoint.
+	mux.HandleFunc("/api/ingest", requireToken(handleIngest))
 }
 
 func handleData(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, buildData(db, time.Now()))
+	writeJSON(w, buildData(db, userFrom(r).ID, time.Now()))
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, map[string]any{"ok": true, "counts": db.Counts()})
+	writeJSON(w, map[string]any{"ok": true, "counts": db.Counts(userFrom(r).ID)})
 }
 
 // ingestPayload is the batch the glocker syncer POSTs. Every field is optional
@@ -92,12 +108,13 @@ func handleIngest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	uid := userFrom(r).ID
 	for _, step := range []func() error{
-		func() error { return db.IngestViolations(in.Violations) },
-		func() error { return db.IngestUnblocks(in.Unblocks) },
-		func() error { return db.IngestLifecycle(in.Lifecycle) },
-		func() error { return db.IngestUsage(in.Usage) },
-		func() error { return db.IngestHeartbeats(in.Heartbeat) },
+		func() error { return db.IngestViolations(uid, in.Violations) },
+		func() error { return db.IngestUnblocks(uid, in.Unblocks) },
+		func() error { return db.IngestLifecycle(uid, in.Lifecycle) },
+		func() error { return db.IngestUsage(uid, in.Usage) },
+		func() error { return db.IngestHeartbeats(uid, in.Heartbeat) },
 	} {
 		if err := step(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -116,14 +133,15 @@ func handleIngest(w http.ResponseWriter, r *http.Request) {
 // handleRules serves the usage categorization config: GET returns it, PUT
 // replaces it. The dashboard sends the full {rules, colors} on every change.
 func handleRules(w http.ResponseWriter, r *http.Request) {
+	uid := userFrom(r).ID
 	switch r.Method {
 	case http.MethodGet:
-		rules, err := db.Rules()
+		rules, err := db.Rules(uid)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		colors, err := db.Colors()
+		colors, err := db.Colors(uid)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -136,7 +154,7 @@ func handleRules(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rules, colors := parseConfigBytes(body)
-		if err := db.SetRulesConfig(toStoreRules(rules), colors); err != nil {
+		if err := db.SetRulesConfig(uid, toStoreRules(rules), colors); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -149,9 +167,10 @@ func handleRules(w http.ResponseWriter, r *http.Request) {
 // handleIgnored serves the false-positive ignore list: GET returns it, PUT
 // replaces it.
 func handleIgnored(w http.ResponseWriter, r *http.Request) {
+	uid := userFrom(r).ID
 	switch r.Method {
 	case http.MethodGet:
-		list, err := loadIgnored(db)
+		list, err := loadIgnored(db, uid)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -170,7 +189,7 @@ func handleIgnored(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		saved, err := saveIgnored(in.Ignored, db)
+		saved, err := saveIgnored(in.Ignored, db, uid)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -208,27 +227,4 @@ func writeJSON(w http.ResponseWriter, v any) {
 		return
 	}
 	_, _ = w.Write(bytes.TrimRight(buf, "\n"))
-}
-
-// localGuard wraps a handler so only loopback clients reach it.
-func localGuard(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isLocal(w, r) {
-			return
-		}
-		h.ServeHTTP(w, r)
-	})
-}
-
-// isLocal reports whether the request came from loopback, writing a 403 if not.
-func isLocal(w http.ResponseWriter, r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		return true
-	}
-	http.Error(w, "forbidden: the dashboard is available on localhost only", http.StatusForbidden)
-	return false
 }

@@ -41,6 +41,11 @@ database:
   driver: "sqlite"
   dsn: "/var/lib/glocker/glockpeek.db"
 
+# Mark the dashboard's session cookie Secure. Set true for a hosted instance
+# served over HTTPS (including behind a TLS-terminating proxy); leave false for
+# plain-http local use.
+glockpeek_secure_cookies: false
+
 # ----------------------------------------------------------------------------
 # Core Enforcement Mechanisms
 # ----------------------------------------------------------------------------

@@ -5,47 +5,50 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// ── Reads (all ordered by TS ascending, matching the dashboard's expectations) ──
+// All reads/writes below are scoped to a single account (userID). Ingest sets
+// UserID on every row from the authenticated token; reads filter by it.
 
-func (db *DB) Violations() ([]Violation, error) {
+// ── Reads (ordered by TS ascending, scoped to userID) ──
+
+func (db *DB) Violations(userID uint) ([]Violation, error) {
 	var out []Violation
-	err := db.Order("ts asc").Find(&out).Error
+	err := db.Where("user_id = ?", userID).Order("ts asc").Find(&out).Error
 	return out, err
 }
 
-func (db *DB) Unblocks() ([]Unblock, error) {
+func (db *DB) Unblocks(userID uint) ([]Unblock, error) {
 	var out []Unblock
-	err := db.Order("ts asc").Find(&out).Error
+	err := db.Where("user_id = ?", userID).Order("ts asc").Find(&out).Error
 	return out, err
 }
 
-func (db *DB) LifecycleEvents() ([]LifecycleEvent, error) {
+func (db *DB) LifecycleEvents(userID uint) ([]LifecycleEvent, error) {
 	var out []LifecycleEvent
-	err := db.Order("ts asc").Find(&out).Error
+	err := db.Where("user_id = ?", userID).Order("ts asc").Find(&out).Error
 	return out, err
 }
 
-func (db *DB) UsageSamples() ([]UsageSample, error) {
+func (db *DB) UsageSamples(userID uint) ([]UsageSample, error) {
 	var out []UsageSample
-	err := db.Order("ts asc").Find(&out).Error
+	err := db.Where("user_id = ?", userID).Order("ts asc").Find(&out).Error
 	return out, err
 }
 
-func (db *DB) Heartbeats() ([]Heartbeat, error) {
+func (db *DB) Heartbeats(userID uint) ([]Heartbeat, error) {
 	var out []Heartbeat
-	err := db.Order("ts asc").Find(&out).Error
+	err := db.Where("user_id = ?", userID).Order("ts asc").Find(&out).Error
 	return out, err
 }
 
-func (db *DB) Rules() ([]Rule, error) {
+func (db *DB) Rules(userID uint) ([]Rule, error) {
 	var out []Rule
-	err := db.Order("id asc").Find(&out).Error
+	err := db.Where("user_id = ?", userID).Order("id asc").Find(&out).Error
 	return out, err
 }
 
-func (db *DB) Colors() (map[string]string, error) {
+func (db *DB) Colors(userID uint) (map[string]string, error) {
 	var rows []TagColor
-	if err := db.Find(&rows).Error; err != nil {
+	if err := db.Where("user_id = ?", userID).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	m := make(map[string]string, len(rows))
@@ -55,81 +58,105 @@ func (db *DB) Colors() (map[string]string, error) {
 	return m, nil
 }
 
-func (db *DB) IgnoredViolations() ([]IgnoredViolation, error) {
+func (db *DB) IgnoredViolations(userID uint) ([]IgnoredViolation, error) {
 	var out []IgnoredViolation
-	err := db.Order("ts asc").Find(&out).Error
+	err := db.Where("user_id = ?", userID).Order("ts asc").Find(&out).Error
 	return out, err
 }
 
-// ── Ingest (idempotent: safe for the syncer's one-shot backfill + repeated
-// incremental pushes; overlapping records collapse on their natural key) ──
+// ── Ingest (idempotent; stamps UserID on every row) ──
 
-// IngestViolations upserts report lines; a re-sent (ts,keyword,url) is a no-op.
-func (db *DB) IngestViolations(rows []Violation) error {
+// IngestViolations upserts report lines; a re-sent (user,ts,keyword,url) no-ops.
+func (db *DB) IngestViolations(userID uint, rows []Violation) error {
 	if len(rows) == 0 {
 		return nil
 	}
+	for i := range rows {
+		rows[i].UserID = userID
+	}
 	return db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "ts"}, {Name: "keyword"}, {Name: "url"}},
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "ts"}, {Name: "keyword"}, {Name: "url"}},
 		DoNothing: true,
 	}).CreateInBatches(rows, 500).Error
 }
 
-// IngestUnblocks upserts unblock events. On (ts,domain) conflict it updates
-// restore_ts and reason, so a later sync can close an unblock that was still
-// open when first sent.
-func (db *DB) IngestUnblocks(rows []Unblock) error {
+// IngestUnblocks upserts unblock events; on conflict updates restore_ts+reason so
+// a later sync can close an unblock that was open when first sent.
+func (db *DB) IngestUnblocks(userID uint, rows []Unblock) error {
 	if len(rows) == 0 {
 		return nil
 	}
+	for i := range rows {
+		rows[i].UserID = userID
+	}
 	return db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "ts"}, {Name: "domain"}},
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "ts"}, {Name: "domain"}},
 		DoUpdates: clause.AssignmentColumns([]string{"restore_ts", "reason"}),
 	}).CreateInBatches(rows, 500).Error
 }
 
-func (db *DB) IngestLifecycle(rows []LifecycleEvent) error {
+func (db *DB) IngestLifecycle(userID uint, rows []LifecycleEvent) error {
 	if len(rows) == 0 {
 		return nil
 	}
+	for i := range rows {
+		rows[i].UserID = userID
+	}
 	return db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "ts"}, {Name: "type"}},
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "ts"}, {Name: "type"}},
 		DoNothing: true,
 	}).CreateInBatches(rows, 500).Error
 }
 
-func (db *DB) IngestUsage(rows []UsageSample) error {
+func (db *DB) IngestUsage(userID uint, rows []UsageSample) error {
 	if len(rows) == 0 {
 		return nil
 	}
+	for i := range rows {
+		rows[i].UserID = userID
+	}
 	return db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "ts"}},
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "ts"}},
 		DoNothing: true,
 	}).CreateInBatches(rows, 500).Error
 }
 
-func (db *DB) IngestHeartbeats(rows []Heartbeat) error {
+func (db *DB) IngestHeartbeats(userID uint, rows []Heartbeat) error {
 	if len(rows) == 0 {
 		return nil
 	}
+	for i := range rows {
+		rows[i].UserID = userID
+	}
 	return db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "ts"}},
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "ts"}},
 		DoNothing: true,
 	}).CreateInBatches(rows, 500).Error
 }
 
-// ── Dashboard-local settings (replace-all, matching the old PUT semantics) ──
+// stampUser sets UserID on every row via an accessor (used where a range loop
+// would be noisier); kept generic-free for clarity.
+func stampUser[T any](rows []T, field func(i int) *uint, userID uint) {
+	for i := range rows {
+		*field(i) = userID
+	}
+}
 
-// SetRulesConfig replaces the entire rules + colours set in one transaction.
-func (db *DB) SetRulesConfig(rules []Rule, colors map[string]string) error {
+// ── Dashboard-local settings (replace-all, scoped to userID) ──
+
+// SetRulesConfig replaces the account's rules + colours in one transaction.
+func (db *DB) SetRulesConfig(userID uint, rules []Rule, colors map[string]string) error {
 	return db.Transaction(func(tx *DB) error {
-		if err := tx.Where("1 = 1").Delete(&Rule{}).Error; err != nil {
+		if err := tx.Where("user_id = ?", userID).Delete(&Rule{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("1 = 1").Delete(&TagColor{}).Error; err != nil {
+		if err := tx.Where("user_id = ?", userID).Delete(&TagColor{}).Error; err != nil {
 			return err
 		}
 		if len(rules) > 0 {
+			for i := range rules {
+				rules[i].UserID = userID
+			}
 			if err := tx.Create(&rules).Error; err != nil {
 				return err
 			}
@@ -137,7 +164,7 @@ func (db *DB) SetRulesConfig(rules []Rule, colors map[string]string) error {
 		if len(colors) > 0 {
 			tc := make([]TagColor, 0, len(colors))
 			for tag, color := range colors {
-				tc = append(tc, TagColor{Tag: tag, Color: color})
+				tc = append(tc, TagColor{UserID: userID, Tag: tag, Color: color})
 			}
 			if err := tx.Create(&tc).Error; err != nil {
 				return err
@@ -147,13 +174,16 @@ func (db *DB) SetRulesConfig(rules []Rule, colors map[string]string) error {
 	})
 }
 
-// SetIgnored replaces the entire false-positive ignore list.
-func (db *DB) SetIgnored(rows []IgnoredViolation) error {
+// SetIgnored replaces the account's false-positive ignore list.
+func (db *DB) SetIgnored(userID uint, rows []IgnoredViolation) error {
 	return db.Transaction(func(tx *DB) error {
-		if err := tx.Where("1 = 1").Delete(&IgnoredViolation{}).Error; err != nil {
+		if err := tx.Where("user_id = ?", userID).Delete(&IgnoredViolation{}).Error; err != nil {
 			return err
 		}
 		if len(rows) > 0 {
+			for i := range rows {
+				rows[i].UserID = userID
+			}
 			return tx.Create(&rows).Error
 		}
 		return nil
@@ -168,8 +198,8 @@ func (db *DB) Transaction(fn func(tx *DB) error) error {
 	})
 }
 
-// Counts returns row counts per table (for the health endpoint).
-func (db *DB) Counts() map[string]int64 {
+// Counts returns row counts per stats table for one account (health endpoint).
+func (db *DB) Counts(userID uint) map[string]int64 {
 	out := map[string]int64{}
 	for name, m := range map[string]any{
 		"violations": &Violation{}, "unblocks": &Unblock{},
@@ -177,7 +207,7 @@ func (db *DB) Counts() map[string]int64 {
 		"heartbeat": &Heartbeat{}, "rules": &Rule{}, "ignored": &IgnoredViolation{},
 	} {
 		var n int64
-		db.Model(m).Count(&n)
+		db.Model(m).Where("user_id = ?", userID).Count(&n)
 		out[name] = n
 	}
 	return out

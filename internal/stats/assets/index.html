@@ -36,6 +36,7 @@
 
       <div class="sidebar-foot">
         <span id="footer-sources" class="src"></span>
+        <button id="logout-btn" class="btn-ghost" type="button" hidden>Sign out</button>
       </div>
     </nav>
 
@@ -261,6 +262,26 @@
         </section>
       </main>
     </div>
+  </div>
+
+  <div id="login" class="login-screen" hidden>
+    <form id="login-form" class="login-card">
+      <div class="brand">
+        <span class="reticle" aria-hidden="true"></span>
+        <div class="brand-text">
+          <h1>glock<span>peek</span></h1>
+          <p class="tagline">exposure analysis</p>
+        </div>
+      </div>
+      <label>Username
+        <input id="login-user" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+      </label>
+      <label>Password
+        <input id="login-pass" name="password" type="password" autocomplete="current-password" required />
+      </label>
+      <button type="submit" class="btn-primary">Sign in</button>
+      <p class="login-error" id="login-error" hidden></p>
+    </form>
   </div>
 
   <div id="loading" class="loading">reading logs&hellip;</div>

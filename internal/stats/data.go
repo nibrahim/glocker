@@ -75,7 +75,7 @@ type dataResponse struct {
 // glockpeek DB (populated by the glocker syncer). Times are epoch milliseconds
 // and every slice is sorted ascending, matching glockpeek-web/lib/parse.js.
 // Sources reflect whether each table has any rows.
-func buildData(db *store.DB, now time.Time) dataResponse {
+func buildData(db *store.DB, userID uint, now time.Time) dataResponse {
 	resp := dataResponse{
 		Now:        now.UnixMilli(),
 		Violations: []violationJSON{},
@@ -91,9 +91,9 @@ func buildData(db *store.DB, now time.Time) dataResponse {
 
 	// Violations, minus the ones marked false-positive (non-destructive overlay:
 	// the stored rows are untouched; this just hides them from the response).
-	if rows, err := db.Violations(); err == nil {
+	if rows, err := db.Violations(userID); err == nil {
 		resp.Sources.Reports = len(rows) > 0
-		ignored := ignoredSet(db)
+		ignored := ignoredSet(db, userID)
 		for _, e := range rows {
 			if ignored[ignoreKey(e.TS, e.Keyword, e.URL)] {
 				continue
@@ -108,7 +108,7 @@ func buildData(db *store.DB, now time.Time) dataResponse {
 		}
 	}
 
-	if rows, err := db.Unblocks(); err == nil {
+	if rows, err := db.Unblocks(userID); err == nil {
 		resp.Sources.Unblocks = len(rows) > 0
 		for _, e := range rows {
 			resp.Unblocks = append(resp.Unblocks, unblockJSON{
@@ -118,7 +118,7 @@ func buildData(db *store.DB, now time.Time) dataResponse {
 	}
 
 	var lifecycle []reports.LifecycleEntry
-	if rows, err := db.LifecycleEvents(); err == nil {
+	if rows, err := db.LifecycleEvents(userID); err == nil {
 		resp.Sources.Lifecycle = len(rows) > 0
 		for _, e := range rows {
 			resp.Lifecycle = append(resp.Lifecycle, lifecycleJSON{
@@ -131,7 +131,7 @@ func buildData(db *store.DB, now time.Time) dataResponse {
 	}
 	resp.Unmanaged = unmanagedPeriods(lifecycle, now)
 
-	if rows, err := db.Heartbeats(); err == nil {
+	if rows, err := db.Heartbeats(userID); err == nil {
 		resp.Sources.Heartbeat = len(rows) > 0
 		samples := make([]reports.HeartbeatSample, 0, len(rows))
 		for _, h := range rows {
@@ -144,7 +144,7 @@ func buildData(db *store.DB, now time.Time) dataResponse {
 		}
 	}
 
-	if rows, err := db.UsageSamples(); err == nil {
+	if rows, err := db.UsageSamples(userID); err == nil {
 		resp.Sources.Usage = len(rows) > 0
 		for _, s := range rows {
 			us := usageSample{TS: s.TS, IdleMS: s.IdleMS, WindowCount: s.WindowCount}

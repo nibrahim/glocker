@@ -200,49 +200,47 @@ sudo glocker -uninstall "maintenance" -note "kernel upgrade"
 
 ## Stats Dashboard (glockpeek)
 
-`glockpeek` runs as its own systemd service (localhost only) and serves a web
-dashboard over the log files Glocker writes — violations
-(`/var/log/glocker-reports.log`), unblocks (`/var/log/glocker-unblocks.log`),
-lifecycle events (`/var/log/glocker-lifecycle.log`), and usage
-(`/var/log/glocker-usage.jsonl`). It reads those logs read-only, but keeps its
-own mutable state — the usage **tag rules** and the false-positive **skip list** —
-under `/var/lib/glocker/`, editable from the dashboard.
+`glockpeek` runs as its own systemd service and serves a login-gated web
+dashboard of your exposure and usage analytics. It is **multi-tenant** and
+**DB-backed** (SQLite locally, Postgres for a hosted instance — via GORM, so
+switching is just a driver + DSN change), which lets the same code run locally or
+on a remote host. The glocker agent doesn't write to the dashboard directly; a
+syncer pushes local records into glockpeek's token-authenticated **ingest API**,
+so the two can live on different machines (see [PLAN — not tracked]).
+
+Accounts and the ingest token are managed with admin subcommands (they touch the
+DB directly, run them on the DB host):
 
 ```bash
-# Open the dashboard (default listen address)
-xdg-open http://127.0.0.1:4317/
-
-# Run it in the foreground (e.g. for development)
-glockpeek                       # uses /etc/glocker/config.yaml
-glockpeek -listen 127.0.0.1:4444  # override the listen address
+glockpeek -adduser noufal     # create a dashboard account (prompts for a password)
+glockpeek -passwd  noufal     # change a password
+glockpeek -addtoken noufal    # mint an ingest API token for the syncer (printed once)
 ```
 
-Change the address permanently with `glockpeek_listen` in `conf.yaml`. The
-dashboard surfaces violation totals and types, clean streaks, a coverage/health
-score, per-day activity, and usage analytics (per-program title-word breakdowns).
-Periods during which Glocker was uninstalled are drawn from the lifecycle log and
-shown as `UNMANAGED` coverage gaps rather than silently absent.
-
-The installed service runs as **root** so it can read+write its state in the
-root-owned `/var/lib/glocker/`. (Running it unprivileged with its own owned state
-dir is a planned hardening step before self-hosting is shipped to others.)
-
-### Development / testing
-
-The `GLOCKER_*` environment variables override the config-file paths (env >
-config > default), so you can point `glockpeek` at a throwaway sandbox — no root
-and no edits to the installed config:
+Then run the server and sign in:
 
 ```bash
-GLOCKER_USAGE_RULES=/tmp/glockdata/usage-rules.json \
-GLOCKER_IGNORED_VIOLATIONS=/tmp/glockdata/ignored-violations.json \
-  glockpeek -listen 127.0.0.1:4444
+glockpeek                        # uses /etc/glocker/config.yaml
+glockpeek -listen 127.0.0.1:4444 # override the listen address
+xdg-open http://127.0.0.1:4317/  # log in with the account above
 ```
 
-Recognized: `GLOCKER_REPORTS_LOG`, `GLOCKER_UNBLOCKS_LOG`,
-`GLOCKER_LIFECYCLE_LOG`, `GLOCKER_HEARTBEAT_LOG`, `GLOCKER_USAGE_LOG`,
-`GLOCKER_USAGE_RULES`, `GLOCKER_IGNORED_VIOLATIONS`. With none set, the installed
-config wins and the service behaves normally.
+- **Auth model.** Humans log in and get an httpOnly **session cookie**; the
+  syncer authenticates to `POST /api/ingest` with an `Authorization: Bearer
+  <token>`. The token identifies which account the pushed data belongs to. Static
+  assets and the login route are public; every data/settings route requires a
+  session. (This replaces the old loopback-only guard, so the instance can be
+  hosted behind TLS.)
+- **Config** (`conf.yaml`): `glockpeek_listen` (address), `database` (driver +
+  DSN), `glockpeek_secure_cookies` (set true when served over HTTPS).
+
+The dashboard surfaces violation totals and types, clean streaks, a
+coverage/health score, per-day activity, and usage analytics (per-program
+title-word breakdowns). Periods during which Glocker was uninstalled are shown as
+`UNMANAGED` coverage gaps rather than silently absent.
+
+The installed service currently runs as **root** (unprivileged operation is a
+planned hardening step before self-hosting ships to others).
 
 ## Implementation
 

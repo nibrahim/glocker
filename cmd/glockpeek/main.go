@@ -1,18 +1,29 @@
 // Command glockpeek serves the glocker stats dashboard (the web interface) as a
 // standalone process, separate from the glocker daemon. It reads the same
 // /etc/glocker/config.yaml for its listen address and database, serves the
-// dashboard on localhost only, and exposes an ingest API the glocker syncer
-// pushes local records into.
+// dashboard on a per-account login, and exposes a token-authenticated ingest API
+// the glocker syncer pushes local records into. Designed to be hosted remotely.
 //
-// This replaces the old command-line log viewer — the web dashboard has taken
-// its place. Run it as its own service (see extras/glockpeek.service); the
-// glocker daemon no longer serves the dashboard itself.
+// Admin subcommands (run locally, they touch the DB directly):
+//
+//	glockpeek -adduser <name>        # create a dashboard account (prompts for a password)
+//	glockpeek -passwd  <name>        # change a password
+//	glockpeek -addtoken <name>       # mint an ingest API token for <name> (printed once)
+//
+// This replaces the old command-line log viewer; run the server as its own
+// service (see extras/glockpeek.service).
 package main
 
 import (
+	"bufio"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
+
+	"golang.org/x/term"
 
 	"glocker/internal/config"
 	"glocker/internal/stats"
@@ -24,14 +35,16 @@ const defaultListen = "127.0.0.1:4317"
 func main() {
 	listen := flag.String("listen", "", "address to serve on (overrides config; default "+defaultListen+")")
 	dbDSN := flag.String("db", "", "database DSN (overrides config; e.g. a sqlite file path for dev)")
+	addUser := flag.String("adduser", "", "create a dashboard account with this username, then exit")
+	passwd := flag.String("passwd", "", "change the password for this username, then exit")
+	addToken := flag.String("addtoken", "", "mint an ingest API token for this username, then exit")
 	flag.Parse()
 
 	addr := defaultListen
 	driver := config.DefaultDatabaseDriver
 	dsn := config.DefaultDatabaseDSN
+	secureCookies := false
 
-	// Read the same config the daemon uses for the listen address + database.
-	// Non-fatal if absent (flags/defaults still resolve).
 	if cfg, err := config.LoadConfig(); err != nil {
 		log.Printf("glockpeek: could not load %s (%v); using defaults", config.GlockerConfigFile, err)
 	} else {
@@ -44,6 +57,7 @@ func main() {
 		if cfg.Database.DSN != "" {
 			dsn = cfg.Database.DSN
 		}
+		secureCookies = cfg.GlockpeekSecureCookies
 	}
 	if *listen != "" {
 		addr = *listen
@@ -57,9 +71,88 @@ func main() {
 		log.Fatalf("glockpeek: open database (%s): %v", driver, err)
 	}
 
-	mux := http.NewServeMux()
-	stats.Register(mux, db)
+	// Admin subcommands: touch the DB and exit, no server.
+	switch {
+	case *addUser != "":
+		runAddUser(db, *addUser)
+		return
+	case *passwd != "":
+		runPasswd(db, *passwd)
+		return
+	case *addToken != "":
+		runAddToken(db, *addToken)
+		return
+	}
 
-	log.Printf("glockpeek serving the dashboard at http://%s/ (localhost only); db %s: %s", addr, driver, dsn)
+	mux := http.NewServeMux()
+	stats.Register(mux, db, stats.Options{SecureCookies: secureCookies})
+
+	log.Printf("glockpeek serving the dashboard at http://%s/ (login required); db %s: %s", addr, driver, dsn)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func runAddUser(db *store.DB, username string) {
+	pw := readNewPassword()
+	if _, err := db.CreateUser(username, pw); err != nil {
+		log.Fatalf("glockpeek: create user %q: %v", username, err)
+	}
+	fmt.Printf("created dashboard account %q\n", username)
+}
+
+func runPasswd(db *store.DB, username string) {
+	pw := readNewPassword()
+	if err := db.SetPassword(username, pw); err != nil {
+		log.Fatalf("glockpeek: set password for %q: %v", username, err)
+	}
+	fmt.Printf("password updated for %q\n", username)
+}
+
+func runAddToken(db *store.DB, username string) {
+	u, err := db.UserByName(username)
+	if err != nil {
+		log.Fatalf("glockpeek: no such user %q: %v", username, err)
+	}
+	tok, err := db.CreateAPIToken(u.ID, "cli")
+	if err != nil {
+		log.Fatalf("glockpeek: create token: %v", err)
+	}
+	fmt.Printf("ingest token for %q (store it now — it is not recoverable):\n\n  %s\n\n", username, tok)
+	fmt.Println("The glocker syncer sends it as:  Authorization: Bearer <token>")
+}
+
+// readNewPassword reads a password without echo from a TTY, or a single line
+// from stdin when piped (for scripting). It requires confirmation on a TTY.
+func readNewPassword() string {
+	fd := int(os.Stdin.Fd())
+	if term.IsTerminal(fd) {
+		fmt.Print("New password: ")
+		p1, err := term.ReadPassword(fd)
+		fmt.Println()
+		if err != nil {
+			log.Fatalf("glockpeek: reading password: %v", err)
+		}
+		fmt.Print("Confirm password: ")
+		p2, err := term.ReadPassword(fd)
+		fmt.Println()
+		if err != nil {
+			log.Fatalf("glockpeek: reading password: %v", err)
+		}
+		if string(p1) != string(p2) {
+			log.Fatal("glockpeek: passwords do not match")
+		}
+		if len(p1) == 0 {
+			log.Fatal("glockpeek: empty password")
+		}
+		return string(p1)
+	}
+	// Piped: read one line.
+	sc := bufio.NewScanner(os.Stdin)
+	if !sc.Scan() {
+		log.Fatal("glockpeek: no password on stdin")
+	}
+	pw := strings.TrimRight(sc.Text(), "\r\n")
+	if pw == "" {
+		log.Fatal("glockpeek: empty password")
+	}
+	return pw
 }

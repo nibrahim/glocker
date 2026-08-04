@@ -374,23 +374,36 @@ Endpoints for browser extension communication (internal/web/handlers.go):
 
 Server started by internal/web/server.go:StartWebTrackingServer()
 
-**Stats dashboard (`internal/stats/`, served by the standalone `glockpeek`
-process, localhost only):**
+**Stats dashboard (`internal/stats/` + `internal/store/`, served by the standalone
+`glockpeek` process):**
 - Served by **`cmd/glockpeek`** as its own binary + systemd service
-  (`extras/glockpeek.service`), NOT by the glocker daemon. It reads
-  `/etc/glocker/config.yaml` for the usage/rules paths + listen address
-  (`glockpeek_listen`, default `127.0.0.1:4317`) and reads the log files
-  directly. `stats.Register(mux, opts)` mounts the routes below.
-- Default URL `http://127.0.0.1:4317/` (dashboard served at the root). Legacy
-  `/stats` and `/stats/` 301-redirect to `/`. (The old `glocker.localhost/stats`
-  alias in internal/enforcement/hosts.go is now vestigial — the daemon no longer
-  serves the dashboard at all.)
-- `GET /` - glockpeek dashboard (embedded frontend; a copy of `glockpeek-web/public`)
-- `GET /api/data` - full parsed history (violations/unblocks/lifecycle/unmanaged/usage), same JSON as glockpeek-web
-- `GET /api/health` - liveness + resolved log paths
-- `GET|PUT /api/rules` - usage categorization config `{rules, colors}`, stored at `/var/lib/glocker/usage-rules.json` (mutable state, not /etc)
-- `GET|PUT /api/ignored` - false-positive violations `{ignored:[{ts,keyword,url,domain}]}`, stored at `/var/lib/glocker/ignored-violations.json`. `buildData` filters these out of the violations it returns (non-destructive; the raw reports log is untouched). Marked/restored from the day-detail hit list in the History view.
-- Reads the usage log at `/var/log/glocker-usage.jsonl`. All routes reject non-loopback clients (403).
+  (`extras/glockpeek.service`), NOT by the glocker daemon. Reads
+  `/etc/glocker/config.yaml` for `glockpeek_listen` (default `127.0.0.1:4317`),
+  `database` (driver+DSN), and `glockpeek_secure_cookies`.
+- **DB-backed, multi-tenant.** `internal/store` is a GORM layer (sqlite via
+  pure-Go `glebarez/sqlite`, or postgres) — the dashboard no longer parses log
+  files. Every stats row carries a `UserID`; all reads/ingest are scoped to the
+  authenticated account. Records are populated by the glocker syncer through the
+  ingest API (the syncer itself is not built yet — see PLAN.md, local/untracked).
+- **Auth** (`internal/stats/auth.go`): humans log in (`POST /api/login`) → argon2id
+  verify (`alexedwards/argon2id`) → httpOnly session cookie (`glockpeek_session`,
+  opaque token in the `sessions` table). The syncer uses a bearer **API token**
+  (hashed in the `api_tokens` table) on `/api/ingest`. Middleware: `requireUser`
+  (cookie) / `requireToken` (bearer). Admin CLI: `glockpeek -adduser/-passwd/-addtoken`.
+- `stats.Register(mux, db, Options{SecureCookies})` mounts:
+  - `GET /` - dashboard (embedded frontend, copy of `glockpeek-web/public`) — **public**
+  - `POST /api/login` — **public**; `POST /api/logout`, `GET /api/me` — session
+  - `GET /api/data` - full history (session-gated), unmanaged/downtime derived from
+    lifecycle/heartbeat rows; ignored overlay filtered in `buildData`
+  - `GET /api/health` - `{ok, counts}` for the account (session)
+  - `GET|PUT /api/rules` - `{rules, colors}` in the DB (session)
+  - `GET|PUT /api/ignored` - false-positive overlay in the DB (session)
+  - `POST /api/ingest` - batched idempotent upsert from the syncer (**bearer token**)
+  - Legacy `/stats`, `/stats/` 301-redirect to `/`. (The old
+    `glocker.localhost/stats` alias in hosts.go is vestigial.)
+- Frontend must be kept in sync between `glockpeek-web/public/` and
+  `internal/stats/assets/` (the embedded copy). `app.js` gates on `GET /api/me`
+  and shows a login screen when unauthenticated.
 
 ### Extension Communication Flow
 

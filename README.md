@@ -58,7 +58,7 @@ Glocker is three cooperating processes:
 - **`glockpeek`** — the stats service and web dashboard, a **separate process**
   (its own systemd service, localhost only). It reads the same
   `/etc/glocker/config.yaml`, reads the logs directly, and serves the dashboard
-  at `/stats` (default `http://127.0.0.1:4317/stats/`). The glocker daemon no
+  at the root (default `http://127.0.0.1:4317/`). The glocker daemon no
   longer serves the dashboard itself.
 - **`glockdoc`** — the watchdog. Runs periodically and records whether glocker is
   alive to a heartbeat log, and is **deliberately left in place by an uninstall**
@@ -92,7 +92,7 @@ open-core hosted tier — is captured in [`ROADMAP.md`](ROADMAP.md).
 ## Utilities
 
 - **[glocker](cmd/glocker/)** - Main daemon and CLI (enforcement + data collection)
-- **[glockpeek](cmd/glockpeek/)** - Standalone stats web dashboard; serves `/stats` on localhost, reading the logs
+- **[glockpeek](cmd/glockpeek/)** - Standalone stats web dashboard; serves on localhost (default `:4317`), reading the logs
 - **[glockdoc](cmd/glockdoc/)** - Liveness watchdog; records whether glocker is running (survives uninstall)
 - **[glocklock](cmd/glocklock/)** - X11 screen locker with time/text-based modes
 
@@ -210,7 +210,7 @@ under `/var/lib/glocker/`, editable from the dashboard.
 
 ```bash
 # Open the dashboard (default listen address)
-xdg-open http://127.0.0.1:4317/stats/
+xdg-open http://127.0.0.1:4317/
 
 # Run it in the foreground (e.g. for development)
 glockpeek                       # uses /etc/glocker/config.yaml

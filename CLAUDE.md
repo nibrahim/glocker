@@ -381,15 +381,16 @@ process, localhost only):**
   `/etc/glocker/config.yaml` for the usage/rules paths + listen address
   (`glockpeek_listen`, default `127.0.0.1:4317`) and reads the log files
   directly. `stats.Register(mux, opts)` mounts the routes below.
-- Default URL `http://127.0.0.1:4317/stats/`. (The old `glocker.localhost/stats`
+- Default URL `http://127.0.0.1:4317/` (dashboard served at the root). Legacy
+  `/stats` and `/stats/` 301-redirect to `/`. (The old `glocker.localhost/stats`
   alias in internal/enforcement/hosts.go is now vestigial — the daemon no longer
-  serves /stats.)
-- `GET /stats/` - glockpeek dashboard (embedded frontend; a copy of `glockpeek-web/public`)
-- `GET /stats/api/data` - full parsed history (violations/unblocks/lifecycle/unmanaged/usage), same JSON as glockpeek-web
-- `GET /stats/api/health` - liveness + resolved log paths
-- `GET|PUT /stats/api/rules` - usage categorization config `{rules, colors}`, stored at `/var/lib/glocker/usage-rules.json` (mutable state, not /etc)
-- `GET|PUT /stats/api/ignored` - false-positive violations `{ignored:[{ts,keyword,url,domain}]}`, stored at `/var/lib/glocker/ignored-violations.json`. `buildData` filters these out of the violations it returns (non-destructive; the raw reports log is untouched). Marked/restored from the day-detail hit list in the History view.
-- Reads the usage log at `/var/log/glocker-usage.jsonl`. All `/stats` routes reject non-loopback clients (403).
+  serves the dashboard at all.)
+- `GET /` - glockpeek dashboard (embedded frontend; a copy of `glockpeek-web/public`)
+- `GET /api/data` - full parsed history (violations/unblocks/lifecycle/unmanaged/usage), same JSON as glockpeek-web
+- `GET /api/health` - liveness + resolved log paths
+- `GET|PUT /api/rules` - usage categorization config `{rules, colors}`, stored at `/var/lib/glocker/usage-rules.json` (mutable state, not /etc)
+- `GET|PUT /api/ignored` - false-positive violations `{ignored:[{ts,keyword,url,domain}]}`, stored at `/var/lib/glocker/ignored-violations.json`. `buildData` filters these out of the violations it returns (non-destructive; the raw reports log is untouched). Marked/restored from the day-detail hit list in the History view.
+- Reads the usage log at `/var/log/glocker-usage.jsonl`. All routes reject non-loopback clients (403).
 
 ### Extension Communication Flow
 

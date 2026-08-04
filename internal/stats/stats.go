@@ -1,8 +1,8 @@
 // Package stats serves the glockpeek dashboard (usage + exposure analysis) and
-// its JSON API from within glocker's web server, mounted under /stats. The
-// frontend assets are embedded in the binary, so nothing external is required
-// at runtime; access is restricted to localhost since the page shows personal
-// browsing/usage data.
+// its JSON API. It is served at the root ("/") by the standalone glockpeek
+// process. The frontend assets are embedded in the binary, so nothing external
+// is required at runtime; access is restricted to localhost since the page shows
+// personal browsing/usage data.
 package stats
 
 import (
@@ -86,9 +86,12 @@ func envOr(env, def string) string {
 	return def
 }
 
-// Register mounts the /stats dashboard and its API onto mux, using o to locate
-// the usage log and rules file (empty fields fall back to env/defaults). All
-// routes are restricted to loopback clients.
+// Register mounts the dashboard and its API onto mux, using o to locate the
+// usage log and rules file (empty fields fall back to env/defaults). glockpeek
+// owns the whole listener, so the dashboard is served at the root ("/"). The
+// legacy "/stats/" prefix (from when this was mounted inside the daemon's web
+// server) is redirected to "/" for old bookmarks. All routes are restricted to
+// loopback clients.
 func Register(mux *http.ServeMux, o Options) {
 	opts = o
 	sub, err := fs.Sub(assetsFS, "assets")
@@ -97,18 +100,19 @@ func Register(mux *http.ServeMux, o Options) {
 	}
 	fileServer := http.FileServer(http.FS(sub))
 
-	// /stats -> /stats/ so the page's relative asset/API URLs resolve correctly.
-	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		if !isLocal(w, r) {
-			return
-		}
-		http.Redirect(w, r, "/stats/", http.StatusMovedPermanently)
-	})
-	mux.Handle("/stats/", localGuard(http.StripPrefix("/stats/", fileServer)))
-	mux.Handle("/stats/api/data", localGuard(http.HandlerFunc(handleData)))
-	mux.Handle("/stats/api/health", localGuard(http.HandlerFunc(handleHealth)))
-	mux.Handle("/stats/api/rules", localGuard(http.HandlerFunc(handleRules)))
-	mux.Handle("/stats/api/ignored", localGuard(http.HandlerFunc(handleIgnored)))
+	// Legacy /stats and /stats/* -> / (dashboard moved to the root).
+	redirectToRoot := func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/", http.StatusMovedPermanently)
+	}
+	mux.Handle("/stats", localGuard(http.HandlerFunc(redirectToRoot)))
+	mux.Handle("/stats/", localGuard(http.HandlerFunc(redirectToRoot)))
+
+	// Dashboard + API at the root.
+	mux.Handle("/", localGuard(fileServer))
+	mux.Handle("/api/data", localGuard(http.HandlerFunc(handleData)))
+	mux.Handle("/api/health", localGuard(http.HandlerFunc(handleHealth)))
+	mux.Handle("/api/rules", localGuard(http.HandlerFunc(handleRules)))
+	mux.Handle("/api/ignored", localGuard(http.HandlerFunc(handleIgnored)))
 }
 
 // handleIgnored serves the false-positive ignore list: GET returns it, PUT

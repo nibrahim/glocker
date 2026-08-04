@@ -53,6 +53,6 @@ func main() {
 	mux := http.NewServeMux()
 	stats.Register(mux, opts)
 
-	log.Printf("glockpeek serving the dashboard at http://%s/stats/ (localhost only)", addr)
+	log.Printf("glockpeek serving the dashboard at http://%s/ (localhost only)", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }

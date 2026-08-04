@@ -118,7 +118,7 @@ func TestReadUsageLog(t *testing.T) {
 func TestLocalhostGuard(t *testing.T) {
 	mux := newMux()
 	// Default httptest RemoteAddr (192.0.2.1) is non-loopback -> 403.
-	for _, p := range []string{"/stats/", "/stats/api/data", "/stats/api/rules"} {
+	for _, p := range []string{"/", "/api/data", "/api/rules"} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
 		if rec.Code != http.StatusForbidden {
@@ -130,19 +130,21 @@ func TestLocalhostGuard(t *testing.T) {
 func TestServesIndexAndAssets(t *testing.T) {
 	mux := newMux()
 
-	// /stats redirects to /stats/
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/stats", nil)))
-	if rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != "/stats/" {
-		t.Errorf("/stats redirect: code=%d loc=%q", rec.Code, rec.Header().Get("Location"))
+	// Legacy /stats and /stats/ redirect to /
+	for _, p := range []string{"/stats", "/stats/"} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, local(httptest.NewRequest("GET", p, nil)))
+		if rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != "/" {
+			t.Errorf("%s redirect: code=%d loc=%q", p, rec.Code, rec.Header().Get("Location"))
+		}
 	}
 
 	// index + assets
 	for _, tc := range []struct{ path, needle string }{
-		{"/stats/", "glock"},
-		{"/stats/app.js", "renderUsage"},
-		{"/stats/styles.css", "--bg"},
-		{"/stats/chart.umd.min.js", "Chart"},
+		{"/", "glock"},
+		{"/app.js", "renderUsage"},
+		{"/styles.css", "--bg"},
+		{"/chart.umd.min.js", "Chart"},
 	} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, local(httptest.NewRequest("GET", tc.path, nil)))
@@ -178,7 +180,7 @@ func TestDataEndpoint(t *testing.T) {
 
 	mux := newMux()
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/stats/api/data", nil)))
+	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/api/data", nil)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("data: got %d", rec.Code)
 	}
@@ -211,7 +213,7 @@ func TestRulesGetPut(t *testing.T) {
 
 	// GET on empty -> {rules:[],colors:{}}
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/stats/api/rules", nil)))
+	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/api/rules", nil)))
 	if !strings.Contains(rec.Body.String(), `"rules":[]`) || !strings.Contains(rec.Body.String(), `"colors":{}`) {
 		t.Fatalf("empty GET = %s", rec.Body.String())
 	}
@@ -219,7 +221,7 @@ func TestRulesGetPut(t *testing.T) {
 	// PUT rules + colours (with a junk rule and bad colour)
 	body := `{"rules":[{"program":"^Emacs$","title":"","tag":"Activity:work"},{"nope":true}],"colors":{"Activity:work":"#3aa0ff","x":"bad"}}`
 	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, local(httptest.NewRequest("PUT", "/stats/api/rules", strings.NewReader(body))))
+	mux.ServeHTTP(rec, local(httptest.NewRequest("PUT", "/api/rules", strings.NewReader(body))))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT: %d %s", rec.Code, rec.Body.String())
 	}
@@ -233,7 +235,7 @@ func TestRulesGetPut(t *testing.T) {
 
 	// It persisted to disk and GET returns it.
 	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/stats/api/rules", nil)))
+	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/api/rules", nil)))
 	if !strings.Contains(rec.Body.String(), "Activity:work") || !strings.Contains(rec.Body.String(), "#3aa0ff") {
 		t.Errorf("GET after PUT = %s", rec.Body.String())
 	}

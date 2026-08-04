@@ -288,7 +288,7 @@ See [CLAUDE.md](CLAUDE.md) for complete file map and developer guide.
 ## System Requirements
 
 - Linux with systemd
-- Go 1.21+ (for building)
+- Go 1.25+ (for building)
 - iptables (optional, for firewall blocking)
 - Firefox (for browser extension)
 - Root access (for installation)

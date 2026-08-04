@@ -28,9 +28,18 @@ dev: false
 log_level: "info"
 
 # Listen address for the standalone glockpeek stats dashboard.
-# glockpeek runs as its own service and serves /stats over the log files.
-# Localhost only. Default (if unset): 127.0.0.1:4317
+# glockpeek runs as its own service and serves the dashboard at / (localhost
+# only). Default (if unset): 127.0.0.1:4317
 glockpeek_listen: "127.0.0.1:4317"
+
+# glockpeek's stats database. Dialect-agnostic (GORM): use sqlite locally or
+# switch to postgres for a hosted instance without changing anything else.
+#   driver: "sqlite" (default) | "postgres"
+#   dsn:    sqlite -> file path (default /var/lib/glocker/glockpeek.db)
+#           postgres -> e.g. "host=... user=... password=... dbname=... sslmode=require"
+database:
+  driver: "sqlite"
+  dsn: "/var/lib/glocker/glockpeek.db"
 
 # ----------------------------------------------------------------------------
 # Core Enforcement Mechanisms

@@ -8,6 +8,12 @@ const (
 	GlockdocInstallPath  = "/usr/local/bin/glockdoc"
 	HeartbeatCronPath    = "/etc/cron.d/glocker-doc"
 	GlockerConfigFile    = "/etc/glocker/config.yaml"
+
+	// DefaultDatabaseDriver / DefaultDatabaseDSN are glockpeek's store defaults
+	// when config.Database is unset. sqlite file under /var/lib (mutable state,
+	// not /etc). Swap to "postgres" + a connection-string DSN for a hosted instance.
+	DefaultDatabaseDriver = "sqlite"
+	DefaultDatabaseDSN    = "/var/lib/glocker/glockpeek.db"
 	HostsMarkerStart     = "### GLOCKER START ###"
 	SudoersPath          = "/etc/sudoers"
 	SudoersBackup        = "/etc/sudoers.glocker.backup"
@@ -245,4 +251,18 @@ type Config struct {
 	// GlockpeekListen is the address the standalone glockpeek dashboard process
 	// serves on (localhost only). Empty falls back to the built-in default.
 	GlockpeekListen string `yaml:"glockpeek_listen"`
+	// Database configures glockpeek's store. Dialect-agnostic (via GORM): sqlite
+	// locally, postgres for a hosted instance. Empty fields fall back to defaults.
+	Database DatabaseConfig `yaml:"database"`
+}
+
+// DatabaseConfig selects glockpeek's DB backend. The abstraction is GORM, so
+// switching from sqlite to postgres is just a driver + DSN change here — no
+// query rewrites. Consumed by the standalone glockpeek process, not the daemon.
+type DatabaseConfig struct {
+	// Driver is "sqlite" (default) or "postgres".
+	Driver string `yaml:"driver"`
+	// DSN is the data source. For sqlite it's a file path
+	// (default DefaultDatabaseDSN); for postgres a libpq/pgx connection string.
+	DSN string `yaml:"dsn"`
 }

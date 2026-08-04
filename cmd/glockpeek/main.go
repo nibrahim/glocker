@@ -12,6 +12,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"os"
 
 	"glocker/internal/config"
 	"glocker/internal/stats"
@@ -32,8 +33,15 @@ func main() {
 	if cfg, err := config.LoadConfig(); err != nil {
 		log.Printf("glockpeek: could not load %s (%v); using defaults", config.GlockerConfigFile, err)
 	} else {
-		opts.UsageLog = cfg.UsageMonitor.LogFile
-		opts.RulesFile = cfg.UsageMonitor.RulesFile
+		// Config supplies the deployment defaults, but the GLOCKER_* env vars
+		// (honored by the stats package) take precedence when set, so a dev run
+		// can point glockpeek at a sandbox without editing the installed config.
+		if os.Getenv("GLOCKER_USAGE_LOG") == "" {
+			opts.UsageLog = cfg.UsageMonitor.LogFile
+		}
+		if os.Getenv("GLOCKER_USAGE_RULES") == "" {
+			opts.RulesFile = cfg.UsageMonitor.RulesFile
+		}
 		if cfg.GlockpeekListen != "" {
 			addr = cfg.GlockpeekListen
 		}

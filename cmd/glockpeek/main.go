@@ -1,58 +1,65 @@
 // Command glockpeek serves the glocker stats dashboard (the web interface) as a
 // standalone process, separate from the glocker daemon. It reads the same
-// /etc/glocker/config.yaml to locate the logs and its listen address, reads the
-// log files directly, and serves the dashboard on localhost only.
+// /etc/glocker/config.yaml for its listen address and database, serves the
+// dashboard on localhost only, and exposes an ingest API the glocker syncer
+// pushes local records into.
 //
 // This replaces the old command-line log viewer — the web dashboard has taken
 // its place. Run it as its own service (see extras/glockpeek.service); the
-// glocker daemon no longer serves /stats itself.
+// glocker daemon no longer serves the dashboard itself.
 package main
 
 import (
 	"flag"
 	"log"
 	"net/http"
-	"os"
 
 	"glocker/internal/config"
 	"glocker/internal/stats"
+	"glocker/internal/store"
 )
 
 const defaultListen = "127.0.0.1:4317"
 
 func main() {
 	listen := flag.String("listen", "", "address to serve on (overrides config; default "+defaultListen+")")
+	dbDSN := flag.String("db", "", "database DSN (overrides config; e.g. a sqlite file path for dev)")
 	flag.Parse()
 
 	addr := defaultListen
-	opts := stats.Options{}
+	driver := config.DefaultDatabaseDriver
+	dsn := config.DefaultDatabaseDSN
 
-	// Read the same config the daemon uses, to locate the usage log / rules file
-	// and the configured listen address. Non-fatal if absent (env vars + defaults
-	// in the stats package still resolve the log paths).
+	// Read the same config the daemon uses for the listen address + database.
+	// Non-fatal if absent (flags/defaults still resolve).
 	if cfg, err := config.LoadConfig(); err != nil {
 		log.Printf("glockpeek: could not load %s (%v); using defaults", config.GlockerConfigFile, err)
 	} else {
-		// Config supplies the deployment defaults, but the GLOCKER_* env vars
-		// (honored by the stats package) take precedence when set, so a dev run
-		// can point glockpeek at a sandbox without editing the installed config.
-		if os.Getenv("GLOCKER_USAGE_LOG") == "" {
-			opts.UsageLog = cfg.UsageMonitor.LogFile
-		}
-		if os.Getenv("GLOCKER_USAGE_RULES") == "" {
-			opts.RulesFile = cfg.UsageMonitor.RulesFile
-		}
 		if cfg.GlockpeekListen != "" {
 			addr = cfg.GlockpeekListen
+		}
+		if cfg.Database.Driver != "" {
+			driver = cfg.Database.Driver
+		}
+		if cfg.Database.DSN != "" {
+			dsn = cfg.Database.DSN
 		}
 	}
 	if *listen != "" {
 		addr = *listen
 	}
+	if *dbDSN != "" {
+		dsn = *dbDSN
+	}
+
+	db, err := store.Open(store.Options{Driver: driver, DSN: dsn})
+	if err != nil {
+		log.Fatalf("glockpeek: open database (%s): %v", driver, err)
+	}
 
 	mux := http.NewServeMux()
-	stats.Register(mux, opts)
+	stats.Register(mux, db)
 
-	log.Printf("glockpeek serving the dashboard at http://%s/ (localhost only)", addr)
+	log.Printf("glockpeek serving the dashboard at http://%s/ (localhost only); db %s: %s", addr, driver, dsn)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }

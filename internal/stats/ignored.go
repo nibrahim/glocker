@@ -1,10 +1,9 @@
 package stats
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
+
+	"glocker/internal/store"
 )
 
 // IgnoredEntry marks a single recorded violation as a false positive so the
@@ -23,27 +22,22 @@ func ignoreKey(ts int64, keyword, url string) string {
 	return fmt.Sprintf("%d\x00%s\x00%s", ts, keyword, url)
 }
 
-// loadIgnored reads the ignore list, tolerating a missing or corrupt file.
-func loadIgnored(path string) ([]IgnoredEntry, error) {
-	data, err := os.ReadFile(path)
+// loadIgnored reads the ignore list from the DB.
+func loadIgnored(db *store.DB) ([]IgnoredEntry, error) {
+	rows, err := db.IgnoredViolations()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []IgnoredEntry{}, nil
-		}
 		return []IgnoredEntry{}, err
 	}
-	var obj struct {
-		Ignored []IgnoredEntry `json:"ignored"`
+	out := make([]IgnoredEntry, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, IgnoredEntry{TS: r.TS, Keyword: r.Keyword, URL: r.URL, Domain: r.Domain})
 	}
-	if err := json.Unmarshal(data, &obj); err != nil {
-		return []IgnoredEntry{}, nil // corrupt file -> treat as empty
-	}
-	return dedupeIgnored(obj.Ignored), nil
+	return out, nil
 }
 
-// loadIgnoredSet returns the ignore list as a lookup set of match keys.
-func loadIgnoredSet(path string) map[string]bool {
-	list, _ := loadIgnored(path)
+// ignoredSet returns the ignore list as a lookup set of match keys.
+func ignoredSet(db *store.DB) map[string]bool {
+	list, _ := loadIgnored(db)
 	set := make(map[string]bool, len(list))
 	for _, e := range list {
 		set[ignoreKey(e.TS, e.Keyword, e.URL)] = true
@@ -52,7 +46,7 @@ func loadIgnoredSet(path string) map[string]bool {
 }
 
 // dedupeIgnored drops entries with no timestamp and collapses duplicates by key,
-// preserving the reports-log field values exactly so matching stays reliable.
+// preserving the stored field values exactly so matching stays reliable.
 func dedupeIgnored(in []IgnoredEntry) []IgnoredEntry {
 	out := []IgnoredEntry{}
 	seen := map[string]bool{}
@@ -70,20 +64,14 @@ func dedupeIgnored(in []IgnoredEntry) []IgnoredEntry {
 	return out
 }
 
-// saveIgnored writes the ignore list as pretty JSON, creating parent dirs.
-func saveIgnored(in []IgnoredEntry, path string) ([]IgnoredEntry, error) {
+// saveIgnored replaces the ignore list in the DB and returns the cleaned set.
+func saveIgnored(in []IgnoredEntry, db *store.DB) ([]IgnoredEntry, error) {
 	clean := dedupeIgnored(in)
-	if dir := filepath.Dir(path); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return clean, err
-		}
+	rows := make([]store.IgnoredViolation, 0, len(clean))
+	for _, e := range clean {
+		rows = append(rows, store.IgnoredViolation{TS: e.TS, Keyword: e.Keyword, URL: e.URL, Domain: e.Domain})
 	}
-	b, err := json.MarshalIndent(map[string]any{"ignored": clean}, "", "  ")
-	if err != nil {
-		return clean, err
-	}
-	b = append(b, '\n')
-	if err := os.WriteFile(path, b, 0o644); err != nil {
+	if err := db.SetIgnored(rows); err != nil {
 		return clean, err
 	}
 	return clean, nil

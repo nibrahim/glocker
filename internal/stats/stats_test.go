@@ -4,18 +4,25 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"glocker/internal/store"
 )
 
-// newMux registers the stats routes on a fresh mux (http.DefaultServeMux can
-// only be registered once per process).
-func newMux() *http.ServeMux {
+// newMux registers the stats routes on a fresh mux backed by a temp-file sqlite
+// store, and returns both.
+func newMux(t *testing.T) (*http.ServeMux, *store.DB) {
+	t.Helper()
+	db, err := store.Open(store.Options{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "test.db")})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
 	mux := http.NewServeMux()
-	Register(mux, Options{})
-	return mux
+	Register(mux, db)
+	return mux, db
 }
 
 func local(req *http.Request) *http.Request {
@@ -23,7 +30,7 @@ func local(req *http.Request) *http.Request {
 	return req
 }
 
-// ── rules store ─────────────────────────────────────────
+// ── rules sanitation (pure) ─────────────────────────────
 func TestSanitizeRulesAndColors(t *testing.T) {
 	rules := sanitizeRules([]Rule{
 		{Program: " ^Emacs$ ", Title: "glocker", Tag: " Project:glocker "},
@@ -42,83 +49,18 @@ func TestSanitizeRulesAndColors(t *testing.T) {
 	}
 }
 
-func TestLoadSaveConfigRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "usage-rules.json")
-	saved, err := saveConfig(rulesConfig{
-		Rules:  []Rule{{Program: "firefox", Title: "YouTube", Tag: "Activity:leisure"}},
-		Colors: map[string]string{"Activity:leisure": "#c0468f", "bad": "x"},
-	}, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(saved.Colors) != 1 {
-		t.Errorf("bad colour not dropped: %+v", saved.Colors)
-	}
-	got, err := loadConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Rules) != 1 || got.Rules[0].Tag != "Activity:leisure" || got.Colors["Activity:leisure"] != "#c0468f" {
-		t.Fatalf("round trip mismatch: %+v", got)
-	}
-}
-
-func TestLoadConfigLegacyArrayAndMissing(t *testing.T) {
-	dir := t.TempDir()
-	legacy := filepath.Join(dir, "legacy.json")
-	if err := os.WriteFile(legacy, []byte(`[{"program":"","title":"","tag":"A:b"}]`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, _ := loadConfig(legacy)
-	if len(cfg.Rules) != 1 || cfg.Rules[0].Tag != "A:b" || cfg.Colors == nil {
-		t.Fatalf("legacy array not handled: %+v", cfg)
-	}
-	// Missing file -> empty, non-nil, no error.
-	cfg, err := loadConfig(filepath.Join(dir, "nope.json"))
-	if err != nil || len(cfg.Rules) != 0 || cfg.Colors == nil {
-		t.Fatalf("missing file: cfg=%+v err=%v", cfg, err)
-	}
-}
-
-// ── usage reader ────────────────────────────────────────
-func TestReadUsageLog(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "usage.jsonl")
-	lines := strings.Join([]string{
-		`{"ts":"2026-07-07T15:36:11.24+05:30","idle_ms":5,"windows":[{"active":true,"class":"kitty","instance":"kitty","title":"zsh"},{"active":false,"class":"Emacs","title":"x"}]}`,
-		`garbage`,
-		`{"ts":"2026-07-07T15:36:01+05:30","idle_ms":90000,"windows":[]}`,
-	}, "\n")
-	if err := os.WriteFile(path, []byte(lines), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	samples, ok, err := readUsageLog(path)
-	if err != nil || !ok {
-		t.Fatalf("ok=%v err=%v", ok, err)
-	}
-	if len(samples) != 2 {
-		t.Fatalf("got %d samples, want 2", len(samples))
-	}
-	// sorted ascending -> the 15:36:01 empty-window sample first
-	if samples[0].Active != nil || samples[0].WindowCount != 0 || samples[0].IdleMS != 90000 {
-		t.Errorf("sample[0] = %+v", samples[0])
-	}
-	if samples[1].Active == nil || samples[1].Active.Class != "kitty" || samples[1].WindowCount != 2 {
-		t.Errorf("sample[1] = %+v (active=%+v)", samples[1], samples[1].Active)
-	}
-
-	// Missing file -> ok=false, no error.
-	_, ok, err = readUsageLog(filepath.Join(dir, "none.jsonl"))
-	if ok || err != nil {
-		t.Errorf("missing usage log: ok=%v err=%v", ok, err)
+func TestParseConfigLegacyArray(t *testing.T) {
+	rules, colors := parseConfigBytes([]byte(`[{"program":"","title":"","tag":"A:b"}]`))
+	if len(rules) != 1 || rules[0].Tag != "A:b" || colors == nil {
+		t.Fatalf("legacy array not handled: %+v / %+v", rules, colors)
 	}
 }
 
 // ── handlers ────────────────────────────────────────────
 func TestLocalhostGuard(t *testing.T) {
-	mux := newMux()
+	mux, _ := newMux(t)
 	// Default httptest RemoteAddr (192.0.2.1) is non-loopback -> 403.
-	for _, p := range []string{"/", "/api/data", "/api/rules"} {
+	for _, p := range []string{"/", "/api/data", "/api/rules", "/api/ingest"} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
 		if rec.Code != http.StatusForbidden {
@@ -128,7 +70,7 @@ func TestLocalhostGuard(t *testing.T) {
 }
 
 func TestServesIndexAndAssets(t *testing.T) {
-	mux := newMux()
+	mux, _ := newMux(t)
 
 	// Legacy /stats and /stats/ redirect to /
 	for _, p := range []string{"/stats", "/stats/"} {
@@ -139,7 +81,6 @@ func TestServesIndexAndAssets(t *testing.T) {
 		}
 	}
 
-	// index + assets
 	for _, tc := range []struct{ path, needle string }{
 		{"/", "glock"},
 		{"/app.js", "renderUsage"},
@@ -158,88 +99,109 @@ func TestServesIndexAndAssets(t *testing.T) {
 	}
 }
 
-func TestDataEndpoint(t *testing.T) {
-	dir := t.TempDir()
-	write := func(name, content string) string {
-		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-	t.Setenv("GLOCKER_REPORTS_LOG", write("reports.log", "[2025-11-17 15:35:46] | url-keyword:porn | https://www.google.com/search?q=porn\n"))
-	t.Setenv("GLOCKER_LIFECYCLE_LOG", write("lifecycle.log", strings.Join([]string{
-		`{"timestamp":"2026-02-11T14:00:00+05:30","type":"uninstall","reason":"temp"}`,
-		`{"timestamp":"2026-02-12T14:00:00+05:30","type":"install"}`,
-	}, "\n")))
-	t.Setenv("GLOCKER_USAGE_LOG", write("usage.jsonl",
-		`{"ts":"2026-07-07T15:36:11+05:30","idle_ms":5,"windows":[{"active":true,"class":"kitty","title":"zsh"}]}`+"\n"))
-	// Point unblocks at a missing path so sources.unblocks is false (don't fall
-	// back to the machine's real /var/log default).
-	t.Setenv("GLOCKER_UNBLOCKS_LOG", filepath.Join(dir, "absent-unblocks.log"))
+// TestIngestThenData drives the full server path: POST a batch to /api/ingest,
+// then GET /api/data and check the records come back (with derived unmanaged),
+// and that re-ingesting is idempotent.
+func TestIngestThenData(t *testing.T) {
+	mux, _ := newMux(t)
 
-	mux := newMux()
+	payload := `{
+      "violations":[{"ts":1000,"type":"url-keyword","keyword":"porn","url":"https://x/?q=porn","domain":"x"}],
+      "lifecycle":[
+        {"ts":100000,"type":"uninstall","reason":"temp"},
+        {"ts":100000000,"type":"install"}
+      ],
+      "usage":[{"ts":500,"idleMs":5,"activeClass":"kitty","windowCount":1}],
+      "heartbeat":[{"ts":600,"alive":true}]
+    }`
+
+	ingest := func() {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, local(httptest.NewRequest("POST", "/api/ingest", strings.NewReader(payload))))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("ingest: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	ingest()
+	ingest() // idempotent: second batch must not duplicate
+
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/api/data", nil)))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("data: got %d", rec.Code)
+		t.Fatalf("data: %d", rec.Code)
 	}
 	var d dataResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
 		t.Fatal(err)
 	}
-	if !d.Sources.Reports || !d.Sources.Lifecycle || !d.Sources.Usage || d.Sources.Unblocks {
+	if !d.Sources.Reports || !d.Sources.Lifecycle || !d.Sources.Usage || !d.Sources.Heartbeat {
 		t.Errorf("sources = %+v", d.Sources)
 	}
-	if len(d.Violations) != 1 || d.Violations[0].Keyword != "porn" || d.Violations[0].Domain != "www.google.com" {
+	if len(d.Violations) != 1 || d.Violations[0].Keyword != "porn" {
 		t.Errorf("violations = %+v", d.Violations)
-	}
-	if len(d.Unmanaged) != 1 || d.Unmanaged[0].Open || d.Unmanaged[0].Reason != "temp" {
-		t.Errorf("unmanaged = %+v", d.Unmanaged)
 	}
 	if len(d.Usage) != 1 || d.Usage[0].Active == nil || d.Usage[0].Active.Class != "kitty" {
 		t.Errorf("usage = %+v", d.Usage)
 	}
-	// Arrays must never serialize as null.
+	// uninstall(100000) -> install(100000000) is a >2min gap -> one unmanaged span.
+	if len(d.Unmanaged) != 1 || d.Unmanaged[0].Reason != "temp" {
+		t.Errorf("unmanaged = %+v", d.Unmanaged)
+	}
+	// Empty slices must serialize as [] not null.
 	if !strings.Contains(rec.Body.String(), `"unblocks":[]`) {
 		t.Errorf("empty unblocks should be [] not null: %s", rec.Body.String())
 	}
 }
 
-func TestRulesGetPut(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "usage-rules.json")
-	t.Setenv("GLOCKER_USAGE_RULES", path)
-	mux := newMux()
+// TestIgnoredHidesViolation marks the ingested violation as a false positive and
+// checks it disappears from /api/data.
+func TestIgnoredHidesViolation(t *testing.T) {
+	mux, _ := newMux(t)
+	mux.ServeHTTP(httptest.NewRecorder(), local(httptest.NewRequest("POST", "/api/ingest",
+		strings.NewReader(`{"violations":[{"ts":1000,"keyword":"porn","url":"https://x/?q=porn","domain":"x"}]}`))))
 
-	// GET on empty -> {rules:[],colors:{}}
+	put := `{"ignored":[{"ts":1000,"keyword":"porn","url":"https://x/?q=porn","domain":"x"}]}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, local(httptest.NewRequest("PUT", "/api/ignored", strings.NewReader(put))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put ignored: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/api/data", nil)))
+	var d dataResponse
+	json.Unmarshal(rec.Body.Bytes(), &d)
+	if len(d.Violations) != 0 {
+		t.Errorf("ignored violation should be hidden, got %+v", d.Violations)
+	}
+}
+
+func TestRulesGetPut(t *testing.T) {
+	mux, _ := newMux(t)
+
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/api/rules", nil)))
 	if !strings.Contains(rec.Body.String(), `"rules":[]`) || !strings.Contains(rec.Body.String(), `"colors":{}`) {
 		t.Fatalf("empty GET = %s", rec.Body.String())
 	}
 
-	// PUT rules + colours (with a junk rule and bad colour)
 	body := `{"rules":[{"program":"^Emacs$","title":"","tag":"Activity:work"},{"nope":true}],"colors":{"Activity:work":"#3aa0ff","x":"bad"}}`
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, local(httptest.NewRequest("PUT", "/api/rules", strings.NewReader(body))))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT: %d %s", rec.Code, rec.Body.String())
 	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/api/rules", nil)))
 	var cfg rulesConfig
 	if err := json.Unmarshal(rec.Body.Bytes(), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Rules) != 1 || cfg.Rules[0].Tag != "Activity:work" || len(cfg.Colors) != 1 || cfg.Colors["Activity:work"] != "#3aa0ff" {
-		t.Fatalf("PUT result = %+v", cfg)
+	if len(cfg.Rules) != 1 || cfg.Rules[0].Tag != "Activity:work" || cfg.Colors["Activity:work"] != "#3aa0ff" {
+		t.Fatalf("persisted rules = %+v", cfg)
 	}
-
-	// It persisted to disk and GET returns it.
-	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/api/rules", nil)))
-	if !strings.Contains(rec.Body.String(), "Activity:work") || !strings.Contains(rec.Body.String(), "#3aa0ff") {
-		t.Errorf("GET after PUT = %s", rec.Body.String())
-	}
-	if _, err := os.Stat(path); err != nil {
-		t.Errorf("rules file not written: %v", err)
+	if len(cfg.Colors) != 1 {
+		t.Errorf("bad colour should have been dropped: %+v", cfg.Colors)
 	}
 }

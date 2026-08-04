@@ -3,8 +3,6 @@ package stats
 import (
 	"bytes"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -54,21 +52,6 @@ func sanitizeColors(in map[string]string) map[string]string {
 	return out
 }
 
-// loadConfig reads the config, tolerating a missing/corrupt file and the legacy
-// bare-array format.
-func loadConfig(path string) (rulesConfig, error) {
-	cfg := rulesConfig{Rules: []Rule{}, Colors: map[string]string{}}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, nil
-		}
-		return cfg, err
-	}
-	cfg.Rules, cfg.Colors = parseConfigBytes(data)
-	return cfg, nil
-}
-
 // parseConfigBytes decodes either a { rules, colors } object or a legacy bare
 // rules array, sanitizing the result. A corrupt payload yields empty config.
 func parseConfigBytes(data []byte) ([]Rule, map[string]string) {
@@ -86,22 +69,3 @@ func parseConfigBytes(data []byte) ([]Rule, map[string]string) {
 	return sanitizeRules(obj.Rules), sanitizeColors(obj.Colors)
 }
 
-// saveConfig sanitizes and writes the config as pretty JSON, creating parent
-// dirs as needed.
-func saveConfig(in rulesConfig, path string) (rulesConfig, error) {
-	clean := rulesConfig{Rules: sanitizeRules(in.Rules), Colors: sanitizeColors(in.Colors)}
-	if dir := filepath.Dir(path); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return clean, err
-		}
-	}
-	b, err := json.MarshalIndent(clean, "", "  ")
-	if err != nil {
-		return clean, err
-	}
-	b = append(b, '\n')
-	if err := os.WriteFile(path, b, 0o644); err != nil {
-		return clean, err
-	}
-	return clean, nil
-}

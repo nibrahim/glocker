@@ -200,11 +200,13 @@ sudo glocker -uninstall "maintenance" -note "kernel upgrade"
 
 ## Stats Dashboard (glockpeek)
 
-`glockpeek` runs as its own systemd service and serves a web dashboard over the
-same log files Glocker writes — violations (`/var/log/glocker-reports.log`),
-unblocks (`/var/log/glocker-unblocks.log`), lifecycle events
-(`/var/log/glocker-lifecycle.log`), and usage (`/var/log/glocker-usage.jsonl`).
-It is read-only and localhost-only.
+`glockpeek` runs as its own systemd service (localhost only) and serves a web
+dashboard over the log files Glocker writes — violations
+(`/var/log/glocker-reports.log`), unblocks (`/var/log/glocker-unblocks.log`),
+lifecycle events (`/var/log/glocker-lifecycle.log`), and usage
+(`/var/log/glocker-usage.jsonl`). It reads those logs read-only, but keeps its
+own mutable state — the usage **tag rules** and the false-positive **skip list** —
+under `/var/lib/glocker/`, editable from the dashboard.
 
 ```bash
 # Open the dashboard (default listen address)
@@ -220,6 +222,27 @@ dashboard surfaces violation totals and types, clean streaks, a coverage/health
 score, per-day activity, and usage analytics (per-program title-word breakdowns).
 Periods during which Glocker was uninstalled are drawn from the lifecycle log and
 shown as `UNMANAGED` coverage gaps rather than silently absent.
+
+The installed service runs as **root** so it can read+write its state in the
+root-owned `/var/lib/glocker/`. (Running it unprivileged with its own owned state
+dir is a planned hardening step before self-hosting is shipped to others.)
+
+### Development / testing
+
+The `GLOCKER_*` environment variables override the config-file paths (env >
+config > default), so you can point `glockpeek` at a throwaway sandbox — no root
+and no edits to the installed config:
+
+```bash
+GLOCKER_USAGE_RULES=/tmp/glockdata/usage-rules.json \
+GLOCKER_IGNORED_VIOLATIONS=/tmp/glockdata/ignored-violations.json \
+  glockpeek -listen 127.0.0.1:4444
+```
+
+Recognized: `GLOCKER_REPORTS_LOG`, `GLOCKER_UNBLOCKS_LOG`,
+`GLOCKER_LIFECYCLE_LOG`, `GLOCKER_HEARTBEAT_LOG`, `GLOCKER_USAGE_LOG`,
+`GLOCKER_USAGE_RULES`, `GLOCKER_IGNORED_VIOLATIONS`. With none set, the installed
+config wins and the service behaves normally.
 
 ## Implementation
 

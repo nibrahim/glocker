@@ -41,15 +41,16 @@ database:
   driver: "sqlite"
   dsn: "/var/lib/glocker/glockpeek.db"
 
-# Dashboard authentication. Off by default: a self-hosted single-user desktop
-# instance serves one implicit account with no login (any local user reaching
-# 127.0.0.1:4317 can view it). Turn on for a shared or hosted instance to require
-# per-account logins + ingest tokens (manage accounts with `glockpeek -adduser`).
-glockpeek_auth: false
+# How glockpeek runs:
+#   local  - personal desktop (default). Binds 127.0.0.1 only (unreachable from
+#            other hosts), no login/registration, and the ingest endpoint is open
+#            to same-machine clients (no token).
+#   hosted - shared/remote instance: per-account logins + ingest tokens (manage
+#            accounts with `glockpeek -adduser`). [not the focus yet]
+glockpeek_mode: "local"
 
-# Mark the dashboard's session cookie Secure (only relevant when glockpeek_auth
-# is true). Set true for a hosted instance served over HTTPS (including behind a
-# TLS-terminating proxy); leave false for plain-http local use.
+# Mark the dashboard's session cookie Secure (hosted mode only). Set true when
+# served over HTTPS (including behind a TLS-terminating proxy).
 glockpeek_secure_cookies: false
 
 # ----------------------------------------------------------------------------

@@ -19,6 +19,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -44,7 +45,7 @@ func main() {
 	driver := config.DefaultDatabaseDriver
 	dsn := config.DefaultDatabaseDSN
 	secureCookies := false
-	authEnabled := false
+	mode := config.GlockpeekModeLocal
 
 	if cfg, err := config.LoadConfig(); err != nil {
 		log.Printf("glockpeek: could not load %s (%v); using defaults", config.GlockerConfigFile, err)
@@ -59,13 +60,27 @@ func main() {
 			dsn = cfg.Database.DSN
 		}
 		secureCookies = cfg.GlockpeekSecureCookies
-		authEnabled = cfg.GlockpeekAuth
+		if cfg.GlockpeekMode != "" {
+			mode = cfg.GlockpeekMode
+		}
 	}
 	if *listen != "" {
 		addr = *listen
 	}
 	if *dbDSN != "" {
 		dsn = *dbDSN
+	}
+
+	if mode != config.GlockpeekModeLocal && mode != config.GlockpeekModeHosted {
+		log.Printf("glockpeek: unknown glockpeek_mode %q; treating as %q", mode, config.GlockpeekModeLocal)
+		mode = config.GlockpeekModeLocal
+	}
+	hosted := mode == config.GlockpeekModeHosted
+	// Local mode is a personal-desktop guarantee: bind loopback only, so the
+	// dashboard (and its open, tokenless ingest endpoint) is unreachable from
+	// other hosts regardless of the configured listen address.
+	if !hosted {
+		addr = forceLoopback(addr)
 	}
 
 	db, err := store.Open(store.Options{Driver: driver, DSN: dsn})
@@ -86,24 +101,33 @@ func main() {
 		return
 	}
 
-	opts := stats.Options{Auth: authEnabled, SecureCookies: secureCookies}
-	mode := "single-user, no login"
-	if authEnabled {
-		mode = "login required"
-	} else {
-		// Auth off: everything runs as one implicit account.
+	opts := stats.Options{Auth: hosted, SecureCookies: secureCookies}
+	desc := "hosted: login required"
+	if !hosted {
+		// Local mode: everything runs as one implicit account, ingest is open.
 		du, err := db.EnsureDefaultUser()
 		if err != nil {
 			log.Fatalf("glockpeek: ensure default user: %v", err)
 		}
 		opts.DefaultUserID = du.ID
+		desc = "local: no login, loopback only"
 	}
 
 	mux := http.NewServeMux()
 	stats.Register(mux, db, opts)
 
-	log.Printf("glockpeek serving the dashboard at http://%s/ (%s); db %s: %s", addr, mode, driver, dsn)
+	log.Printf("glockpeek serving the dashboard at http://%s/ (%s); db %s: %s", addr, desc, driver, dsn)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+// forceLoopback rewrites addr's host to 127.0.0.1, preserving the port, so local
+// mode can never accidentally bind a public interface.
+func forceLoopback(addr string) string {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil || port == "" {
+		port = "4317"
+	}
+	return net.JoinHostPort("127.0.0.1", port)
 }
 
 func runAddUser(db *store.DB, username string) {

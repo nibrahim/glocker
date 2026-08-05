@@ -14,6 +14,10 @@ const (
 	// not /etc). Swap to "postgres" + a connection-string DSN for a hosted instance.
 	DefaultDatabaseDriver = "sqlite"
 	DefaultDatabaseDSN    = "/var/lib/glocker/glockpeek.db"
+
+	// GlockpeekMode values (see Config.GlockpeekMode). Empty defaults to local.
+	GlockpeekModeLocal  = "local"
+	GlockpeekModeHosted = "hosted"
 	HostsMarkerStart     = "### GLOCKER START ###"
 	SudoersPath          = "/etc/sudoers"
 	SudoersBackup        = "/etc/sudoers.glocker.backup"
@@ -258,11 +262,14 @@ type Config struct {
 	// true for a hosted instance served over HTTPS (including behind a
 	// TLS-terminating proxy). Leave false for plain-http local use.
 	GlockpeekSecureCookies bool `yaml:"glockpeek_secure_cookies"`
-	// GlockpeekAuth turns on dashboard logins + ingest tokens. Off by default:
-	// a self-hosted, single-user desktop instance serves a single implicit
-	// account with no login. Turn it on for a shared or hosted instance where
-	// per-account isolation and credentials are required.
-	GlockpeekAuth bool `yaml:"glockpeek_auth"`
+	// GlockpeekMode selects how the dashboard runs. Default GlockpeekModeLocal:
+	//   local  - personal desktop. Binds 127.0.0.1 only (unreachable from other
+	//            hosts), no login/registration, and the ingest endpoint is open
+	//            to same-machine clients (no token).
+	//   hosted - shared/remote instance: per-account logins + ingest tokens +
+	//            isolation (see GlockpeekSecureCookies). Bind address honored as
+	//            configured. [not the focus yet.]
+	GlockpeekMode string `yaml:"glockpeek_mode"`
 }
 
 // DatabaseConfig selects glockpeek's DB backend. The abstraction is GORM, so

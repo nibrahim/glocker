@@ -208,24 +208,24 @@ personal desktop tool or as a shared/hosted instance. The glocker agent doesn't
 write to the dashboard directly; a syncer pushes local records into glockpeek's
 **ingest API**, so the two can live on different machines (see PLAN, untracked).
 
-**Self-hosted (default): no login.** Out of the box `glockpeek_auth` is off — the
-dashboard serves a single implicit account with no login and no token. Just run
-it and open the page:
+glockpeek runs in one of two modes (`glockpeek_mode`, default `local`):
+
+**`local` (default) — personal desktop.** Binds `127.0.0.1` only (unreachable
+from other hosts), no login or account to create, and the ingest endpoint is open
+to same-machine clients (no token). Just run it and open the page:
 
 ```bash
 glockpeek                        # uses /etc/glocker/config.yaml
-glockpeek -listen 127.0.0.1:4444 # override the listen address
 xdg-open http://127.0.0.1:4317/
 ```
 
-Any local user reaching `127.0.0.1:4317` can view it — fine for a personal
-desktop; turn on auth for a shared machine.
+Any local user on that machine can view it — fine for a personal desktop; use
+`hosted` for a shared box.
 
-**Shared / hosted: `glockpeek_auth: true`.** Humans log in and get an httpOnly
-**session cookie**; the syncer authenticates to `POST /api/ingest` with an
-`Authorization: Bearer <token>` that identifies its account. Manage accounts with
-admin subcommands (they touch the DB, so run them on the DB host as the service
-user):
+**`hosted` — shared/remote instance.** Per-account logins (httpOnly **session
+cookie**) + ingest **tokens** (the syncer sends `Authorization: Bearer <token>`,
+which identifies its account) + isolation. Manage accounts with admin subcommands
+(they touch the DB, so run them on the DB host as the service user):
 
 ```bash
 glockpeek -adduser noufal     # create a dashboard account (prompts for a password)
@@ -233,9 +233,9 @@ glockpeek -passwd  noufal     # change a password
 glockpeek -addtoken noufal    # mint an ingest API token for the syncer (printed once)
 ```
 
-- **Config** (`conf.yaml`): `glockpeek_listen` (address), `database` (driver +
-  DSN), `glockpeek_auth` (require logins), `glockpeek_secure_cookies` (set true
-  when served over HTTPS).
+- **Config** (`conf.yaml`): `glockpeek_mode` (`local`/`hosted`), `glockpeek_listen`
+  (address, hosted mode), `database` (driver + DSN), `glockpeek_secure_cookies`
+  (set true when served over HTTPS).
 
 The dashboard surfaces violation totals and types, clean streaks, a
 coverage/health score, per-day activity, and usage analytics (per-program

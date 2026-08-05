@@ -25,6 +25,7 @@ import (
 	"glocker/internal/monitoring"
 	"glocker/internal/reports"
 	"glocker/internal/state"
+	"glocker/internal/syncer"
 	"glocker/internal/usage"
 	"glocker/internal/web"
 )
@@ -576,6 +577,12 @@ func main() {
 	// Start the arbtt-style usage tracker.
 	if cfg.UsageMonitor.Enabled {
 		go startUsageMonitor(cfg)
+	}
+
+	// Ship local records to glockpeek. Local-first: this only mirrors the /var
+	// files up on a timer; it never affects recording or enforcement.
+	if cfg.Sync.Enabled {
+		go syncer.New(cfg).Run()
 	}
 
 	// Initial enforcement - build hosts file and store state

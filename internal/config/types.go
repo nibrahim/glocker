@@ -18,6 +18,12 @@ const (
 	// GlockpeekMode values (see Config.GlockpeekMode). Empty defaults to local.
 	GlockpeekModeLocal  = "local"
 	GlockpeekModeHosted = "hosted"
+
+	// DefaultGlockpeekURL is where the syncer ships records when Sync.GlockpeekURL
+	// is unset — the local glockpeek on its default port.
+	DefaultGlockpeekURL = "http://127.0.0.1:4317"
+	// DefaultSyncIntervalSeconds is the incremental sync cadence default.
+	DefaultSyncIntervalSeconds = 300
 	HostsMarkerStart     = "### GLOCKER START ###"
 	SudoersPath          = "/etc/sudoers"
 	SudoersBackup        = "/etc/sudoers.glocker.backup"
@@ -270,6 +276,27 @@ type Config struct {
 	//            isolation (see GlockpeekSecureCookies). Bind address honored as
 	//            configured. [not the focus yet.]
 	GlockpeekMode string `yaml:"glockpeek_mode"`
+	// Sync configures the agent-side syncer (a goroutine in the daemon) that
+	// ships local /var records to a glockpeek instance. Local-first: recording
+	// and enforcement never depend on it.
+	Sync SyncConfig `yaml:"sync"`
+}
+
+// SyncConfig controls the glocker->glockpeek syncer. The agent keeps recording
+// to /var files as the source of truth; the syncer periodically pushes new
+// records to glockpeek's ingest API (one-shot backfill at startup, then
+// incremental). Idempotent, so it never loses or double-counts across retries.
+type SyncConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// GlockpeekURL is the base URL of the glockpeek instance
+	// (default DefaultGlockpeekURL). Point it at a remote host to sync off-box.
+	GlockpeekURL string `yaml:"glockpeek_url"`
+	// Token is the ingest bearer token; required only when the target glockpeek
+	// is in hosted mode. Empty for a local instance (open ingest).
+	Token string `yaml:"token"`
+	// IntervalSeconds is the incremental sync cadence (default
+	// DefaultSyncIntervalSeconds).
+	IntervalSeconds int `yaml:"interval_seconds"`
 }
 
 // DatabaseConfig selects glockpeek's DB backend. The abstraction is GORM, so

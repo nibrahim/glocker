@@ -417,6 +417,19 @@ Server started by internal/web/server.go:StartWebTrackingServer()
   `internal/stats/assets/` (the embedded copy). `app.js` gates on `GET /api/me`
   and shows a login screen when unauthenticated.
 
+**Syncer (`internal/syncer/`, a goroutine in the glocker daemon):**
+- Wired in cmd/glocker/main.go under `cfg.Sync.Enabled`: `go syncer.New(cfg).Run()`.
+- Local-first: reads the `/var` logs (via `reports` parsers + its own usage-JSONL
+  parser), builds a **plain-JSON** batch (deliberately NOT importing `store`, so
+  the agent binary stays free of GORM), and POSTs to `<glockpeek_url>/api/ingest`.
+  Backfill at startup (cursors 0 → everything), then incremental every
+  `interval_seconds` with an in-memory per-source max-TS cursor. Errors are logged
+  and retried next tick — enforcement never depends on it.
+- The syncer's payload JSON tags must match glockpeek's ingest decoder
+  (store-model JSON). `TestSyncIntoRealGlockpeek` guards that across the boundary.
+- Config `sync.{enabled, glockpeek_url, token, interval_seconds}`; token only for a
+  hosted glockpeek. Cursor is in-memory (restart re-backfills; idempotent).
+
 ### Extension Communication Flow
 
 1. Extension loads and fetches keywords: `GET http://127.0.0.1/keywords`

@@ -53,6 +53,20 @@ glockpeek_mode: "local"
 # served over HTTPS (including behind a TLS-terminating proxy).
 glockpeek_secure_cookies: false
 
+# Syncer: a goroutine in the glocker daemon that ships local /var records to
+# glockpeek's ingest API. Local-first — this only mirrors the files up on a
+# timer; recording and enforcement never depend on it. One-shot backfill at
+# startup, then incremental every interval_seconds; idempotent, so retries are
+# free.
+#   glockpeek_url  - where to push (default http://127.0.0.1:4317, the local one)
+#   token          - ingest bearer token; only needed for a hosted glockpeek
+#   interval_seconds - incremental cadence (default 300)
+sync:
+  enabled: true
+  glockpeek_url: "http://127.0.0.1:4317"
+  token: ""
+  interval_seconds: 300
+
 # ----------------------------------------------------------------------------
 # Core Enforcement Mechanisms
 # ----------------------------------------------------------------------------

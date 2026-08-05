@@ -237,6 +237,14 @@ glockpeek -addtoken noufal    # mint an ingest API token for the syncer (printed
   (address, hosted mode), `database` (driver + DSN), `glockpeek_secure_cookies`
   (set true when served over HTTPS).
 
+**How data gets there.** The glocker daemon keeps recording to its `/var` logs
+(the source of truth) and enforcing offline; a **syncer** goroutine
+(`sync.enabled`) mirrors new records up to glockpeek's ingest API — a one-shot
+backfill at startup, then incremental on a timer. It's local-first: if glockpeek
+is down the syncer just retries, and enforcement is never affected. The Data-sync
+panel on the dashboard shows when the daemon last pushed. Point `sync.glockpeek_url`
+at a remote host to sync off-box.
+
 The dashboard surfaces violation totals and types, clean streaks, a
 coverage/health score, per-day activity, and usage analytics (per-program
 title-word breakdowns). Periods during which Glocker was uninstalled are shown as

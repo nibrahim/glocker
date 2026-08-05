@@ -17,6 +17,19 @@ const sessionCookie = "glockpeek_session"
 // hosted instance served over HTTPS, even when TLS is terminated by a proxy).
 var secureCookies bool
 
+// authEnabled gates whether logins/tokens are required. When false (the
+// self-hosted default), every request runs as the single implicit account
+// defaultUserID — no login, no token.
+var (
+	authEnabled   bool
+	defaultUserID uint
+)
+
+// defaultUser is the implicit account injected when auth is disabled.
+func defaultUser() *store.User {
+	return &store.User{ID: defaultUserID, Username: store.DefaultUsername}
+}
+
 type ctxKey int
 
 const userKey ctxKey = 0
@@ -32,9 +45,14 @@ func withUser(r *http.Request, u *store.User) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), userKey, u))
 }
 
-// requireUser gates a handler behind a valid browser session (cookie).
+// requireUser gates a handler behind a valid browser session (cookie). With auth
+// disabled it injects the implicit account instead.
 func requireUser(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !authEnabled {
+			h(w, withUser(r, defaultUser()))
+			return
+		}
 		c, err := r.Cookie(sessionCookie)
 		if err != nil {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
@@ -50,8 +68,14 @@ func requireUser(h http.HandlerFunc) http.HandlerFunc {
 }
 
 // requireToken gates a handler behind a valid API bearer token (the syncer).
+// With auth disabled it injects the implicit account, so a local syncer can push
+// without a token.
 func requireToken(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !authEnabled {
+			h(w, withUser(r, defaultUser()))
+			return
+		}
 		tok := bearer(r)
 		u, err := db.UserByAPIToken(tok)
 		if err != nil {
@@ -129,8 +153,9 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true})
 }
 
-// handleMe returns the current account (requires a session).
+// handleMe returns the current account plus whether auth is enabled (so the
+// frontend can hide the sign-out control in single-user mode).
 func handleMe(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
-	writeJSON(w, map[string]any{"id": u.ID, "username": u.Username})
+	writeJSON(w, map[string]any{"id": u.ID, "username": u.Username, "auth": authEnabled})
 }

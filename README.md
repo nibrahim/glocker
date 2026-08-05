@@ -200,16 +200,32 @@ sudo glocker -uninstall "maintenance" -note "kernel upgrade"
 
 ## Stats Dashboard (glockpeek)
 
-`glockpeek` runs as its own systemd service and serves a login-gated web
-dashboard of your exposure and usage analytics. It is **multi-tenant** and
-**DB-backed** (SQLite locally, Postgres for a hosted instance — via GORM, so
-switching is just a driver + DSN change), which lets the same code run locally or
-on a remote host. The glocker agent doesn't write to the dashboard directly; a
-syncer pushes local records into glockpeek's token-authenticated **ingest API**,
-so the two can live on different machines (see [PLAN — not tracked]).
+`glockpeek` runs as its own systemd service and serves a web dashboard of your
+exposure and usage analytics. It is **DB-backed** (SQLite locally, Postgres for a
+hosted instance — via GORM, so switching is just a driver + DSN change) and
+**multi-tenant** under the hood, which lets the same code run as a zero-config
+personal desktop tool or as a shared/hosted instance. The glocker agent doesn't
+write to the dashboard directly; a syncer pushes local records into glockpeek's
+**ingest API**, so the two can live on different machines (see PLAN, untracked).
 
-Accounts and the ingest token are managed with admin subcommands (they touch the
-DB directly, run them on the DB host):
+**Self-hosted (default): no login.** Out of the box `glockpeek_auth` is off — the
+dashboard serves a single implicit account with no login and no token. Just run
+it and open the page:
+
+```bash
+glockpeek                        # uses /etc/glocker/config.yaml
+glockpeek -listen 127.0.0.1:4444 # override the listen address
+xdg-open http://127.0.0.1:4317/
+```
+
+Any local user reaching `127.0.0.1:4317` can view it — fine for a personal
+desktop; turn on auth for a shared machine.
+
+**Shared / hosted: `glockpeek_auth: true`.** Humans log in and get an httpOnly
+**session cookie**; the syncer authenticates to `POST /api/ingest` with an
+`Authorization: Bearer <token>` that identifies its account. Manage accounts with
+admin subcommands (they touch the DB, so run them on the DB host as the service
+user):
 
 ```bash
 glockpeek -adduser noufal     # create a dashboard account (prompts for a password)
@@ -217,22 +233,9 @@ glockpeek -passwd  noufal     # change a password
 glockpeek -addtoken noufal    # mint an ingest API token for the syncer (printed once)
 ```
 
-Then run the server and sign in:
-
-```bash
-glockpeek                        # uses /etc/glocker/config.yaml
-glockpeek -listen 127.0.0.1:4444 # override the listen address
-xdg-open http://127.0.0.1:4317/  # log in with the account above
-```
-
-- **Auth model.** Humans log in and get an httpOnly **session cookie**; the
-  syncer authenticates to `POST /api/ingest` with an `Authorization: Bearer
-  <token>`. The token identifies which account the pushed data belongs to. Static
-  assets and the login route are public; every data/settings route requires a
-  session. (This replaces the old loopback-only guard, so the instance can be
-  hosted behind TLS.)
 - **Config** (`conf.yaml`): `glockpeek_listen` (address), `database` (driver +
-  DSN), `glockpeek_secure_cookies` (set true when served over HTTPS).
+  DSN), `glockpeek_auth` (require logins), `glockpeek_secure_cookies` (set true
+  when served over HTTPS).
 
 The dashboard surfaces violation totals and types, clean streaks, a
 coverage/health score, per-day activity, and usage analytics (per-program

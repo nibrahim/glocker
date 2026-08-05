@@ -16,6 +16,27 @@ import (
 // SessionTTL is how long a browser login stays valid.
 const SessionTTL = 30 * 24 * time.Hour
 
+// DefaultUsername is the implicit account used when auth is disabled (the
+// single-user self-hosted case).
+const DefaultUsername = "local"
+
+// EnsureDefaultUser finds or creates the implicit single-user account. Used when
+// auth is off so all data has an owner without anyone logging in. The password
+// is random and unused (there's no login in this mode); if auth is later enabled,
+// reset it with `glockpeek -passwd`.
+func (db *DB) EnsureDefaultUser() (*User, error) {
+	if u, err := db.UserByName(DefaultUsername); err == nil {
+		return u, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	pw, err := randToken(24)
+	if err != nil {
+		return nil, err
+	}
+	return db.CreateUser(DefaultUsername, pw)
+}
+
 // ErrInvalidCredentials is returned by Authenticate on unknown user or bad
 // password (same error for both, to avoid leaking which usernames exist).
 var ErrInvalidCredentials = errors.New("invalid username or password")

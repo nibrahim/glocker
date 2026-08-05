@@ -258,6 +258,11 @@ type Config struct {
 	// true for a hosted instance served over HTTPS (including behind a
 	// TLS-terminating proxy). Leave false for plain-http local use.
 	GlockpeekSecureCookies bool `yaml:"glockpeek_secure_cookies"`
+	// GlockpeekAuth turns on dashboard logins + ingest tokens. Off by default:
+	// a self-hosted, single-user desktop instance serves a single implicit
+	// account with no login. Turn it on for a shared or hosted instance where
+	// per-account isolation and credentials are required.
+	GlockpeekAuth bool `yaml:"glockpeek_auth"`
 }
 
 // DatabaseConfig selects glockpeek's DB backend. The abstraction is GORM, so

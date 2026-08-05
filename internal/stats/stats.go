@@ -30,6 +30,11 @@ var db *store.DB
 
 // Options configures the served dashboard.
 type Options struct {
+	// Auth turns on logins + ingest tokens. When false (self-hosted default),
+	// every request runs as DefaultUserID with no login.
+	Auth bool
+	// DefaultUserID is the implicit account used when Auth is false.
+	DefaultUserID uint
 	// SecureCookies marks session cookies Secure (set true when the instance is
 	// reached over HTTPS, including behind a TLS-terminating proxy).
 	SecureCookies bool
@@ -44,6 +49,8 @@ type Options struct {
 func Register(mux *http.ServeMux, database *store.DB, o Options) {
 	db = database
 	secureCookies = o.SecureCookies
+	authEnabled = o.Auth
+	defaultUserID = o.DefaultUserID
 	sub, err := fs.Sub(assetsFS, "assets")
 	if err != nil {
 		return // embed failure is a build-time bug; nothing to serve

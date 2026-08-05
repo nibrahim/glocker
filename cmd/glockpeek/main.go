@@ -44,6 +44,7 @@ func main() {
 	driver := config.DefaultDatabaseDriver
 	dsn := config.DefaultDatabaseDSN
 	secureCookies := false
+	authEnabled := false
 
 	if cfg, err := config.LoadConfig(); err != nil {
 		log.Printf("glockpeek: could not load %s (%v); using defaults", config.GlockerConfigFile, err)
@@ -58,6 +59,7 @@ func main() {
 			dsn = cfg.Database.DSN
 		}
 		secureCookies = cfg.GlockpeekSecureCookies
+		authEnabled = cfg.GlockpeekAuth
 	}
 	if *listen != "" {
 		addr = *listen
@@ -84,10 +86,23 @@ func main() {
 		return
 	}
 
-	mux := http.NewServeMux()
-	stats.Register(mux, db, stats.Options{SecureCookies: secureCookies})
+	opts := stats.Options{Auth: authEnabled, SecureCookies: secureCookies}
+	mode := "single-user, no login"
+	if authEnabled {
+		mode = "login required"
+	} else {
+		// Auth off: everything runs as one implicit account.
+		du, err := db.EnsureDefaultUser()
+		if err != nil {
+			log.Fatalf("glockpeek: ensure default user: %v", err)
+		}
+		opts.DefaultUserID = du.ID
+	}
 
-	log.Printf("glockpeek serving the dashboard at http://%s/ (login required); db %s: %s", addr, driver, dsn)
+	mux := http.NewServeMux()
+	stats.Register(mux, db, opts)
+
+	log.Printf("glockpeek serving the dashboard at http://%s/ (%s); db %s: %s", addr, mode, driver, dsn)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 

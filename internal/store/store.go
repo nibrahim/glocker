@@ -2,9 +2,11 @@ package store
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/glebarez/sqlite" // pure-Go (modernc) sqlite driver — no cgo
 	"gorm.io/driver/postgres"
@@ -58,7 +60,13 @@ func Open(o Options) (*DB, error) {
 	}
 
 	gdb, err := gorm.Open(dialector, &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Warn),
+		// Warn-level, but don't treat "record not found" as an error — it's a
+		// normal control-flow signal (e.g. the default-user lookup on first run).
+		Logger: logger.New(log.New(os.Stderr, "", log.LstdFlags), logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+		}),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("store: open %s: %w", driver, err)

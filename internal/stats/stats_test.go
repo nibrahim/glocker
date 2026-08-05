@@ -21,7 +21,7 @@ func newMux(t *testing.T) (*http.ServeMux, *store.DB) {
 	}
 	t.Cleanup(func() { _ = sdb.Close() })
 	mux := http.NewServeMux()
-	Register(mux, sdb, Options{})
+	Register(mux, sdb, Options{Auth: true}) // most tests exercise the auth-on path
 	return mux, sdb
 }
 
@@ -65,6 +65,46 @@ func TestAuthRequired(t *testing.T) {
 	// Static assets are public.
 	if rec := do(mux, httptest.NewRequest("GET", "/", nil)); rec.Code != http.StatusOK {
 		t.Errorf("index should be public: got %d", rec.Code)
+	}
+}
+
+// TestAuthDisabled is the self-hosted default: no login, no token — every route
+// works and resolves to the single implicit account.
+func TestAuthDisabled(t *testing.T) {
+	sdb, err := store.Open(store.Options{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "test.db")})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = sdb.Close() })
+	du, err := sdb.EnsureDefaultUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, sdb, Options{Auth: false, DefaultUserID: du.ID})
+
+	// Ingest with no token works and attributes to the default account.
+	ing := httptest.NewRequest("POST", "/api/ingest",
+		strings.NewReader(`{"violations":[{"ts":1,"keyword":"k","url":"u","domain":"d"}]}`))
+	if rec := do(mux, ing); rec.Code != http.StatusOK {
+		t.Fatalf("ingest without token (auth off): %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Data with no cookie works.
+	rec := do(mux, httptest.NewRequest("GET", "/api/data", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("data without cookie (auth off): %d", rec.Code)
+	}
+	var d dataResponse
+	json.Unmarshal(rec.Body.Bytes(), &d)
+	if len(d.Violations) != 1 {
+		t.Errorf("want 1 violation for the implicit account, got %+v", d.Violations)
+	}
+
+	// /api/me reports auth:false so the frontend hides sign-out.
+	me := do(mux, httptest.NewRequest("GET", "/api/me", nil))
+	if me.Code != http.StatusOK || !strings.Contains(me.Body.String(), `"auth":false`) {
+		t.Errorf("/api/me (auth off): %d %s", me.Code, me.Body.String())
 	}
 }
 

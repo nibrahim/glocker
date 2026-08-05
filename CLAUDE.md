@@ -385,11 +385,17 @@ Server started by internal/web/server.go:StartWebTrackingServer()
   files. Every stats row carries a `UserID`; all reads/ingest are scoped to the
   authenticated account. Records are populated by the glocker syncer through the
   ingest API (the syncer itself is not built yet — see PLAN.md, local/untracked).
-- **Auth** (`internal/stats/auth.go`): humans log in (`POST /api/login`) → argon2id
+- **Auth is optional** (`glockpeek_auth`, default **false**). Off = self-hosted
+  single-user: `requireUser`/`requireToken` inject an implicit account
+  (`EnsureDefaultUser`, username `local`), so no login/token — any local client
+  sees the dashboard. On = shared/hosted: real logins + tokens + isolation.
+- **Auth-on** (`internal/stats/auth.go`): humans log in (`POST /api/login`) → argon2id
   verify (`alexedwards/argon2id`) → httpOnly session cookie (`glockpeek_session`,
   opaque token in the `sessions` table). The syncer uses a bearer **API token**
   (hashed in the `api_tokens` table) on `/api/ingest`. Middleware: `requireUser`
-  (cookie) / `requireToken` (bearer). Admin CLI: `glockpeek -adduser/-passwd/-addtoken`.
+  (cookie) / `requireToken` (bearer). Admin CLI: `glockpeek -adduser/-passwd/-addtoken`
+  (needs access to the DB, so run as the service user). `/api/me` returns `{auth}`
+  so the frontend hides sign-out in single-user mode.
 - `stats.Register(mux, db, Options{SecureCookies})` mounts:
   - `GET /` - dashboard (embedded frontend, copy of `glockpeek-web/public`) — **public**
   - `POST /api/login` — **public**; `POST /api/logout`, `GET /api/me` — session

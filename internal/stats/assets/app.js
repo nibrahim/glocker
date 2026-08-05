@@ -39,15 +39,16 @@ init();
 // screen; otherwise boot the dashboard. Login success calls bootDashboard()
 // directly (no full reload).
 async function init() {
-  let authed = false;
+  let me = null;
   try {
-    authed = (await fetch("api/me")).ok;
+    const res = await fetch("api/me");
+    if (res.ok) me = await res.json();
   } catch { /* network error -> treat as unauthenticated */ }
-  if (!authed) {
+  if (!me) {
     showLogin();
     return;
   }
-  bootDashboard();
+  bootDashboard(me);
 }
 
 // showLogin reveals the login form and wires submit -> POST api/login.
@@ -83,11 +84,11 @@ function showLogin() {
     document.getElementById("login-pass").value = "";
     screen.hidden = true;
     document.getElementById("loading").hidden = false;
-    bootDashboard();
+    bootDashboard({ auth: true }); // login only happens when auth is enabled
   };
 }
 
-async function bootDashboard() {
+async function bootDashboard(me) {
   restoreWindow(); // apply the saved range/offset before building controls
   buildRangeButtons();
   try {
@@ -118,13 +119,15 @@ async function bootDashboard() {
   document.getElementById("loading").hidden = true;
   document.getElementById("dash").hidden = false;
 
-  // Sign-out: end the session server-side, then drop back to the login screen.
-  const logoutBtn = document.getElementById("logout-btn");
-  logoutBtn.hidden = false;
-  logoutBtn.onclick = async () => {
-    try { await fetch("api/logout", { method: "POST" }); } catch { /* fall through */ }
-    location.reload();
-  };
+  // Sign-out: only meaningful when auth is on (single-user mode has no login).
+  if (me && me.auth) {
+    const logoutBtn = document.getElementById("logout-btn");
+    logoutBtn.hidden = false;
+    logoutBtn.onclick = async () => {
+      try { await fetch("api/logout", { method: "POST" }); } catch { /* fall through */ }
+      location.reload();
+    };
+  }
 
   // Delegated click: the calendar is re-rendered on every range change, but the
   // container element is stable so one listener suffices. Click (not hover) so

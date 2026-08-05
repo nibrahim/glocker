@@ -134,14 +134,6 @@ func (db *DB) IngestHeartbeats(userID uint, rows []Heartbeat) error {
 	}).CreateInBatches(rows, 500).Error
 }
 
-// stampUser sets UserID on every row via an accessor (used where a range loop
-// would be noisier); kept generic-free for clarity.
-func stampUser[T any](rows []T, field func(i int) *uint, userID uint) {
-	for i := range rows {
-		*field(i) = userID
-	}
-}
-
 // ── Dashboard-local settings (replace-all, scoped to userID) ──
 
 // SetRulesConfig replaces the account's rules + colours in one transaction.

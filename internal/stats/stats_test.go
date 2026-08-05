@@ -258,6 +258,44 @@ func TestIgnoredHidesViolation(t *testing.T) {
 	}
 }
 
+// TestSyncStatus checks the /api/sync panel data: null before any ingest, then
+// last-batch counts + totals after.
+func TestSyncStatus(t *testing.T) {
+	mux, sdb := newMux(t)
+	_, cookie, api := account(t, sdb, "noufal")
+
+	// Before any ingest: lastSyncAt is null.
+	req := httptest.NewRequest("GET", "/api/sync", nil)
+	req.AddCookie(cookie)
+	rec := do(mux, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"lastSyncAt":null`) {
+		t.Fatalf("pre-ingest sync = %d %s", rec.Code, rec.Body.String())
+	}
+
+	ing := httptest.NewRequest("POST", "/api/ingest",
+		strings.NewReader(`{"violations":[{"ts":1,"keyword":"k","url":"u"}],"heartbeat":[{"ts":2,"alive":true}]}`))
+	ing.Header.Set("Authorization", "Bearer "+api)
+	do(mux, ing)
+
+	req = httptest.NewRequest("GET", "/api/sync", nil)
+	req.AddCookie(cookie)
+	var s struct {
+		LastSyncAt *int64         `json:"lastSyncAt"`
+		Last       map[string]int `json:"last"`
+		Totals     map[string]int `json:"totals"`
+	}
+	json.Unmarshal(do(mux, req).Body.Bytes(), &s)
+	if s.LastSyncAt == nil || *s.LastSyncAt == 0 {
+		t.Error("lastSyncAt should be set after ingest")
+	}
+	if s.Last["violations"] != 1 || s.Last["heartbeat"] != 1 {
+		t.Errorf("last batch counts = %+v", s.Last)
+	}
+	if s.Totals["violations"] != 1 {
+		t.Errorf("totals = %+v", s.Totals)
+	}
+}
+
 func TestRulesGetPut(t *testing.T) {
 	mux, sdb := newMux(t)
 	_, cookie, _ := account(t, sdb, "noufal")

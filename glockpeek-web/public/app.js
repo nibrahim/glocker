@@ -119,6 +119,11 @@ async function bootDashboard(me) {
   document.getElementById("loading").hidden = true;
   document.getElementById("dash").hidden = false;
 
+  // Data-sync panel (last daemon push). Refresh periodically so "N ago" stays
+  // current without a reload.
+  renderSync();
+  setInterval(renderSync, 30000);
+
   // Sign-out: only meaningful when auth is on (single-user mode has no login).
   if (me && me.auth) {
     const logoutBtn = document.getElementById("logout-btn");
@@ -2073,4 +2078,43 @@ function fmtDur(ms) {
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+// fmtAgo renders an epoch-ms instant as a short relative string ("3m ago").
+function fmtAgo(ms) {
+  const diff = Date.now() - ms;
+  if (diff < 5000) return "just now";
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+// renderSync fills the Data-sync panel from /api/sync: when the daemon last
+// pushed, the last batch's makeup, and the stored total.
+async function renderSync() {
+  const el = document.getElementById("sync-status");
+  if (!el) return;
+  let s;
+  try {
+    const res = await fetch("api/sync");
+    if (!res.ok) throw new Error(res.status);
+    s = await res.json();
+  } catch {
+    el.innerHTML = `<div class="empty">sync status unavailable</div>`;
+    return;
+  }
+  const totals = s.totals || {};
+  const totalRows = Object.values(totals).reduce((a, b) => a + b, 0);
+  const last = s.last || {};
+  const parts = Object.entries(last).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`);
+  const when = s.lastSyncAt ? esc(fmtAgo(s.lastSyncAt)) : "never";
+  el.innerHTML = `
+    <div class="sync-row"><span class="sync-label">Last sync</span><span class="sync-val${s.lastSyncAt ? "" : " sync-stale"}">${when}</span></div>
+    <div class="sync-row"><span class="sync-label">Last batch</span><span class="sync-val">${parts.length ? esc(parts.join(", ")) : "&mdash;"}</span></div>
+    <div class="sync-row"><span class="sync-label">Stored total</span><span class="sync-val">${totalRows.toLocaleString()} records</span></div>
+  `;
 }

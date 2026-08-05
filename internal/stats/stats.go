@@ -75,6 +75,7 @@ func Register(mux *http.ServeMux, database *store.DB, o Options) {
 	mux.HandleFunc("/api/health", requireUser(handleHealth))
 	mux.HandleFunc("/api/rules", requireUser(handleRules))
 	mux.HandleFunc("/api/ignored", requireUser(handleIgnored))
+	mux.HandleFunc("/api/sync", requireUser(handleSync))
 
 	// Token-gated: the syncer's ingest endpoint.
 	mux.HandleFunc("/api/ingest", requireToken(handleIngest))
@@ -128,12 +129,44 @@ func handleIngest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Stamp the last-sync marker the dashboard's sync panel reads.
+	_ = db.RecordIngest(uid, store.SyncStatus{
+		LastViolations: len(in.Violations), LastUnblocks: len(in.Unblocks),
+		LastLifecycle: len(in.Lifecycle), LastUsage: len(in.Usage),
+		LastHeartbeat: len(in.Heartbeat),
+	})
 	writeJSON(w, map[string]any{
 		"accepted": map[string]int{
 			"violations": len(in.Violations), "unblocks": len(in.Unblocks),
 			"lifecycle": len(in.Lifecycle), "usage": len(in.Usage),
 			"heartbeat": len(in.Heartbeat),
 		},
+	})
+}
+
+// handleSync reports when the account last received an ingest batch (the daemon's
+// sync), the size of that batch, and the current totals — for the dashboard's
+// "last sync" panel. lastSyncAt is epoch ms, or null if it has never synced.
+func handleSync(w http.ResponseWriter, r *http.Request) {
+	uid := userFrom(r).ID
+	st, ok, err := db.SyncStatusFor(uid)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var lastAt *int64
+	if ok {
+		ms := st.LastIngestAt.UnixMilli()
+		lastAt = &ms
+	}
+	writeJSON(w, map[string]any{
+		"lastSyncAt": lastAt,
+		"last": map[string]int{
+			"violations": st.LastViolations, "unblocks": st.LastUnblocks,
+			"lifecycle": st.LastLifecycle, "usage": st.LastUsage,
+			"heartbeat": st.LastHeartbeat,
+		},
+		"totals": db.Counts(uid),
 	})
 }
 

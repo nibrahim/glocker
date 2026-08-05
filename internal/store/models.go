@@ -124,6 +124,19 @@ type TagColor struct {
 	Color  string `json:"color"`
 }
 
+// SyncStatus records when the account last received an ingest batch (the syncer
+// push from the glocker daemon) and how many records that batch carried. One row
+// per account; the dashboard shows it as a "last sync" panel.
+type SyncStatus struct {
+	UserID         uint      `gorm:"primaryKey" json:"-"`
+	LastIngestAt   time.Time `json:"-"`
+	LastViolations int       `json:"violations"`
+	LastUnblocks   int       `json:"unblocks"`
+	LastLifecycle  int       `json:"lifecycle"`
+	LastUsage      int       `json:"usage"`
+	LastHeartbeat  int       `json:"heartbeat"`
+}
+
 // IgnoredViolation marks a report line as a false positive so the dashboard
 // stops counting it. Matched on (UserID, TS, Keyword, URL).
 type IgnoredViolation struct {
@@ -142,5 +155,6 @@ func AllModels() []any {
 		&User{}, &Session{}, &APIToken{},
 		&Violation{}, &Unblock{}, &LifecycleEvent{}, &UsageSample{},
 		&Heartbeat{}, &Rule{}, &TagColor{}, &IgnoredViolation{},
+		&SyncStatus{},
 	}
 }

@@ -1,6 +1,9 @@
 package store
 
 import (
+	"errors"
+	"time"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -188,6 +191,31 @@ func (db *DB) Transaction(fn func(tx *DB) error) error {
 	return db.DB.Transaction(func(g *gorm.DB) error {
 		return fn(&DB{g})
 	})
+}
+
+// RecordIngest stamps the account's last-sync time (now) and the counts from the
+// batch just accepted. Upserts the single per-account row.
+func (db *DB) RecordIngest(userID uint, s SyncStatus) error {
+	s.UserID = userID
+	s.LastIngestAt = time.Now()
+	return db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "user_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"last_ingest_at", "last_violations", "last_unblocks",
+			"last_lifecycle", "last_usage", "last_heartbeat",
+		}),
+	}).Create(&s).Error
+}
+
+// SyncStatusFor returns the account's last-sync row; ok is false if it has never
+// received an ingest batch.
+func (db *DB) SyncStatusFor(userID uint) (SyncStatus, bool, error) {
+	var s SyncStatus
+	err := db.Where("user_id = ?", userID).First(&s).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return s, false, nil
+	}
+	return s, err == nil, err
 }
 
 // Counts returns row counts per stats table for one account (health endpoint).

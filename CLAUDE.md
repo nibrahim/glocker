@@ -407,7 +407,10 @@ Server started by internal/web/server.go:StartWebTrackingServer()
   - `GET /api/health` - `{ok, counts}` for the account (session)
   - `GET|PUT /api/rules` - `{rules, colors}` in the DB (session)
   - `GET|PUT /api/ignored` - false-positive overlay in the DB (session)
-  - `POST /api/ingest` - batched idempotent upsert from the syncer (**bearer token**)
+  - `POST /api/ingest` - batched idempotent upsert from the syncer (**bearer token**);
+    also stamps the `sync_status` row (last-ingest time + last-batch counts)
+  - `GET /api/sync` - `{lastSyncAt, last{counts}, totals}` for the dashboard's
+    Data-sync panel (session)
   - Legacy `/stats`, `/stats/` 301-redirect to `/`. (The old
     `glocker.localhost/stats` alias in hosts.go is vestigial.)
 - Frontend must be kept in sync between `glockpeek-web/public/` and

@@ -344,3 +344,49 @@ func SetLastViolationReset(t time.Time) {
 	defer violationsMutex.Unlock()
 	lastViolationReset = t
 }
+
+// ── Syncer status (glocker -> glockpeek) ────────────────
+// SyncSummary is what the syncer reports for `glocker -status`: when it last
+// pushed a batch, the size of that batch, and cumulative totals for the session.
+
+// SyncSummary holds the syncer's last-push info for status reporting.
+type SyncSummary struct {
+	LastSyncAt time.Time
+	Last       map[string]int // counts in the most recent batch
+	Total      map[string]int // cumulative counts pushed this session
+}
+
+var (
+	syncSummary SyncSummary
+	syncMutex   sync.RWMutex
+)
+
+// RecordSync updates the syncer status after a successful push. counts is the
+// batch just sent, keyed by source (violations/unblocks/lifecycle/usage/heartbeat).
+func RecordSync(counts map[string]int) {
+	syncMutex.Lock()
+	defer syncMutex.Unlock()
+	syncSummary.LastSyncAt = time.Now()
+	syncSummary.Last = counts
+	if syncSummary.Total == nil {
+		syncSummary.Total = map[string]int{}
+	}
+	for k, v := range counts {
+		syncSummary.Total[k] += v
+	}
+}
+
+// GetSyncSummary returns a copy of the current syncer status. LastSyncAt is zero
+// if nothing has been synced this session.
+func GetSyncSummary() SyncSummary {
+	syncMutex.RLock()
+	defer syncMutex.RUnlock()
+	out := SyncSummary{LastSyncAt: syncSummary.LastSyncAt, Last: map[string]int{}, Total: map[string]int{}}
+	for k, v := range syncSummary.Last {
+		out.Last[k] = v
+	}
+	for k, v := range syncSummary.Total {
+		out.Total[k] = v
+	}
+	return out
+}

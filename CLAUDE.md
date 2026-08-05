@@ -383,8 +383,8 @@ Server started by internal/web/server.go:StartWebTrackingServer()
 - **DB-backed, multi-tenant.** `internal/store` is a GORM layer (sqlite via
   pure-Go `glebarez/sqlite`, or postgres) — the dashboard no longer parses log
   files. Every stats row carries a `UserID`; all reads/ingest are scoped to the
-  authenticated account. Records are populated by the glocker syncer through the
-  ingest API (the syncer itself is not built yet — see PLAN.md, local/untracked).
+  authenticated account. Records are populated by the glocker syncer (see below)
+  through the ingest API.
 - **Two modes** (`glockpeek_mode`, default **local**). `cmd/glockpeek` maps mode →
   `stats.Options.Auth` (local→false, hosted→true).
   - **local**: `main.forceLoopback` pins the bind to `127.0.0.1` regardless of
@@ -408,7 +408,10 @@ Server started by internal/web/server.go:StartWebTrackingServer()
   - `GET|PUT /api/rules` - `{rules, colors}` in the DB (session)
   - `GET|PUT /api/ignored` - false-positive overlay in the DB (session)
   - `POST /api/ingest` - batched idempotent upsert from the syncer (**bearer token**);
-    also stamps the `sync_status` row (last-ingest time + last-batch counts)
+    also stamps the `sync_status` row (last-ingest time + last-batch counts).
+    `GET /api/ingest` returns `{cursors}` — per-source max stored TS
+    (`store.HighWaterMarks`) — so the syncer seeds cursors from what glockpeek
+    already has (glockpeek is the source of truth for sync progress).
   - `GET /api/sync` - `{lastSyncAt, last{counts}, totals}` for the dashboard's
     Data-sync panel (session)
   - Legacy `/stats`, `/stats/` 301-redirect to `/`. (The old
@@ -422,9 +425,12 @@ Server started by internal/web/server.go:StartWebTrackingServer()
 - Local-first: reads the `/var` logs (via `reports` parsers + its own usage-JSONL
   parser), builds a **plain-JSON** batch (deliberately NOT importing `store`, so
   the agent binary stays free of GORM), and POSTs to `<glockpeek_url>/api/ingest`.
-  Backfill at startup (cursors 0 → everything), then incremental every
-  `interval_seconds` with an in-memory per-source max-TS cursor. Errors are logged
-  and retried next tick — enforcement never depends on it.
+  At startup `seedCursors` GETs glockpeek's high-water marks so a restart only
+  sends the gap (not a full re-backfill); on any error cursors stay 0 and it
+  backfills — always safe (idempotent). Then incremental every `interval_seconds`
+  with the in-memory per-source max-TS cursor. Errors are logged and retried next
+  tick — enforcement never depends on it. After each push it calls
+  `state.RecordSync`, which `glocker -status` surfaces (last push + session totals).
 - The syncer's payload JSON tags must match glockpeek's ingest decoder
   (store-model JSON). `TestSyncIntoRealGlockpeek` guards that across the boundary.
 - Config `sync.{enabled, glockpeek_url, token, interval_seconds}`; token only for a

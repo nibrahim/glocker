@@ -25,6 +25,7 @@ import (
 
 	"glocker/internal/config"
 	"glocker/internal/reports"
+	"glocker/internal/state"
 	"glocker/internal/usage"
 )
 
@@ -100,17 +101,52 @@ func New(cfg *config.Config) *Syncer {
 	return s
 }
 
-// Run does the one-shot backfill, then syncs on the interval. Blocks; run in a
-// goroutine. Every error is logged and retried next tick — enforcement is never
-// affected.
+// Run seeds cursors from glockpeek's high-water marks, does the initial sync,
+// then syncs on the interval. Blocks; run in a goroutine. Every error is logged
+// and retried next tick — enforcement is never affected.
 func (s *Syncer) Run() {
 	slog.Info("syncer starting", "target", s.url, "interval", s.interval)
-	s.syncOnce() // backfill (cursors start at 0 -> everything)
+	s.seedCursors() // ask glockpeek what it already has, so we only send the gap
+	s.syncOnce()
 	t := time.NewTicker(s.interval)
 	defer t.Stop()
 	for range t.C {
 		s.syncOnce()
 	}
+}
+
+// seedCursors asks glockpeek for the max TS it holds per source and seeds the
+// cursors from that, so a restart doesn't re-send everything. On any error
+// (glockpeek down, etc.) cursors stay at 0 and the next sync does a full
+// backfill — always safe because ingest is idempotent.
+func (s *Syncer) seedCursors() {
+	req, err := http.NewRequest(http.MethodGet, s.url+"/api/ingest", nil)
+	if err != nil {
+		return
+	}
+	if s.token != "" {
+		req.Header.Set("Authorization", "Bearer "+s.token)
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		slog.Warn("syncer: couldn't read glockpeek cursors; will backfill", "error", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		slog.Warn("syncer: cursor request rejected; will backfill", "status", resp.Status)
+		return
+	}
+	var body struct {
+		Cursors map[string]int64 `json:"cursors"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return
+	}
+	for src, ts := range body.Cursors {
+		s.cursors[src] = ts
+	}
+	slog.Info("syncer: seeded cursors from glockpeek", "cursors", s.cursors)
 }
 
 // syncOnce builds a payload of records newer than the cursors and posts it.
@@ -129,8 +165,12 @@ func (s *Syncer) syncOnce() {
 			s.cursors[src] = ts
 		}
 	}
-	slog.Debug("syncer pushed batch", "violations", len(p.Violations), "unblocks", len(p.Unblocks),
-		"lifecycle", len(p.Lifecycle), "usage", len(p.Usage), "heartbeat", len(p.Heartbeat))
+	counts := map[string]int{
+		"violations": len(p.Violations), "unblocks": len(p.Unblocks),
+		"lifecycle": len(p.Lifecycle), "usage": len(p.Usage), "heartbeat": len(p.Heartbeat),
+	}
+	state.RecordSync(counts) // surfaced by `glocker -status`
+	slog.Debug("syncer pushed batch", "counts", counts)
 }
 
 // build assembles the payload from the logs, filtered to TS >= each cursor, and

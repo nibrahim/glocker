@@ -100,8 +100,14 @@ type ingestPayload struct {
 	Heartbeat  []store.Heartbeat      `json:"heartbeat"`
 }
 
-// handleIngest accepts a batch of records from the syncer and upserts them.
+// handleIngest accepts a batch of records from the syncer (POST) and upserts
+// them. A GET returns the per-source high-water marks so the syncer can seed its
+// cursors from what glockpeek already has (only sending the gap).
 func handleIngest(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		writeJSON(w, map[string]any{"cursors": db.HighWaterMarks(userFrom(r).ID)})
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return

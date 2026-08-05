@@ -207,6 +207,24 @@ func (db *DB) RecordIngest(userID uint, s SyncStatus) error {
 	}).Create(&s).Error
 }
 
+// HighWaterMarks returns the max stored TS per source for an account, keyed by
+// the syncer's source names. The syncer seeds its cursors from this so it only
+// sends records glockpeek doesn't already have (glockpeek is the source of truth
+// for what's been synced — no local cursor state, self-healing if the DB is
+// reset). Missing/empty tables report 0.
+func (db *DB) HighWaterMarks(userID uint) map[string]int64 {
+	out := map[string]int64{}
+	for src, model := range map[string]any{
+		"reports": &Violation{}, "unblocks": &Unblock{},
+		"lifecycle": &LifecycleEvent{}, "usage": &UsageSample{}, "heartbeat": &Heartbeat{},
+	} {
+		var max int64
+		db.Model(model).Where("user_id = ?", userID).Select("COALESCE(MAX(ts), 0)").Scan(&max)
+		out[src] = max
+	}
+	return out
+}
+
 // SyncStatusFor returns the account's last-sync row; ok is false if it has never
 // received an ingest batch.
 func (db *DB) SyncStatusFor(userID uint) (SyncStatus, bool, error) {

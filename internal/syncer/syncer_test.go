@@ -18,10 +18,11 @@ import (
 // captureServer stands in for glockpeek's ingest endpoint, recording every
 // posted payload.
 type captureServer struct {
-	mu     sync.Mutex
-	got    []Payload
-	tokens []string
-	srv    *httptest.Server
+	mu      sync.Mutex
+	got     []Payload
+	tokens  []string
+	cursors map[string]int64 // returned on GET /api/ingest
+	srv     *httptest.Server
 }
 
 func newCapture(t *testing.T) *captureServer {
@@ -29,6 +30,13 @@ func newCapture(t *testing.T) *captureServer {
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/ingest" {
 			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodGet {
+			c.mu.Lock()
+			cur := c.cursors
+			c.mu.Unlock()
+			json.NewEncoder(w).Encode(map[string]any{"cursors": cur})
 			return
 		}
 		body, _ := io.ReadAll(r.Body)
@@ -108,6 +116,39 @@ func TestSyncBackfillAndIncrement(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("incremental sync did not deliver the new 'casino' violation")
+	}
+}
+
+// TestSeedCursorsFromGlockpeek: after seeding from glockpeek's high-water mark,
+// the syncer only sends records at/after that mark — not the whole history.
+func TestSeedCursorsFromGlockpeek(t *testing.T) {
+	dir := t.TempDir()
+	c := newCapture(t)
+	write(t, filepath.Join(dir, "reports.log"),
+		"[2025-11-17 15:00:00] | url-keyword:a | https://x/a\n"+
+			"[2025-11-17 15:00:01] | url-keyword:b | https://x/b\n"+
+			"[2025-11-17 15:00:02] | url-keyword:c | https://x/c\n")
+
+	// Discover the actual epoch-ms (zone-dependent) from a full build.
+	all, _ := testSyncer(c.srv.URL, dir, "", c.srv.Client()).build()
+	if len(all.Violations) != 3 {
+		t.Fatalf("setup: want 3 violations, got %d", len(all.Violations))
+	}
+	mid := all.Violations[1].TS
+
+	// glockpeek already holds up to the middle record.
+	c.cursors = map[string]int64{"reports": mid}
+	s := testSyncer(c.srv.URL, dir, "", c.srv.Client())
+	s.seedCursors()
+	if s.cursors["reports"] != mid {
+		t.Fatalf("cursor not seeded: %v", s.cursors)
+	}
+
+	// build() keeps only ts >= mid: the boundary record + the later one (2 of 3),
+	// dropping the already-synced first record.
+	p, _ := s.build()
+	if len(p.Violations) != 2 {
+		t.Errorf("seeding should trim to 2 (>= cursor), got %d", len(p.Violations))
 	}
 }
 

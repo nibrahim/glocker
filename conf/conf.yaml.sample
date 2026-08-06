@@ -581,6 +581,14 @@ unblocking:
   # Too long: Defeats the purpose, might forget to re-block
   temp_unblock_time: 20
 
+  # Cap on how many domain unblocks are granted per calendar day (local time).
+  # 0 (or omitted) means unlimited. Once the day's grants reach this number,
+  # further -unblock requests are refused until midnight.
+  #   - A request for several domains at once counts each domain separately.
+  #   - The count is read back from log_file, so it survives a daemon restart;
+  #     leave log_file set for the cap to be tamper-resistant.
+  max_per_day: 0
+
 # ----------------------------------------------------------------------------
 # Lifecycle Logging (install / uninstall accountability)
 # ----------------------------------------------------------------------------

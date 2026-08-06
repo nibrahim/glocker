@@ -11,6 +11,7 @@ import (
 	"glocker/internal/enforcement"
 	"glocker/internal/monitoring"
 	"glocker/internal/notify"
+	"glocker/internal/reports"
 	"glocker/internal/state"
 	"glocker/internal/web"
 )
@@ -311,9 +312,19 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) error {
 		}
 	}
 
+	// Enforce the per-day unblock cap. usedToday counts domain unblocks already
+	// recorded in the log during this local calendar day; the in-request counter
+	// (unblocked) is added on top so a single multi-domain request can't exceed it.
+	maxPerDay := cfg.Unblocking.MaxPerDay
+	usedToday := 0
+	if maxPerDay > 0 {
+		usedToday = countUnblocksToday(cfg)
+	}
+
 	hosts := strings.Split(hostsStr, ",")
 	unblocked := 0
 	rejected := 0
+	capRejected := 0
 	var rejectedDomains []string
 	var unblockedDomains []string
 
@@ -341,14 +352,30 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) error {
 
 		// Domain is unblockable or not in config (allow for backward compatibility)
 
+		// Enforce the daily cap before granting.
+		if maxPerDay > 0 && usedToday+unblocked >= maxPerDay {
+			log.Printf("REJECTED UNBLOCK: %s - daily unblock cap reached (%d/%d used today)", host, usedToday+unblocked, maxPerDay)
+			rejected++
+			capRejected++
+			rejectedDomains = append(rejectedDomains, host)
+			continue
+		}
+
 		// Add to temporary unblocks
 		duration := time.Duration(cfg.Unblocking.TempUnblockTime) * time.Minute
 		if duration == 0 {
 			duration = 30 * time.Minute
 		}
-		expiresAt := time.Now().Add(duration)
+		now := time.Now()
+		expiresAt := now.Add(duration)
 
 		state.AddTempUnblock(host, expiresAt)
+
+		// Persist to the unblock log so the per-day cap survives a restart (and so
+		// domain unblocks show up in the stats the syncer ships, like -extend does).
+		if err := web.LogUnblockEntry(cfg, host, reason, now, expiresAt); err != nil {
+			slog.Warn("Failed to record unblock in log", "domain", host, "err", err)
+		}
 
 		log.Printf("UNBLOCKED: %s (reason: %s) until %s", host, reason, expiresAt.Format("15:04:05"))
 		unblocked++
@@ -373,10 +400,32 @@ func ProcessUnblockRequest(cfg *config.Config, hostsStr, reason string) error {
 
 	// Return error if all domains were rejected
 	if rejected > 0 && unblocked == 0 {
+		if capRejected > 0 {
+			return fmt.Errorf("daily unblock limit reached (%d/%d used today); rejected: %s", usedToday, maxPerDay, strings.Join(rejectedDomains, ", "))
+		}
 		return fmt.Errorf("all domains rejected: %s (permanently blocked, not marked as unblockable)", strings.Join(rejectedDomains, ", "))
 	}
 
 	return nil
+}
+
+// countUnblocksToday returns how many domain unblocks were recorded in the
+// unblock log during the current local calendar day. It backs the
+// Unblocking.MaxPerDay cap; a missing or unreadable log counts as zero.
+func countUnblocksToday(cfg *config.Config) int {
+	entries, err := reports.ParseUnblocksLog(cfg.Unblocking.LogFile)
+	if err != nil {
+		return 0
+	}
+	y, m, d := time.Now().Date()
+	count := 0
+	for _, e := range entries {
+		ey, em, ed := e.UnblockTime.Date()
+		if ey == y && em == m && ed == d {
+			count++
+		}
+	}
+	return count
 }
 
 // ProcessBlockRequest adds domains to the block list and persists them to the config file.

@@ -134,6 +134,10 @@ type UnblockingConfig struct {
 	Reasons         []string `yaml:"reasons"`
 	LogFile         string   `yaml:"log_file"`
 	TempUnblockTime int      `yaml:"temp_unblock_time"` // Minutes
+	// MaxPerDay caps how many domain unblocks are granted per local calendar day.
+	// 0 (the default) means unlimited. Enforcement counts entries recorded in
+	// LogFile today, so LogFile must be set for the cap to survive a daemon restart.
+	MaxPerDay int `yaml:"max_per_day"`
 }
 
 // LifecycleConfig controls install/uninstall logging behavior.

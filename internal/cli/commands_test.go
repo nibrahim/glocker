@@ -2,12 +2,14 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"glocker/internal/config"
 	"glocker/internal/enforcement"
+	"glocker/internal/reports"
 	"glocker/internal/state"
 )
 
@@ -201,6 +203,92 @@ func TestProcessUnblockRequest_AllPermanentDomainsError(t *testing.T) {
 	unblocks := state.GetTempUnblocks()
 	if len(unblocks) != 0 {
 		t.Errorf("Expected 0 temp unblocks, got %d", len(unblocks))
+	}
+}
+
+func TestProcessUnblockRequest_EnforcesDailyCap(t *testing.T) {
+	logFile := filepath.Join(t.TempDir(), "unblocks.log")
+	cfg := &config.Config{
+		Domains: []config.Domain{{Name: "example.com", Unblockable: true}},
+		Unblocking: config.UnblockingConfig{
+			TempUnblockTime: 30,
+			LogFile:         logFile,
+			MaxPerDay:       2,
+		},
+	}
+	enforcement.InitializeTestCache(cfg.Domains)
+	state.SetTempUnblocks([]state.TempUnblock{})
+
+	// First two unblocks are within the cap.
+	for i := 1; i <= 2; i++ {
+		if err := ProcessUnblockRequest(cfg, "example.com", "work"); err != nil {
+			t.Fatalf("unblock #%d should be allowed under the cap, got: %v", i, err)
+		}
+	}
+
+	// Third crosses the daily cap and must be refused.
+	err := ProcessUnblockRequest(cfg, "example.com", "work")
+	if err == nil {
+		t.Fatal("expected the third unblock to be rejected by the daily cap")
+	}
+	if !strings.Contains(err.Error(), "daily unblock limit") {
+		t.Errorf("error should mention the daily limit, got: %v", err)
+	}
+
+	// Only two grants should have been recorded in the log.
+	entries, perr := reports.ParseUnblocksLog(logFile)
+	if perr != nil {
+		t.Fatalf("reading unblock log: %v", perr)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 logged unblocks, got %d", len(entries))
+	}
+}
+
+func TestProcessUnblockRequest_CapAppliesWithinSingleRequest(t *testing.T) {
+	logFile := filepath.Join(t.TempDir(), "unblocks.log")
+	cfg := &config.Config{
+		Domains: []config.Domain{
+			{Name: "a.com", Unblockable: true},
+			{Name: "b.com", Unblockable: true},
+			{Name: "c.com", Unblockable: true},
+		},
+		Unblocking: config.UnblockingConfig{
+			TempUnblockTime: 30,
+			LogFile:         logFile,
+			MaxPerDay:       2,
+		},
+	}
+	enforcement.InitializeTestCache(cfg.Domains)
+	state.SetTempUnblocks([]state.TempUnblock{})
+
+	// A single request for three domains: two granted, the third capped. A partial
+	// grant is not an error.
+	if err := ProcessUnblockRequest(cfg, "a.com,b.com,c.com", "work"); err != nil {
+		t.Fatalf("partial grant should not error, got: %v", err)
+	}
+	if got := len(state.GetTempUnblocks()); got != 2 {
+		t.Errorf("expected 2 domains unblocked, got %d", got)
+	}
+}
+
+func TestProcessUnblockRequest_ZeroCapIsUnlimited(t *testing.T) {
+	logFile := filepath.Join(t.TempDir(), "unblocks.log")
+	cfg := &config.Config{
+		Domains: []config.Domain{{Name: "example.com", Unblockable: true}},
+		Unblocking: config.UnblockingConfig{
+			TempUnblockTime: 30,
+			LogFile:         logFile,
+			MaxPerDay:       0, // unlimited
+		},
+	}
+	enforcement.InitializeTestCache(cfg.Domains)
+	state.SetTempUnblocks([]state.TempUnblock{})
+
+	for i := 1; i <= 5; i++ {
+		if err := ProcessUnblockRequest(cfg, "example.com", "work"); err != nil {
+			t.Fatalf("unblock #%d should be allowed when cap is 0, got: %v", i, err)
+		}
 	}
 }
 

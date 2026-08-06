@@ -36,9 +36,9 @@ const defaultListen = "127.0.0.1:4317"
 func main() {
 	listen := flag.String("listen", "", "address to serve on (overrides config; default "+defaultListen+")")
 	dbDSN := flag.String("db", "", "database DSN (overrides config; e.g. a sqlite file path for dev)")
-	addUser := flag.String("adduser", "", "create a dashboard account with this username, then exit")
-	passwd := flag.String("passwd", "", "change the password for this username, then exit")
-	addToken := flag.String("addtoken", "", "mint an ingest API token for this username, then exit")
+	addUser := flag.String("adduser", "", "create a dashboard account with this email, then exit")
+	passwd := flag.String("passwd", "", "change the password for this email, then exit")
+	addToken := flag.String("addtoken", "", "mint an ingest API token for this account (email), then exit")
 	flag.Parse()
 
 	addr := defaultListen
@@ -130,32 +130,32 @@ func forceLoopback(addr string) string {
 	return net.JoinHostPort("127.0.0.1", port)
 }
 
-func runAddUser(db *store.DB, username string) {
+func runAddUser(db *store.DB, email string) {
 	pw := readNewPassword()
-	if _, err := db.CreateUser(username, pw); err != nil {
-		log.Fatalf("glockpeek: create user %q: %v", username, err)
+	if _, err := db.CreateUser(email, pw); err != nil {
+		log.Fatalf("glockpeek: create account %q: %v", email, err)
 	}
-	fmt.Printf("created dashboard account %q\n", username)
+	fmt.Printf("created dashboard account %q\n", email)
 }
 
-func runPasswd(db *store.DB, username string) {
+func runPasswd(db *store.DB, email string) {
 	pw := readNewPassword()
-	if err := db.SetPassword(username, pw); err != nil {
-		log.Fatalf("glockpeek: set password for %q: %v", username, err)
+	if err := db.SetPassword(email, pw); err != nil {
+		log.Fatalf("glockpeek: set password for %q: %v", email, err)
 	}
-	fmt.Printf("password updated for %q\n", username)
+	fmt.Printf("password updated for %q\n", email)
 }
 
-func runAddToken(db *store.DB, username string) {
-	u, err := db.UserByName(username)
+func runAddToken(db *store.DB, email string) {
+	u, err := db.UserByEmail(email)
 	if err != nil {
-		log.Fatalf("glockpeek: no such user %q: %v", username, err)
+		log.Fatalf("glockpeek: no such account %q: %v", email, err)
 	}
 	tok, err := db.CreateAPIToken(u.ID, "cli")
 	if err != nil {
 		log.Fatalf("glockpeek: create token: %v", err)
 	}
-	fmt.Printf("ingest token for %q (store it now — it is not recoverable):\n\n  %s\n\n", username, tok)
+	fmt.Printf("ingest token for %q (store it now — it is not recoverable):\n\n  %s\n\n", email, tok)
 	fmt.Println("The glocker syncer sends it as:  Authorization: Bearer <token>")
 }
 

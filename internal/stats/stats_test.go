@@ -110,18 +110,18 @@ func TestAuthDisabled(t *testing.T) {
 
 func TestLoginFlow(t *testing.T) {
 	mux, sdb := newMux(t)
-	if _, err := sdb.CreateUser("noufal", "hunter2hunter2"); err != nil {
+	if _, err := sdb.CreateUser("noufal@example.com", "hunter2hunter2"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Bad password -> 401.
-	bad := do(mux, httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"username":"noufal","password":"nope"}`)))
+	bad := do(mux, httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"email":"noufal@example.com","password":"nope"}`)))
 	if bad.Code != http.StatusUnauthorized {
 		t.Fatalf("bad login: got %d", bad.Code)
 	}
 
 	// Good password -> 200 + session cookie.
-	ok := do(mux, httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"username":"noufal","password":"hunter2hunter2"}`)))
+	ok := do(mux, httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"email":"noufal@example.com","password":"hunter2hunter2"}`)))
 	if ok.Code != http.StatusOK {
 		t.Fatalf("good login: got %d %s", ok.Code, ok.Body.String())
 	}

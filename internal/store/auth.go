@@ -16,17 +16,22 @@ import (
 // SessionTTL is how long a browser login stays valid.
 const SessionTTL = 30 * 24 * time.Hour
 
-// DefaultUsername is the implicit account used when auth is disabled (the
-// single-user self-hosted case).
-const DefaultUsername = "local"
+// DefaultUsername / DefaultEmail identify the implicit account used when auth is
+// disabled (the single-user self-hosted case).
+const (
+	DefaultUsername = "local"
+	DefaultEmail    = "local@localhost"
+)
 
 // EnsureDefaultUser finds or creates the implicit single-user account. Used when
 // auth is off so all data has an owner without anyone logging in. The password
 // is random and unused (there's no login in this mode); if auth is later enabled,
-// reset it with `glockpeek -passwd`.
+// reset it with `glockpeek -passwd`. Located by the legacy username so an
+// existing pre-email database is reused rather than duplicated.
 func (db *DB) EnsureDefaultUser() (*User, error) {
-	if u, err := db.UserByName(DefaultUsername); err == nil {
-		return u, nil
+	var u User
+	if err := db.Where("username = ?", DefaultUsername).First(&u).Error; err == nil {
+		return &u, nil
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
@@ -34,12 +39,20 @@ func (db *DB) EnsureDefaultUser() (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	return db.CreateUser(DefaultUsername, pw)
+	hash, err := argon2id.CreateHash(pw, argon2id.DefaultParams)
+	if err != nil {
+		return nil, err
+	}
+	nu := &User{Email: DefaultEmail, Username: DefaultUsername, PasswordHash: hash}
+	if err := db.Create(nu).Error; err != nil {
+		return nil, err
+	}
+	return nu, nil
 }
 
-// ErrInvalidCredentials is returned by Authenticate on unknown user or bad
-// password (same error for both, to avoid leaking which usernames exist).
-var ErrInvalidCredentials = errors.New("invalid username or password")
+// ErrInvalidCredentials is returned by Authenticate on unknown account or bad
+// password (same error for both, to avoid leaking which emails exist).
+var ErrInvalidCredentials = errors.New("invalid email or password")
 
 // randToken returns n bytes of crypto-random data as a URL-safe base64 string.
 func randToken(n int) (string, error) {
@@ -59,29 +72,35 @@ func hashToken(tok string) string {
 
 // ── Users ───────────────────────────────────────────────
 
-// CreateUser creates an account with an argon2id-hashed password.
-func (db *DB) CreateUser(username, password string) (*User, error) {
-	username = strings.TrimSpace(username)
-	if username == "" || password == "" {
-		return nil, errors.New("username and password are required")
+// normalizeEmail lower-cases and trims an email for consistent lookups.
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// CreateUser creates an account identified by email, with an argon2id-hashed
+// password. Username is set to the email to satisfy the legacy column.
+func (db *DB) CreateUser(email, password string) (*User, error) {
+	email = normalizeEmail(email)
+	if email == "" || password == "" {
+		return nil, errors.New("email and password are required")
 	}
 	hash, err := argon2id.CreateHash(password, argon2id.DefaultParams)
 	if err != nil {
 		return nil, err
 	}
-	u := &User{Username: username, PasswordHash: hash}
+	u := &User{Email: email, Username: email, PasswordHash: hash}
 	if err := db.Create(u).Error; err != nil {
 		return nil, err
 	}
 	return u, nil
 }
 
-// Authenticate verifies a username/password and returns the user.
-func (db *DB) Authenticate(username, password string) (*User, error) {
+// Authenticate verifies an email/password and returns the user.
+func (db *DB) Authenticate(email, password string) (*User, error) {
 	var u User
-	if err := db.Where("username = ?", strings.TrimSpace(username)).First(&u).Error; err != nil {
+	if err := db.Where("email = ?", normalizeEmail(email)).First(&u).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// Do the work anyway to keep timing similar whether or not the user
+			// Do the work anyway to keep timing similar whether or not the account
 			// exists, then fail uniformly.
 			_, _ = argon2id.ComparePasswordAndHash(password, "$argon2id$v=19$m=65536,t=1,p=2$YWJjZGVmZ2g$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaA")
 			return nil, ErrInvalidCredentials
@@ -98,8 +117,8 @@ func (db *DB) Authenticate(username, password string) (*User, error) {
 	return &u, nil
 }
 
-// SetPassword updates a user's password.
-func (db *DB) SetPassword(username, password string) error {
+// SetPassword updates an account's password (by email).
+func (db *DB) SetPassword(email, password string) error {
 	if password == "" {
 		return errors.New("password is required")
 	}
@@ -107,7 +126,7 @@ func (db *DB) SetPassword(username, password string) error {
 	if err != nil {
 		return err
 	}
-	res := db.Model(&User{}).Where("username = ?", strings.TrimSpace(username)).Update("password_hash", hash)
+	res := db.Model(&User{}).Where("email = ?", normalizeEmail(email)).Update("password_hash", hash)
 	if res.Error != nil {
 		return res.Error
 	}
@@ -192,10 +211,10 @@ func (db *DB) UserByAPIToken(token string) (*User, error) {
 	return &u, nil
 }
 
-// UserByName looks up a user by username (for the admin CLI).
-func (db *DB) UserByName(username string) (*User, error) {
+// UserByEmail looks up a user by email (for the admin CLI).
+func (db *DB) UserByEmail(email string) (*User, error) {
 	var u User
-	if err := db.Where("username = ?", strings.TrimSpace(username)).First(&u).Error; err != nil {
+	if err := db.Where("email = ?", normalizeEmail(email)).First(&u).Error; err != nil {
 		return nil, err
 	}
 	return &u, nil

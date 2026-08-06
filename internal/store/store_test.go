@@ -3,6 +3,7 @@ package store
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // openMem opens a fresh temp-file sqlite store for a test.
@@ -106,22 +107,48 @@ func TestTenantIsolation(t *testing.T) {
 	}
 }
 
+// TestEnsureDefaultUserReusesPreEmailRow guards the migration path: an existing
+// database has a `local` user created before the email column existed (so its
+// email is NULL). EnsureDefaultUser must find and reuse it by username, not
+// create a duplicate.
+func TestEnsureDefaultUserReusesPreEmailRow(t *testing.T) {
+	db := openMem(t)
+	// Simulate a pre-email row: username set, email NULL.
+	if err := db.Exec("INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
+		DefaultUsername, "x", time.Now()).Error; err != nil {
+		t.Fatalf("seed old row: %v", err)
+	}
+	u1, err := db.EnsureDefaultUser()
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	u2, _ := db.EnsureDefaultUser()
+	if u1.ID != u2.ID {
+		t.Errorf("EnsureDefaultUser returned different ids (%d vs %d) — duplicated", u1.ID, u2.ID)
+	}
+	var n int64
+	db.Model(&User{}).Where("username = ?", DefaultUsername).Count(&n)
+	if n != 1 {
+		t.Errorf("want exactly 1 local user, got %d", n)
+	}
+}
+
 func TestUsersSessionsTokens(t *testing.T) {
 	db := openMem(t)
 
-	u, err := db.CreateUser("noufal", "correct horse battery staple")
+	u, err := db.CreateUser("noufal@example.com", "correct horse battery staple")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
-	// Good + bad password.
-	if _, err := db.Authenticate("noufal", "correct horse battery staple"); err != nil {
+	// Good + bad password (email is case-insensitive).
+	if _, err := db.Authenticate("Noufal@Example.com", "correct horse battery staple"); err != nil {
 		t.Errorf("valid login rejected: %v", err)
 	}
-	if _, err := db.Authenticate("noufal", "wrong"); err != ErrInvalidCredentials {
+	if _, err := db.Authenticate("noufal@example.com", "wrong"); err != ErrInvalidCredentials {
 		t.Errorf("bad password: want ErrInvalidCredentials, got %v", err)
 	}
-	if _, err := db.Authenticate("ghost", "x"); err != ErrInvalidCredentials {
+	if _, err := db.Authenticate("ghost@example.com", "x"); err != ErrInvalidCredentials {
 		t.Errorf("unknown user: want ErrInvalidCredentials, got %v", err)
 	}
 

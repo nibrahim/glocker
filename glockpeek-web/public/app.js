@@ -62,14 +62,14 @@ function showLogin() {
   form.onsubmit = async (e) => {
     e.preventDefault();
     errEl.hidden = true;
-    const username = document.getElementById("login-user").value;
+    const email = document.getElementById("login-user").value;
     const password = document.getElementById("login-pass").value;
     let res;
     try {
       res = await fetch("api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
       });
     } catch (err) {
       errEl.textContent = `Could not reach the server: ${err.message}`;
@@ -77,7 +77,7 @@ function showLogin() {
       return;
     }
     if (!res.ok) {
-      errEl.textContent = res.status === 401 ? "Invalid username or password" : `Sign-in failed (${res.status})`;
+      errEl.textContent = res.status === 401 ? "Invalid email or password" : `Sign-in failed (${res.status})`;
       errEl.hidden = false;
       return;
     }

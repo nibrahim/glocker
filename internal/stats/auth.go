@@ -27,7 +27,7 @@ var (
 
 // defaultUser is the implicit account injected when auth is disabled.
 func defaultUser() *store.User {
-	return &store.User{ID: defaultUserID, Username: store.DefaultUsername}
+	return &store.User{ID: defaultUserID, Email: store.DefaultEmail}
 }
 
 type ctxKey int
@@ -108,17 +108,17 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Username string `json:"username"`
+		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 	if err := json.Unmarshal(body, &in); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	u, err := db.Authenticate(in.Username, in.Password)
+	u, err := db.Authenticate(in.Email, in.Password)
 	if err != nil {
 		if errors.Is(err, store.ErrInvalidCredentials) {
-			http.Error(w, "invalid username or password", http.StatusUnauthorized)
+			http.Error(w, "invalid email or password", http.StatusUnauthorized)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -138,7 +138,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(store.SessionTTL.Seconds()),
 	})
-	writeJSON(w, map[string]any{"user": map[string]any{"id": u.ID, "username": u.Username}})
+	writeJSON(w, map[string]any{"user": map[string]any{"id": u.ID, "email": u.Email}})
 }
 
 // handleLogout ends the current session (requires a session).
@@ -157,5 +157,5 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 // frontend can hide the sign-out control in single-user mode).
 func handleMe(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
-	writeJSON(w, map[string]any{"id": u.ID, "username": u.Username, "auth": authEnabled})
+	writeJSON(w, map[string]any{"id": u.ID, "email": u.Email, "auth": authEnabled})
 }

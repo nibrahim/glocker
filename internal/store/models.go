@@ -20,11 +20,17 @@ import "time"
 
 // ── Accounts & credentials ──────────────────────────────
 
-// User is a dashboard account. Passwords are stored as an argon2id-encoded hash
-// (never plaintext); see auth.go.
+// User is a dashboard account. Email is the login identity. Passwords are stored
+// as an argon2id-encoded hash (never plaintext); see auth.go.
+//
+// Username is a legacy column kept populated (= Email for real accounts, "local"
+// for the implicit single-user account) so the original NOT NULL UNIQUE
+// constraint on existing databases is satisfied without a destructive migration.
+// It is not part of the API surface.
 type User struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
-	Username     string    `gorm:"uniqueIndex;not null" json:"username"`
+	Email        string    `gorm:"uniqueIndex" json:"email"`
+	Username     string    `gorm:"uniqueIndex;not null" json:"-"`
 	PasswordHash string    `gorm:"not null" json:"-"`
 	CreatedAt    time.Time `json:"createdAt"`
 }

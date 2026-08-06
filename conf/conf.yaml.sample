@@ -79,6 +79,11 @@ mail:
   from: "noreply@mg.glockerapp.com"
   region: "us"
 
+# glockpeek's own public base URL (SERVER-SIDE), used to build links in emails
+# (e.g. the account-verification link). No trailing slash. Only needed on a
+# hosted glockpeek with signups enabled.
+app_url: "https://glockerapp.com"
+
 # ----------------------------------------------------------------------------
 # Core Enforcement Mechanisms
 # ----------------------------------------------------------------------------

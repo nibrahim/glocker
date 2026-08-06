@@ -27,6 +27,7 @@ import (
 	"golang.org/x/term"
 
 	"glocker/internal/config"
+	"glocker/internal/mailer"
 	"glocker/internal/stats"
 	"glocker/internal/store"
 )
@@ -46,6 +47,8 @@ func main() {
 	dsn := config.DefaultDatabaseDSN
 	secureCookies := false
 	mode := config.GlockpeekModeLocal
+	var mailCfg config.MailConfig
+	appURL := ""
 
 	if cfg, err := config.LoadConfig(); err != nil {
 		log.Printf("glockpeek: could not load %s (%v); using defaults", config.GlockerConfigFile, err)
@@ -63,6 +66,8 @@ func main() {
 		if cfg.GlockpeekMode != "" {
 			mode = cfg.GlockpeekMode
 		}
+		mailCfg = cfg.Mail
+		appURL = cfg.GlockpeekAppURL
 	}
 	if *listen != "" {
 		addr = *listen
@@ -101,7 +106,12 @@ func main() {
 		return
 	}
 
-	opts := stats.Options{Auth: hosted, SecureCookies: secureCookies}
+	opts := stats.Options{
+		Auth:          hosted,
+		SecureCookies: secureCookies,
+		Mailer:        mailer.New(mailCfg),
+		AppURL:        appURL,
+	}
 	desc := "hosted: login required"
 	if !hosted {
 		// Local mode: everything runs as one implicit account, ingest is open.

@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -105,6 +106,85 @@ func TestAuthDisabled(t *testing.T) {
 	me := do(mux, httptest.NewRequest("GET", "/api/me", nil))
 	if me.Code != http.StatusOK || !strings.Contains(me.Body.String(), `"auth":false`) {
 		t.Errorf("/api/me (auth off): %d %s", me.Code, me.Body.String())
+	}
+}
+
+// fakeMailer records what would have been sent instead of hitting Mailgun.
+type fakeMailer struct {
+	to, text []string
+}
+
+func (f *fakeMailer) Enabled() bool { return true }
+func (f *fakeMailer) Send(_ context.Context, to, _, text, _ string) error {
+	f.to = append(f.to, to)
+	f.text = append(f.text, text)
+	return nil
+}
+
+func TestRegisterVerifyLogin(t *testing.T) {
+	sdb, err := store.Open(store.Options{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "test.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sdb.Close() })
+	fm := &fakeMailer{}
+	mux := http.NewServeMux()
+	Register(mux, sdb, Options{Auth: true, Mailer: fm, AppURL: "https://glockerapp.com"})
+
+	post := func(path, body string) *httptest.ResponseRecorder {
+		return do(mux, httptest.NewRequest("POST", path, strings.NewReader(body)))
+	}
+
+	// Register → 200, and an email with a verify link was "sent".
+	if rec := post("/api/register", `{"email":"New@User.com","password":"longenough1"}`); rec.Code != http.StatusOK {
+		t.Fatalf("register: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(fm.to) != 1 || fm.to[0] != "new@user.com" {
+		t.Fatalf("verification email recipients = %v (want [new@user.com], normalized)", fm.to)
+	}
+	if !strings.Contains(fm.text[0], "https://glockerapp.com/verify?token=") {
+		t.Errorf("email missing verify link: %q", fm.text[0])
+	}
+
+	// Login before verifying → 403.
+	if rec := post("/api/login", `{"email":"new@user.com","password":"longenough1"}`); rec.Code != http.StatusForbidden {
+		t.Errorf("login before verify: got %d, want 403", rec.Code)
+	}
+
+	// Pull the token from the store and hit the verify link.
+	var vt store.VerificationToken
+	if err := sdb.First(&vt).Error; err != nil {
+		t.Fatalf("no verification token stored: %v", err)
+	}
+	if rec := do(mux, httptest.NewRequest("GET", "/verify?token="+vt.Token, nil)); rec.Code != http.StatusOK {
+		t.Fatalf("verify: %d", rec.Code)
+	}
+
+	// Login now succeeds; the token was consumed.
+	if rec := post("/api/login", `{"email":"new@user.com","password":"longenough1"}`); rec.Code != http.StatusOK {
+		t.Errorf("login after verify: got %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(mux, httptest.NewRequest("GET", "/verify?token="+vt.Token, nil)); rec.Code != http.StatusBadRequest {
+		t.Errorf("re-using a consumed token: got %d, want 400", rec.Code)
+	}
+
+	// Duplicate email → 409; weak inputs → 400.
+	if rec := post("/api/register", `{"email":"new@user.com","password":"longenough1"}`); rec.Code != http.StatusConflict {
+		t.Errorf("duplicate register: got %d, want 409", rec.Code)
+	}
+	if rec := post("/api/register", `{"email":"bad","password":"longenough1"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad email: got %d, want 400", rec.Code)
+	}
+	if rec := post("/api/register", `{"email":"ok@x.com","password":"short"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("short password: got %d, want 400", rec.Code)
+	}
+}
+
+func TestRegisterUnavailableWithoutMailer(t *testing.T) {
+	mux, _ := newMux(t) // Auth:true but no Mailer
+	rec := do(mux, httptest.NewRequest("POST", "/api/register", strings.NewReader(`{"email":"a@b.com","password":"longenough1"}`)))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("register without mailer: got %d, want 503", rec.Code)
 	}
 }
 

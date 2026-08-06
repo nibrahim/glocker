@@ -43,7 +43,7 @@ func (db *DB) EnsureDefaultUser() (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	nu := &User{Email: DefaultEmail, Username: DefaultUsername, PasswordHash: hash}
+	nu := &User{Email: DefaultEmail, Username: DefaultUsername, PasswordHash: hash, Verified: true}
 	if err := db.Create(nu).Error; err != nil {
 		return nil, err
 	}
@@ -77,9 +77,15 @@ func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
-// CreateUser creates an account identified by email, with an argon2id-hashed
-// password. Username is set to the email to satisfy the legacy column.
+// CreateUser creates an admin/CLI account identified by email, with an
+// argon2id-hashed password. Such accounts are trusted, so they are created
+// already verified. Username is set to the email to satisfy the legacy column.
+// (Self-service signups use RegisterUser, which creates unverified accounts.)
 func (db *DB) CreateUser(email, password string) (*User, error) {
+	return db.createUser(email, password, true)
+}
+
+func (db *DB) createUser(email, password string, verified bool) (*User, error) {
 	email = normalizeEmail(email)
 	if email == "" || password == "" {
 		return nil, errors.New("email and password are required")
@@ -88,7 +94,7 @@ func (db *DB) CreateUser(email, password string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	u := &User{Email: email, Username: email, PasswordHash: hash}
+	u := &User{Email: email, Username: email, PasswordHash: hash, Verified: verified}
 	if err := db.Create(u).Error; err != nil {
 		return nil, err
 	}

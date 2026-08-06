@@ -17,6 +17,19 @@ const sessionCookie = "glockpeek_session"
 // hosted instance served over HTTPS, even when TLS is terminated by a proxy).
 var secureCookies bool
 
+// Mailer is the subset of email sending the dashboard needs (account
+// verification). *mailer.Mailer satisfies it; tests inject a fake.
+type Mailer interface {
+	Enabled() bool
+	Send(ctx context.Context, to, subject, text, html string) error
+}
+
+// mail + appURL are set from Options; used by the registration flow.
+var (
+	mail   Mailer
+	appURL string
+)
+
 // authEnabled gates whether logins/tokens are required. When false (the
 // self-hosted default), every request runs as the single implicit account
 // defaultUserID — no login, no token.
@@ -122,6 +135,10 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !u.Verified {
+		http.Error(w, "please confirm your email before signing in", http.StatusForbidden)
 		return
 	}
 	tok, err := db.CreateSession(u.ID)

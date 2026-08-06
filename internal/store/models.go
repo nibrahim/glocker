@@ -32,7 +32,17 @@ type User struct {
 	Email        string    `gorm:"uniqueIndex" json:"email"`
 	Username     string    `gorm:"uniqueIndex;not null" json:"-"`
 	PasswordHash string    `gorm:"not null" json:"-"`
+	Verified     bool      `json:"verified"` // email confirmed; false until the verify link is clicked
 	CreatedAt    time.Time `json:"createdAt"`
+}
+
+// VerificationToken is a single-use, expiring token emailed to a new account so
+// it can confirm its address. Consumed (deleted) on successful verification.
+type VerificationToken struct {
+	Token     string    `gorm:"primaryKey" json:"-"`
+	UserID    uint      `gorm:"index;not null" json:"-"`
+	ExpiresAt time.Time `gorm:"index" json:"-"`
+	CreatedAt time.Time `json:"-"`
 }
 
 // Session is a browser login session (opaque random token in an httpOnly
@@ -158,7 +168,7 @@ type IgnoredViolation struct {
 // sync.
 func AllModels() []any {
 	return []any{
-		&User{}, &Session{}, &APIToken{},
+		&User{}, &Session{}, &APIToken{}, &VerificationToken{},
 		&Violation{}, &Unblock{}, &LifecycleEvent{}, &UsageSample{},
 		&Heartbeat{}, &Rule{}, &TagColor{}, &IgnoredViolation{},
 		&SyncStatus{},

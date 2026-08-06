@@ -294,6 +294,10 @@ type Config struct {
 	Sync SyncConfig `yaml:"sync"`
 	// Mail is glockpeek's outbound transactional email (account verification).
 	Mail MailConfig `yaml:"mail"`
+	// GlockpeekAppURL is glockpeek's own public base URL (e.g.
+	// https://glockerapp.com), used to build links in emails (verification).
+	// No trailing slash. Server-side (glockpeek), like Mail.
+	GlockpeekAppURL string `yaml:"app_url"`
 }
 
 // SyncConfig controls the glocker->glockpeek syncer. The agent keeps recording

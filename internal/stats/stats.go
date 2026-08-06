@@ -38,6 +38,11 @@ type Options struct {
 	// SecureCookies marks session cookies Secure (set true when the instance is
 	// reached over HTTPS, including behind a TLS-terminating proxy).
 	SecureCookies bool
+	// Mailer sends account-verification email (registration). Nil disables
+	// self-service signup.
+	Mailer Mailer
+	// AppURL is glockpeek's own public base URL, used to build email links.
+	AppURL string
 }
 
 // Register mounts the dashboard and its API onto mux, backed by database.
@@ -51,6 +56,8 @@ func Register(mux *http.ServeMux, database *store.DB, o Options) {
 	secureCookies = o.SecureCookies
 	authEnabled = o.Auth
 	defaultUserID = o.DefaultUserID
+	mail = o.Mailer
+	appURL = o.AppURL
 	sub, err := fs.Sub(assetsFS, "assets")
 	if err != nil {
 		return // embed failure is a build-time bug; nothing to serve
@@ -64,9 +71,11 @@ func Register(mux *http.ServeMux, database *store.DB, o Options) {
 	mux.HandleFunc("/stats", redirectToRoot)
 	mux.HandleFunc("/stats/", redirectToRoot)
 
-	// Public: static dashboard assets + login.
+	// Public: static dashboard assets, login, self-service signup + verify.
 	mux.Handle("/", fileServer)
 	mux.HandleFunc("/api/login", handleLogin)
+	mux.HandleFunc("/api/register", handleRegister)
+	mux.HandleFunc("/verify", handleVerify) // browser link from the email, not /api/
 
 	// Session-gated: everything that shows or edits account data.
 	mux.HandleFunc("/api/me", requireUser(handleMe))

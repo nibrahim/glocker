@@ -67,6 +67,18 @@ sync:
   token: ""
   interval_seconds: 300
 
+# Outbound email for account verification (Mailgun). SERVER-SIDE — this belongs
+# to the hosted *glockpeek* instance, NOT the agent: on a hosted setup it lives in
+# the glockpeek host's config (see deploy/ansible), and the api_key must never be
+# put on an agent. Leave it disabled/empty here on a laptop agent.
+# region is "us" (default) or "eu" — match your Mailgun domain's region.
+mail:
+  enabled: false
+  domain: "mg.glockerapp.com"
+  api_key: ""
+  from: "noreply@mg.glockerapp.com"
+  region: "us"
+
 # ----------------------------------------------------------------------------
 # Core Enforcement Mechanisms
 # ----------------------------------------------------------------------------

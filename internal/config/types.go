@@ -69,6 +69,18 @@ type SudoersConfig struct {
 	AllowWindows       []TimeWindow `yaml:"allow_windows"`
 }
 
+// MailConfig configures outbound transactional email (Mailgun-backed) — used by
+// glockpeek for account-verification mail. Disabled unless Enabled with a domain
+// + api key; From defaults to noreply@<domain>. Unlike the daemon's legacy
+// accountability mail, the domain here is configurable (not hardcoded).
+type MailConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Domain  string `yaml:"domain"`  // Mailgun sending domain, e.g. mg.glockerapp.com
+	APIKey  string `yaml:"api_key"`
+	From    string `yaml:"from"`    // e.g. noreply@mg.glockerapp.com
+	Region  string `yaml:"region"`  // "us" (default) or "eu"
+}
+
 // AccountabilityConfig configures email notifications via Mailgun.
 type AccountabilityConfig struct {
 	Enabled            bool   `yaml:"enabled"`
@@ -280,6 +292,8 @@ type Config struct {
 	// ships local /var records to a glockpeek instance. Local-first: recording
 	// and enforcement never depend on it.
 	Sync SyncConfig `yaml:"sync"`
+	// Mail is glockpeek's outbound transactional email (account verification).
+	Mail MailConfig `yaml:"mail"`
 }
 
 // SyncConfig controls the glocker->glockpeek syncer. The agent keeps recording

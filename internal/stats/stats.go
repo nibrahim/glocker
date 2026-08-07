@@ -13,6 +13,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -45,6 +46,9 @@ type Options struct {
 	Mailer Mailer
 	// AppURL is glockpeek's own public base URL, used to build email links.
 	AppURL string
+	// AdminEmail names the account granted admin powers (user management). Empty
+	// disables the admin panel/endpoints.
+	AdminEmail string
 }
 
 // Register mounts the dashboard and its API onto mux, backed by database.
@@ -60,6 +64,7 @@ func Register(mux *http.ServeMux, database *store.DB, o Options) {
 	defaultUserID = o.DefaultUserID
 	mail = o.Mailer
 	appURL = o.AppURL
+	adminEmail = strings.TrimSpace(o.AdminEmail)
 	sub, err := fs.Sub(assetsFS, "assets")
 	if err != nil {
 		return // embed failure is a build-time bug; nothing to serve
@@ -91,6 +96,9 @@ func Register(mux *http.ServeMux, database *store.DB, o Options) {
 	mux.HandleFunc("/api/ignored", requireUser(handleIgnored))
 	mux.HandleFunc("/api/sync", requireUser(handleSync))
 	mux.HandleFunc("/api/tokens", requireUser(handleTokens))
+
+	// Admin-gated: account management (only the configured admin account).
+	mux.HandleFunc("/api/admin/users", requireAdmin(handleAdminUsers))
 
 	// Token-gated: the syncer's ingest endpoint.
 	mux.HandleFunc("/api/ingest", requireToken(handleIngest))

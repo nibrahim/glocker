@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"glocker/internal/store"
 )
@@ -37,6 +38,26 @@ var (
 	authEnabled   bool
 	defaultUserID uint
 )
+
+// adminEmail names the account granted admin powers (user management). Set from
+// Options.AdminEmail; empty means no admin. Compared case-insensitively.
+var adminEmail string
+
+// isAdmin reports whether u is the configured admin account.
+func isAdmin(u *store.User) bool {
+	return adminEmail != "" && u != nil && strings.EqualFold(strings.TrimSpace(u.Email), adminEmail)
+}
+
+// requireAdmin wraps requireUser and additionally requires the admin account.
+func requireAdmin(h http.HandlerFunc) http.HandlerFunc {
+	return requireUser(func(w http.ResponseWriter, r *http.Request) {
+		if !isAdmin(userFrom(r)) {
+			http.Error(w, "admin only", http.StatusForbidden)
+			return
+		}
+		h(w, r)
+	})
+}
 
 // defaultUser is the implicit account injected when auth is disabled.
 func defaultUser() *store.User {
@@ -174,5 +195,5 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 // frontend can hide the sign-out control in single-user mode).
 func handleMe(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
-	writeJSON(w, map[string]any{"id": u.ID, "email": u.Email, "auth": authEnabled})
+	writeJSON(w, map[string]any{"id": u.ID, "email": u.Email, "auth": authEnabled, "admin": isAdmin(u)})
 }

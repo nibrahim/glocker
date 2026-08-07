@@ -238,3 +238,70 @@ func TestBackfillURLHash(t *testing.T) {
 		t.Errorf("url_hash not backfilled: %q", got.URLHash)
 	}
 }
+
+func TestListUsersAndDeleteUserData(t *testing.T) {
+	db := openMem(t)
+	if _, err := db.CreateUser("admin@x.com", "longenough1"); err != nil {
+		t.Fatal(err)
+	}
+	victim, err := db.CreateUser("victim@x.com", "longenough1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Give the victim data across several tables.
+	if err := db.IngestViolations(victim.ID, []Violation{{TS: 1, Keyword: "k", URL: "http://x"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetRulesConfig(victim.ID, []Rule{{Program: "p", Title: "t", Tag: "Activity:x"}}, map[string]string{"Activity:x": "#fff"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateAPIToken(victim.ID, "dev"); err != nil {
+		t.Fatal(err)
+	}
+
+	if us, err := db.ListUsers(); err != nil || len(us) != 2 {
+		t.Fatalf("ListUsers = %v (len %d, err %v), want 2", us, len(us), err)
+	}
+
+	if err := db.DeleteUserData(victim.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// Victim and all their data are gone; the admin is untouched.
+	if _, err := db.UserByEmail("victim@x.com"); err == nil {
+		t.Error("victim user should be deleted")
+	}
+	if n, _ := db.CountAPITokens(victim.ID); n != 0 {
+		t.Errorf("victim tokens after delete = %d, want 0", n)
+	}
+	for src, c := range db.Counts(victim.ID) {
+		if c != 0 {
+			t.Errorf("victim %s count after delete = %d, want 0", src, c)
+		}
+	}
+	if rules, _ := db.Rules(victim.ID); len(rules) != 0 {
+		t.Errorf("victim rules after delete = %d, want 0", len(rules))
+	}
+	if _, err := db.UserByEmail("admin@x.com"); err != nil {
+		t.Errorf("admin should be untouched: %v", err)
+	}
+}
+
+func TestSetDeviceLimitByID(t *testing.T) {
+	db := openMem(t)
+	u, err := db.CreateUser("lim@x.com", "longenough1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetDeviceLimitByID(u.ID, 4); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := db.UserByEmail("lim@x.com")
+	if EffectiveDeviceLimit(got) != 4 {
+		t.Errorf("device limit = %d, want 4", EffectiveDeviceLimit(got))
+	}
+	if err := db.SetDeviceLimitByID(99999, 3); err == nil {
+		t.Error("setting limit on unknown id should error")
+	}
+}

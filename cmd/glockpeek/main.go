@@ -53,6 +53,7 @@ func main() {
 	mode := config.GlockpeekModeLocal
 	var mailCfg config.MailConfig
 	appURL := ""
+	adminEmail := ""
 
 	if cfg, err := config.LoadConfig(); err != nil {
 		log.Printf("glockpeek: could not load %s (%v); using defaults", config.GlockerConfigFile, err)
@@ -72,6 +73,7 @@ func main() {
 		}
 		mailCfg = cfg.Mail
 		appURL = cfg.GlockpeekAppURL
+		adminEmail = cfg.GlockpeekAdminEmail
 	}
 	if *listen != "" {
 		addr = *listen
@@ -118,6 +120,7 @@ func main() {
 		SecureCookies: secureCookies,
 		Mailer:        mailer.New(mailCfg),
 		AppURL:        appURL,
+		AdminEmail:    adminEmail,
 	}
 	desc := "hosted: login required"
 	if !hosted {

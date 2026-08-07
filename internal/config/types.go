@@ -298,6 +298,9 @@ type Config struct {
 	// https://glockerapp.com), used to build links in emails (verification).
 	// No trailing slash. Server-side (glockpeek), like Mail.
 	GlockpeekAppURL string `yaml:"app_url"`
+	// GlockpeekAdminEmail names the account granted admin powers (user management
+	// in the dashboard). Hosted mode only; empty means no admin account.
+	GlockpeekAdminEmail string `yaml:"admin_email"`
 }
 
 // SyncConfig controls the glocker->glockpeek syncer. The agent keeps recording

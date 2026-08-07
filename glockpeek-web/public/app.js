@@ -86,6 +86,79 @@ function showLogin() {
     document.getElementById("loading").hidden = false;
     bootDashboard({ auth: true }); // login only happens when auth is enabled
   };
+  setupRegister();
+}
+
+// setupRegister wires the sign-up card: the login<->register toggles and the
+// POST api/register submit. Registration requires a verified email before any
+// session exists, so success shows a "check your email" note rather than
+// signing the user in.
+function setupRegister() {
+  const loginForm = document.getElementById("login-form");
+  const regForm = document.getElementById("register-form");
+  const loginErr = document.getElementById("login-error");
+  const regErr = document.getElementById("register-error");
+  const regNote = document.getElementById("register-note");
+
+  const show = (which) => {
+    loginErr.hidden = true;
+    regErr.hidden = true;
+    loginForm.hidden = which !== "login";
+    regForm.hidden = which !== "register";
+  };
+  document.getElementById("show-register").onclick = (e) => { e.preventDefault(); show("register"); };
+  document.getElementById("show-login").onclick = (e) => { e.preventDefault(); show("login"); };
+
+  regForm.onsubmit = async (e) => {
+    e.preventDefault();
+    regErr.hidden = true;
+    regNote.hidden = true;
+    const email = document.getElementById("reg-user").value;
+    const password = document.getElementById("reg-pass").value;
+    const confirm = document.getElementById("reg-pass2").value;
+    if (password !== confirm) {
+      regErr.textContent = "Passwords do not match";
+      regErr.hidden = false;
+      return;
+    }
+    const submit = document.getElementById("register-submit");
+    submit.disabled = true;
+    let res;
+    try {
+      res = await fetch("api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch (err) {
+      regErr.textContent = `Could not reach the server: ${err.message}`;
+      regErr.hidden = false;
+      submit.disabled = false;
+      return;
+    }
+    if (!res.ok) {
+      const msg = {
+        400: "Enter a valid email and a password of at least 8 characters",
+        404: "Sign-ups are not enabled on this instance",
+        409: "That email is already registered",
+        502: "Could not send the verification email; please try again",
+        503: "Sign-ups are not available yet (email is not configured)",
+      }[res.status] || `Sign-up failed (${res.status})`;
+      regErr.textContent = msg;
+      regErr.hidden = false;
+      submit.disabled = false;
+      return;
+    }
+    // Success: no session yet — the account activates from the emailed link.
+    // Collapse the form to a confirmation; the "Sign in" toggle stays available.
+    regForm.querySelectorAll("label, #register-submit").forEach((el) => { el.hidden = true; });
+    regNote.textContent = "";
+    regNote.append("Account created. We sent a verification link to ");
+    const strong = document.createElement("strong");
+    strong.textContent = email;
+    regNote.append(strong, " — open it to activate your account, then sign in.");
+    regNote.hidden = false;
+  };
 }
 
 async function bootDashboard(me) {

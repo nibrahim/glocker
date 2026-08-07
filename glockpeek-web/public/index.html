@@ -289,6 +289,30 @@
       </label>
       <button type="submit" class="btn-primary">Sign in</button>
       <p class="login-error" id="login-error" hidden></p>
+      <p class="login-alt">No account yet? <a href="#" id="show-register">Create one</a></p>
+    </form>
+
+    <form id="register-form" class="login-card" hidden>
+      <div class="brand">
+        <span class="reticle" aria-hidden="true"></span>
+        <div class="brand-text">
+          <h1>glock<span>peek</span></h1>
+          <p class="tagline">create your account</p>
+        </div>
+      </div>
+      <label>Email
+        <input id="reg-user" name="email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" required />
+      </label>
+      <label>Password
+        <input id="reg-pass" name="password" type="password" autocomplete="new-password" minlength="8" required />
+      </label>
+      <label>Confirm password
+        <input id="reg-pass2" name="password2" type="password" autocomplete="new-password" minlength="8" required />
+      </label>
+      <button type="submit" class="btn-primary" id="register-submit">Create account</button>
+      <p class="login-error" id="register-error" hidden></p>
+      <p class="login-note" id="register-note" hidden></p>
+      <p class="login-alt">Already have an account? <a href="#" id="show-login">Sign in</a></p>
     </form>
   </div>
 

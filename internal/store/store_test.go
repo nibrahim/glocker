@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -177,5 +178,63 @@ func TestUsersSessionsTokens(t *testing.T) {
 	}
 	if _, err := db.UserByAPIToken("nope"); err != ErrInvalidCredentials {
 		t.Errorf("bad api token: want ErrInvalidCredentials, got %v", err)
+	}
+}
+
+// TestIngestViolationsHashKey verifies the URL is deduped via its hash: the same
+// (user,ts,keyword,url) no-ops, different URLs at the same (user,ts,keyword) are
+// distinct, and a very long URL — the case that overflows Postgres's btree index
+// on the raw column — ingests fine. (SQLite has no btree size limit, so this
+// asserts the hash *logic*; the Postgres row-size fix is validated on deploy.)
+func TestIngestViolationsHashKey(t *testing.T) {
+	db := openMem(t)
+	const uid = uint(1)
+
+	huge := "https://www.google.com/search?q=x&sca_esv=" + strings.Repeat("a", 5000)
+	v := Violation{TS: 1000, Keyword: "porn", URL: huge, Type: "url-keyword"}
+
+	if err := db.IngestViolations(uid, []Violation{v}); err != nil {
+		t.Fatalf("ingest long url: %v", err)
+	}
+	// Re-sending the identical row is idempotent.
+	if err := db.IngestViolations(uid, []Violation{v}); err != nil {
+		t.Fatalf("re-ingest: %v", err)
+	}
+	got, _ := db.Violations(uid)
+	if len(got) != 1 {
+		t.Fatalf("idempotent re-ingest should keep 1 row, got %d", len(got))
+	}
+	if got[0].URLHash != hashURL(huge) || got[0].URL != huge {
+		t.Errorf("stored row lost url/hash: hash=%q urlLen=%d", got[0].URLHash, len(got[0].URL))
+	}
+
+	// A different URL at the same (user,ts,keyword) is a distinct violation.
+	v2 := Violation{TS: 1000, Keyword: "porn", URL: "https://other.example/z", Type: "url-keyword"}
+	if err := db.IngestViolations(uid, []Violation{v2}); err != nil {
+		t.Fatalf("ingest distinct url: %v", err)
+	}
+	if got, _ := db.Violations(uid); len(got) != 2 {
+		t.Errorf("distinct URLs should yield 2 rows, got %d", len(got))
+	}
+}
+
+// TestBackfillURLHash covers the migration core: rows missing url_hash get it
+// computed from their url, without touching other data.
+func TestBackfillURLHash(t *testing.T) {
+	db := openMem(t)
+	// Insert bypassing IngestViolations so url_hash starts empty (mimics an old row).
+	v := Violation{UserID: 1, TS: 1, Keyword: "k", URL: "http://example.com/x"}
+	if err := db.Create(&v).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.backfillURLHash(&Violation{}); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	var got Violation
+	if err := db.First(&got, v.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.URLHash != hashURL("http://example.com/x") {
+		t.Errorf("url_hash not backfilled: %q", got.URLHash)
 	}
 }

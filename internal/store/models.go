@@ -79,7 +79,10 @@ type Violation struct {
 	UserID  uint   `gorm:"index;uniqueIndex:ux_violation,priority:1" json:"-"`
 	TS      int64  `gorm:"index;uniqueIndex:ux_violation,priority:2" json:"ts"`
 	Keyword string `gorm:"uniqueIndex:ux_violation,priority:3" json:"keyword"`
-	URL     string `gorm:"uniqueIndex:ux_violation,priority:4" json:"url"`
+	// URLHash is sha256(URL); it stands in for the URL in the unique index because
+	// a raw URL can exceed Postgres's btree row-size limit. Set on ingest.
+	URLHash string `gorm:"uniqueIndex:ux_violation,priority:4" json:"-"`
+	URL     string `json:"url"`
 	Type    string `json:"type"`
 	Domain  string `json:"domain"`
 }
@@ -164,7 +167,10 @@ type IgnoredViolation struct {
 	UserID  uint   `gorm:"index;uniqueIndex:ux_ignored,priority:1" json:"-"`
 	TS      int64  `gorm:"uniqueIndex:ux_ignored,priority:2" json:"ts"`
 	Keyword string `gorm:"uniqueIndex:ux_ignored,priority:3" json:"keyword"`
-	URL     string `gorm:"uniqueIndex:ux_ignored,priority:4" json:"url"`
+	// URLHash is sha256(URL) — see Violation.URLHash for why the hash is indexed
+	// rather than the raw URL.
+	URLHash string `gorm:"uniqueIndex:ux_ignored,priority:4" json:"-"`
+	URL     string `json:"url"`
 	Domain  string `json:"domain"`
 }
 

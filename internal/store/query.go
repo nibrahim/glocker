@@ -1,12 +1,22 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// hashURL returns a fixed-size, index-safe fingerprint of a URL. It backs the
+// violations/ignored unique index, which can't hold a raw URL (some exceed
+// Postgres's btree row-size limit). Deterministic: equal URLs → equal hash.
+func hashURL(url string) string {
+	sum := sha256.Sum256([]byte(url))
+	return hex.EncodeToString(sum[:])
+}
 
 // All reads/writes below are scoped to a single account (userID). Ingest sets
 // UserID on every row from the authenticated token; reads filter by it.
@@ -76,9 +86,10 @@ func (db *DB) IngestViolations(userID uint, rows []Violation) error {
 	}
 	for i := range rows {
 		rows[i].UserID = userID
+		rows[i].URLHash = hashURL(rows[i].URL)
 	}
 	return db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "user_id"}, {Name: "ts"}, {Name: "keyword"}, {Name: "url"}},
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "ts"}, {Name: "keyword"}, {Name: "url_hash"}},
 		DoNothing: true,
 	}).CreateInBatches(rows, 500).Error
 }
@@ -178,6 +189,7 @@ func (db *DB) SetIgnored(userID uint, rows []IgnoredViolation) error {
 		if len(rows) > 0 {
 			for i := range rows {
 				rows[i].UserID = userID
+				rows[i].URLHash = hashURL(rows[i].URL)
 			}
 			return tx.Create(&rows).Error
 		}

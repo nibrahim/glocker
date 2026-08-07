@@ -7,10 +7,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"glocker/internal/config"
 	"glocker/internal/stats"
 	"glocker/internal/store"
 )
@@ -217,5 +219,33 @@ func TestSyncIntoRealGlockpeek(t *testing.T) {
 	// The sync also stamped the last-sync marker the dashboard panel reads.
 	if st, ok, _ := db.SyncStatusFor(du.ID); !ok || st.LastViolations != 1 {
 		t.Errorf("sync status not recorded: ok=%v %+v", ok, st)
+	}
+}
+
+// TestPendingCounts checks that PendingCounts counts only records strictly newer
+// than the cursor. It asserts the usage source (whose path is config-overridable
+// to a temp file); the other sources read /var/log defaults and are not asserted
+// here, so the test is stable on a machine that has real glocker logs.
+func TestPendingCounts(t *testing.T) {
+	dir := t.TempDir()
+	usagePath := filepath.Join(dir, "usage.jsonl")
+	write(t, usagePath, strings.Join([]string{
+		`{"ts":"2026-07-07T10:00:00Z","idle_ms":1,"windows":[]}`,
+		`{"ts":"2026-07-07T10:05:00Z","idle_ms":1,"windows":[]}`,
+		`{"ts":"2026-07-07T10:10:00Z","idle_ms":1,"windows":[]}`,
+	}, "\n")+"\n")
+
+	cfg := &config.Config{}
+	cfg.UsageMonitor.LogFile = usagePath
+	// Point the config-overridable lifecycle path at an empty temp file so the
+	// test never reads a real /var/log lifecycle log.
+	cfg.Lifecycle.LogFile = filepath.Join(dir, "lifecycle.log")
+
+	firstMS := time.Date(2026, 7, 7, 10, 0, 0, 0, time.UTC).UnixMilli()
+	if got := PendingCounts(cfg, map[string]int64{"usage": firstMS})["usage"]; got != 2 {
+		t.Errorf("pending usage with cursor at first sample = %d, want 2 (strictly newer)", got)
+	}
+	if got := PendingCounts(cfg, map[string]int64{"usage": 0})["usage"]; got != 3 {
+		t.Errorf("pending usage with cursor 0 = %d, want 3", got)
 	}
 }

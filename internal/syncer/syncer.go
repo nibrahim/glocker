@@ -76,7 +76,7 @@ type Syncer struct {
 	url      string // base, e.g. http://127.0.0.1:4317
 	token    string
 	interval time.Duration
-	paths    struct{ reports, unblocks, lifecycle, heartbeat, usage string }
+	paths    logPaths
 	client   *http.Client
 
 	// cursors[source] is the max TS already accepted for that source; each cycle
@@ -93,12 +93,77 @@ func New(cfg *config.Config) *Syncer {
 		client:   &http.Client{Timeout: 30 * time.Second},
 		cursors:  map[string]int64{},
 	}
-	s.paths.reports = reports.DefaultReportsLogPath
-	s.paths.unblocks = reports.DefaultUnblocksLogPath
-	s.paths.lifecycle = orDefault(cfg.Lifecycle.LogFile, reports.DefaultLifecycleLogPath)
-	s.paths.heartbeat = reports.DefaultHeartbeatLogPath
-	s.paths.usage = orDefault(cfg.UsageMonitor.LogFile, config.DefaultUsageLogFile)
+	s.paths = resolveLogPaths(cfg)
 	return s
+}
+
+// logPaths are the local logs the syncer reads (all under /var/log by default).
+type logPaths struct{ reports, unblocks, lifecycle, heartbeat, usage string }
+
+// resolveLogPaths derives the log paths from config, applying defaults. Shared by
+// New and PendingCounts so both read exactly the same files.
+func resolveLogPaths(cfg *config.Config) logPaths {
+	return logPaths{
+		reports:   reports.DefaultReportsLogPath,
+		unblocks:  reports.DefaultUnblocksLogPath,
+		lifecycle: orDefault(cfg.Lifecycle.LogFile, reports.DefaultLifecycleLogPath),
+		heartbeat: reports.DefaultHeartbeatLogPath,
+		usage:     orDefault(cfg.UsageMonitor.LogFile, config.DefaultUsageLogFile),
+	}
+}
+
+// PendingCounts reports how many not-yet-synced records sit in the local logs,
+// keyed for display (violations/unblocks/lifecycle/usage/heartbeat) — i.e. what
+// the next push will carry. cursors are the per-source high-water TS (ms) from
+// the last push; a record is pending when its TS is strictly greater than the
+// cursor (TS == cursor was already sent). It reads the same logs as build() but
+// only counts, and takes cursors by value, so it is safe to call from another
+// goroutine (e.g. the status handler) while the syncer runs.
+func PendingCounts(cfg *config.Config, cursors map[string]int64) map[string]int {
+	paths := resolveLogPaths(cfg)
+	out := map[string]int{}
+
+	if rows, err := reports.ParseReportsLog(paths.reports); err == nil {
+		cur := cursors["reports"]
+		for _, e := range rows {
+			if e.Timestamp.UnixMilli() > cur {
+				out["violations"]++
+			}
+		}
+	}
+	if rows, err := reports.ParseUnblocksLog(paths.unblocks); err == nil {
+		cur := cursors["unblocks"]
+		for _, e := range rows {
+			if !e.UnblockTime.IsZero() && e.UnblockTime.UnixMilli() > cur {
+				out["unblocks"]++
+			}
+		}
+	}
+	if rows, err := reports.ParseLifecycleLog(paths.lifecycle); err == nil {
+		cur := cursors["lifecycle"]
+		for _, e := range rows {
+			if e.Timestamp.UnixMilli() > cur {
+				out["lifecycle"]++
+			}
+		}
+	}
+	if rows, err := reports.ParseHeartbeatLog(paths.heartbeat); err == nil {
+		cur := cursors["heartbeat"]
+		for _, e := range rows {
+			if e.Timestamp.UnixMilli() > cur {
+				out["heartbeat"]++
+			}
+		}
+	}
+	if rows, err := parseUsageLog(paths.usage); err == nil {
+		cur := cursors["usage"]
+		for _, r := range rows {
+			if r.TS > cur {
+				out["usage"]++
+			}
+		}
+	}
+	return out
 }
 
 // Run seeds cursors from glockpeek's high-water marks, does the initial sync,
@@ -169,7 +234,7 @@ func (s *Syncer) syncOnce() {
 		"violations": len(p.Violations), "unblocks": len(p.Unblocks),
 		"lifecycle": len(p.Lifecycle), "usage": len(p.Usage), "heartbeat": len(p.Heartbeat),
 	}
-	state.RecordSync(counts) // surfaced by `glocker -status`
+	state.RecordSync(counts, s.cursors) // surfaced by `glocker -status`
 	slog.Debug("syncer pushed batch", "counts", counts)
 }
 

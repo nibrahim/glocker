@@ -27,6 +27,7 @@ const VIEW_TITLES = {
   usage: "Usage",
   sources: "Sources",
   bypasses: "Bypasses",
+  devices: "Devices",
 };
 
 // Cookie key for the persisted time window. Declared here (before init runs) so
@@ -198,7 +199,8 @@ async function bootDashboard(me) {
   renderSync();
   setInterval(renderSync, 30000);
 
-  // Sign-out: only meaningful when auth is on (single-user mode has no login).
+  // Sign-out + device management: only meaningful when auth is on (single-user
+  // mode has no login and ingest is tokenless).
   if (me && me.auth) {
     const logoutBtn = document.getElementById("logout-btn");
     logoutBtn.hidden = false;
@@ -206,6 +208,8 @@ async function bootDashboard(me) {
       try { await fetch("api/logout", { method: "POST" }); } catch { /* fall through */ }
       location.reload();
     };
+    document.getElementById("nav-devices").hidden = false;
+    setupDevices();
   }
 
   // Delegated click: the calendar is re-rendered on every range change, but the
@@ -280,6 +284,7 @@ function setView(view) {
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === view));
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   document.getElementById("view-title").textContent = VIEW_TITLES[view] || view;
+  if (view === "devices") renderDevices();
   // Charts built while their view was display:none have zero size; fix on reveal.
   requestAnimationFrame(() => {
     for (const c of Object.values(state.charts)) {
@@ -2152,6 +2157,140 @@ function fmtDur(ms) {
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+// ── Devices: connect a glocker agent via its own ingest token ───────────
+// A token is one device. It's shown exactly once (only its hash is stored), so
+// minting reveals the ready-to-paste sync config block. setupDevices wires the
+// static controls once; renderDevices refreshes the list each time the view
+// opens.
+function setupDevices() {
+  const nameEl = document.getElementById("device-name");
+  const addBtn = document.getElementById("add-device");
+  const errEl = document.getElementById("device-error");
+  const reveal = document.getElementById("device-reveal");
+
+  addBtn.onclick = async () => {
+    errEl.hidden = true;
+    addBtn.disabled = true;
+    let res;
+    try {
+      res = await fetch("api/tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: nameEl.value.trim() }),
+      });
+    } catch (err) {
+      errEl.textContent = `Could not reach the server: ${err.message}`;
+      errEl.hidden = false;
+      addBtn.disabled = false;
+      return;
+    }
+    addBtn.disabled = false;
+    if (res.status === 402) { showDeviceUpsell(true); return; } // at plan limit
+    if (!res.ok) {
+      errEl.textContent = `Could not create the device (${res.status})`;
+      errEl.hidden = false;
+      return;
+    }
+    const { token } = await res.json();
+    nameEl.value = "";
+    document.getElementById("device-config").textContent = deviceConfig(token);
+    reveal.hidden = false;
+    renderDevices();
+  };
+
+  document.getElementById("device-copy").onclick = async () => {
+    const btn = document.getElementById("device-copy");
+    try {
+      await navigator.clipboard.writeText(document.getElementById("device-config").textContent);
+      btn.textContent = "Copied ✓";
+      setTimeout(() => { btn.textContent = "Copy config"; }, 1500);
+    } catch { /* clipboard may be blocked; the text is on-screen to copy manually */ }
+  };
+  document.getElementById("device-done").onclick = () => {
+    reveal.hidden = true;
+    document.getElementById("device-config").textContent = "";
+  };
+}
+
+// deviceConfig builds the sync block the user pastes into the agent's config.
+function deviceConfig(token) {
+  return [
+    "sync:",
+    "  enabled: true",
+    `  glockpeek_url: "${location.origin}"`,
+    `  token: "${token}"`,
+    "  interval_seconds: 300",
+  ].join("\n");
+}
+
+function showDeviceUpsell(show) {
+  const el = document.getElementById("device-upsell");
+  el.textContent = "You've reached your device limit. More devices are a paid feature — reply to your welcome email to upgrade.";
+  el.hidden = !show;
+}
+
+async function renderDevices() {
+  const listEl = document.getElementById("device-list");
+  const usageEl = document.getElementById("device-usage");
+  const nameEl = document.getElementById("device-name");
+  const addBtn = document.getElementById("add-device");
+  let data;
+  try {
+    const res = await fetch("api/tokens");
+    if (!res.ok) throw new Error(res.status);
+    data = await res.json();
+  } catch {
+    usageEl.textContent = "";
+    return;
+  }
+
+  const limitText = data.limit < 0 ? "∞" : data.limit;
+  usageEl.textContent = `${data.used} of ${limitText} device${data.limit === 1 ? "" : "s"} used.`;
+
+  listEl.textContent = "";
+  if (!data.tokens.length) {
+    const empty = document.createElement("div");
+    empty.className = "device-empty";
+    empty.textContent = "No devices connected yet.";
+    listEl.append(empty);
+  }
+  for (const t of data.tokens) listEl.append(deviceRow(t));
+
+  const atLimit = !data.canAdd;
+  nameEl.disabled = atLimit;
+  addBtn.disabled = atLimit;
+  showDeviceUpsell(atLimit);
+}
+
+function deviceRow(t) {
+  const row = document.createElement("div");
+  row.className = "device-row";
+
+  const meta = document.createElement("div");
+  meta.className = "device-meta";
+  const name = document.createElement("span");
+  name.className = "device-name";
+  name.textContent = t.name || "device";
+  const sub = document.createElement("span");
+  sub.className = "device-sub";
+  const added = new Date(t.createdAt).toLocaleDateString();
+  sub.textContent = `added ${added} · ${t.lastUsedAt ? `last synced ${fmtAgo(t.lastUsedAt)}` : "never synced"}`;
+  meta.append(name, sub);
+
+  const btn = document.createElement("button");
+  btn.className = "btn-danger";
+  btn.type = "button";
+  btn.textContent = "Revoke";
+  btn.onclick = async () => {
+    if (!confirm(`Revoke "${t.name || "device"}"? That device will stop syncing.`)) return;
+    try { await fetch(`api/tokens?id=${t.id}`, { method: "DELETE" }); } catch { /* re-render reflects state */ }
+    renderDevices();
+  };
+
+  row.append(meta, btn);
+  return row;
 }
 
 // fmtAgo renders an epoch-ms instant as a short relative string ("3m ago").

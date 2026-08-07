@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -47,9 +48,37 @@ func TestAdminUsers(t *testing.T) {
 	if rec := do(mux, httptest.NewRequest("GET", "/api/admin/users", nil)); rec.Code != http.StatusUnauthorized {
 		t.Errorf("no session: got %d, want 401", rec.Code)
 	}
-	// The admin can list users.
-	if rec := req("GET", "/api/admin/users", adminCookie); rec.Code != http.StatusOK {
+	// Give bob some synced records so the stats are non-trivial.
+	if err := sdb.IngestViolations(bob.ID, []store.Violation{
+		{TS: 1, Keyword: "k", URL: "http://x"}, {TS: 2, Keyword: "k", URL: "http://y"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The admin can list users, with per-account records + totals.
+	rec := req("GET", "/api/admin/users", adminCookie)
+	if rec.Code != http.StatusOK {
 		t.Fatalf("admin list: %d %s", rec.Code, rec.Body.String())
+	}
+	var list struct {
+		Users []struct {
+			ID      uint  `json:"id"`
+			Records int64 `json:"records"`
+		} `json:"users"`
+		Totals struct {
+			Accounts int   `json:"accounts"`
+			Records  int64 `json:"records"`
+		} `json:"totals"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if list.Totals.Accounts != 2 || list.Totals.Records != 2 {
+		t.Errorf("totals = %+v, want accounts=2 records=2", list.Totals)
+	}
+	for _, u := range list.Users {
+		if u.ID == bob.ID && u.Records != 2 {
+			t.Errorf("bob records = %d, want 2", u.Records)
+		}
 	}
 
 	// The admin can't delete themselves.

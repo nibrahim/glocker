@@ -20,9 +20,16 @@ type adminUserView struct {
 	Verified    bool   `json:"verified"`
 	DeviceLimit int    `json:"deviceLimit"`
 	Devices     int    `json:"devices"`
+	Records     int64  `json:"records"`    // synced data rows (violations/unblocks/lifecycle/usage/heartbeat)
+	LastSyncAt  *int64 `json:"lastSyncAt"` // epoch ms of the last ingest, or null
 	CreatedAt   int64  `json:"createdAt"`
 	IsAdmin     bool   `json:"isAdmin"`
 	Self        bool   `json:"self"`
+}
+
+// recordCount sums the actual synced data sources (not rules/ignored config).
+func recordCount(c map[string]int64) int64 {
+	return c["violations"] + c["unblocks"] + c["lifecycle"] + c["usage"] + c["heartbeat"]
 }
 
 // handleAdminUsers is the admin-gated user-management endpoint:
@@ -51,16 +58,28 @@ func adminListUsers(w http.ResponseWriter, me *store.User) {
 		return
 	}
 	out := make([]adminUserView, 0, len(users))
+	var totalRecords int64
 	for i := range users {
 		u := users[i]
 		devices, _ := db.CountAPITokens(u.ID)
+		records := recordCount(db.Counts(u.ID))
+		totalRecords += records
+		var lastSync *int64
+		if st, ok, _ := db.SyncStatusFor(u.ID); ok && !st.LastIngestAt.IsZero() {
+			ms := st.LastIngestAt.UnixMilli()
+			lastSync = &ms
+		}
 		out = append(out, adminUserView{
 			ID: u.ID, Email: u.Email, Verified: u.Verified,
 			DeviceLimit: store.EffectiveDeviceLimit(&u), Devices: devices,
+			Records: records, LastSyncAt: lastSync,
 			CreatedAt: u.CreatedAt.UnixMilli(), IsAdmin: isAdmin(&u), Self: u.ID == me.ID,
 		})
 	}
-	writeJSON(w, map[string]any{"users": out})
+	writeJSON(w, map[string]any{
+		"users":  out,
+		"totals": map[string]any{"accounts": len(out), "records": totalRecords},
+	})
 }
 
 func adminDeleteUser(w http.ResponseWriter, r *http.Request, me *store.User) {

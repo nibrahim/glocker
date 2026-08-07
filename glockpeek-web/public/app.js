@@ -28,7 +28,7 @@ const VIEW_TITLES = {
   sources: "Sources",
   bypasses: "Bypasses",
   devices: "Devices",
-  users: "Users",
+  users: "Admin",
 };
 
 // Cookie key for the persisted time window. Declared here (before init runs) so
@@ -2184,7 +2184,9 @@ async function renderUsers() {
     return;
   }
   const users = data.users || [];
-  countEl.textContent = `${users.length} account${users.length === 1 ? "" : "s"}.`;
+  const totals = data.totals || {};
+  const recs = totals.records ?? users.reduce((s, u) => s + (u.records || 0), 0);
+  countEl.textContent = `${users.length} account${users.length === 1 ? "" : "s"} · ${recs.toLocaleString()} total records.`;
   listEl.textContent = "";
   for (const u of users) listEl.append(userRow(u));
 }
@@ -2203,7 +2205,8 @@ function userRow(u) {
   const sub = document.createElement("span");
   sub.className = "user-sub";
   const limit = u.deviceLimit < 0 ? "∞" : u.deviceLimit;
-  sub.textContent = `${u.devices} of ${limit} devices · added ${new Date(u.createdAt).toLocaleDateString()}`;
+  const lastSync = u.lastSyncAt ? `last sync ${fmtAgo(u.lastSyncAt)}` : "never synced";
+  sub.textContent = `${(u.records || 0).toLocaleString()} records · ${u.devices} of ${limit} devices · ${lastSync} · added ${new Date(u.createdAt).toLocaleDateString()}`;
   main.append(email, sub);
 
   const actions = document.createElement("div");

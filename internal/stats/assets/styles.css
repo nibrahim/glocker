@@ -143,6 +143,12 @@ body {
   box-shadow: inset 2px 0 0 var(--danger);
 }
 
+/* Admin nav item: set apart from the regular views (divider + signal accent). */
+.nav li.nav-admin { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.nav li.nav-admin button { color: var(--signal); }
+.nav li.nav-admin button:hover { color: var(--signal); background: rgba(240, 160, 32, 0.08); }
+.nav li.nav-admin button.active { color: #fff; background: var(--panel-2); box-shadow: inset 2px 0 0 var(--signal); }
+
 .sidebar-foot { margin-top: auto; padding: 0 8px; }
 .src { font-family: var(--mono); font-size: 10px; line-height: 1.8; color: var(--ink-faint); }
 

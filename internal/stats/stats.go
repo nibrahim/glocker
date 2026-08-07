@@ -90,6 +90,7 @@ func Register(mux *http.ServeMux, database *store.DB, o Options) {
 	mux.HandleFunc("/api/rules", requireUser(handleRules))
 	mux.HandleFunc("/api/ignored", requireUser(handleIgnored))
 	mux.HandleFunc("/api/sync", requireUser(handleSync))
+	mux.HandleFunc("/api/tokens", requireUser(handleTokens))
 
 	// Token-gated: the syncer's ingest endpoint.
 	mux.HandleFunc("/api/ingest", requireToken(handleIngest))

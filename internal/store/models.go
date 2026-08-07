@@ -33,7 +33,11 @@ type User struct {
 	Username     string    `gorm:"uniqueIndex;not null" json:"-"`
 	PasswordHash string    `gorm:"not null" json:"-"`
 	Verified     bool      `json:"verified"` // email confirmed; false until the verify link is clicked
-	CreatedAt    time.Time `json:"createdAt"`
+	// DeviceLimit caps how many ingest API tokens (connected devices) this account
+	// may hold. 0 (the zero value / free tier) means DefaultFreeDevices; a negative
+	// value means unlimited. Raised for paid accounts.
+	DeviceLimit int       `json:"deviceLimit"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // VerificationToken is a single-use, expiring token emailed to a new account so

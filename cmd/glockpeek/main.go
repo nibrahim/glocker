@@ -9,6 +9,7 @@
 //	glockpeek -adduser <name>        # create a dashboard account (prompts for a password)
 //	glockpeek -passwd  <name>        # change a password
 //	glockpeek -addtoken <name>       # mint an ingest API token for <name> (printed once)
+//	glockpeek -setlimit <email> -devices <n>   # set an account's device cap (<0 = unlimited)
 //
 // This replaces the old command-line log viewer; run the server as its own
 // service (see extras/glockpeek.service).
@@ -22,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"golang.org/x/term"
@@ -40,6 +42,8 @@ func main() {
 	addUser := flag.String("adduser", "", "create a dashboard account with this email, then exit")
 	passwd := flag.String("passwd", "", "change the password for this email, then exit")
 	addToken := flag.String("addtoken", "", "mint an ingest API token for this account (email), then exit")
+	setLimit := flag.String("setlimit", "", "set the device (API-token) limit for this email (use with -devices), then exit")
+	devices := flag.Int("devices", 1, "device limit to apply with -setlimit (negative = unlimited)")
 	flag.Parse()
 
 	addr := defaultListen
@@ -104,6 +108,9 @@ func main() {
 	case *addToken != "":
 		runAddToken(db, *addToken)
 		return
+	case *setLimit != "":
+		runSetLimit(db, *setLimit, *devices)
+		return
 	}
 
 	opts := stats.Options{
@@ -167,6 +174,19 @@ func runAddToken(db *store.DB, email string) {
 	}
 	fmt.Printf("ingest token for %q (store it now — it is not recoverable):\n\n  %s\n\n", email, tok)
 	fmt.Println("The glocker syncer sends it as:  Authorization: Bearer <token>")
+}
+
+// runSetLimit sets an account's device (API-token) cap — the manual lever for a
+// paid upgrade until self-serve billing exists. Negative means unlimited.
+func runSetLimit(db *store.DB, email string, n int) {
+	if err := db.SetDeviceLimit(email, n); err != nil {
+		log.Fatalf("glockpeek: set device limit for %q: %v", email, err)
+	}
+	label := strconv.Itoa(n)
+	if n < 0 {
+		label = "unlimited"
+	}
+	fmt.Printf("device limit for %q set to %s\n", email, label)
 }
 
 // readNewPassword reads a password without echo from a TTY, or a single line

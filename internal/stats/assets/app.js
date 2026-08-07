@@ -141,6 +141,7 @@ function setupRegister() {
         400: "Enter a valid email and a password of at least 8 characters",
         404: "Sign-ups are not enabled on this instance",
         409: "That email is already registered",
+        429: "Too many attempts. Please wait a few minutes and try again",
         502: "Could not send the verification email; please try again",
         503: "Sign-ups are not available yet (email is not configured)",
       }[res.status] || `Sign-up failed (${res.status})`;

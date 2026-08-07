@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"glocker/internal/store"
 )
 
@@ -72,9 +74,12 @@ func Register(mux *http.ServeMux, database *store.DB, o Options) {
 	mux.HandleFunc("/stats/", redirectToRoot)
 
 	// Public: static dashboard assets, login, self-service signup + verify.
+	// Registration is unauthenticated and sends real email, so it is rate-limited
+	// per client IP: a small burst for honest retries, then a slow refill.
+	regLimiter := newIPRateLimiter(rate.Every(10*time.Minute), 3, time.Hour)
 	mux.Handle("/", fileServer)
 	mux.HandleFunc("/api/login", handleLogin)
-	mux.HandleFunc("/api/register", handleRegister)
+	mux.HandleFunc("/api/register", rateLimited(regLimiter, handleRegister))
 	mux.HandleFunc("/verify", handleVerify) // browser link from the email, not /api/
 
 	// Session-gated: everything that shows or edits account data.

@@ -3,6 +3,7 @@ package stats
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -131,8 +132,14 @@ func TestRegisterVerifyLogin(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, sdb, Options{Auth: true, Mailer: fm, AppURL: "https://glockerapp.com"})
 
+	// Each POST comes from a distinct client IP so the /api/register rate limiter
+	// (covered by its own test) doesn't conflate these independent requests.
+	reqN := 0
 	post := func(path, body string) *httptest.ResponseRecorder {
-		return do(mux, httptest.NewRequest("POST", path, strings.NewReader(body)))
+		reqN++
+		req := httptest.NewRequest("POST", path, strings.NewReader(body))
+		req.Header.Set("X-Forwarded-For", fmt.Sprintf("203.0.113.%d", reqN))
+		return do(mux, req)
 	}
 
 	// Register → 200, and an email with a verify link was "sent".

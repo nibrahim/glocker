@@ -28,6 +28,7 @@ const VIEW_TITLES = {
   sources: "Sources",
   bypasses: "Bypasses",
   devices: "Devices",
+  users: "Users",
 };
 
 // Cookie key for the persisted time window. Declared here (before init runs) so
@@ -164,6 +165,14 @@ function setupRegister() {
 }
 
 async function bootDashboard(me) {
+  // The login path calls us with a partial {auth:true}; fetch the full identity
+  // (email/admin) so admin-only UI can gate on it without a page reload.
+  if (me && me.admin === undefined) {
+    try {
+      const r = await fetch("api/me");
+      if (r.ok) me = await r.json();
+    } catch { /* keep partial me */ }
+  }
   restoreWindow(); // apply the saved range/offset before building controls
   buildRangeButtons();
   try {
@@ -210,6 +219,8 @@ async function bootDashboard(me) {
     };
     document.getElementById("nav-devices").hidden = false;
     setupDevices();
+    // Admin-only: the accounts panel.
+    if (me.admin) document.getElementById("nav-users").hidden = false;
   }
 
   // Delegated click: the calendar is re-rendered on every range change, but the
@@ -285,6 +296,7 @@ function setView(view) {
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   document.getElementById("view-title").textContent = VIEW_TITLES[view] || view;
   if (view === "devices") renderDevices();
+  if (view === "users") renderUsers();
   // Charts built while their view was display:none have zero size; fix on reveal.
   requestAnimationFrame(() => {
     for (const c of Object.values(state.charts)) {
@@ -2153,6 +2165,95 @@ function fmtDur(ms) {
   const d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
   if (d > 0) return `${d}d ${h}h`;
   return `${h}h ${m}m`;
+}
+
+// ── Admin: accounts panel (only mounted for the configured admin) ───────
+async function renderUsers() {
+  const listEl = document.getElementById("user-list");
+  const countEl = document.getElementById("user-count");
+  const errEl = document.getElementById("user-error");
+  errEl.hidden = true;
+  let data;
+  try {
+    const res = await fetch("api/admin/users");
+    if (!res.ok) throw new Error(res.status);
+    data = await res.json();
+  } catch (e) {
+    errEl.textContent = `Could not load accounts (${e.message})`;
+    errEl.hidden = false;
+    return;
+  }
+  const users = data.users || [];
+  countEl.textContent = `${users.length} account${users.length === 1 ? "" : "s"}.`;
+  listEl.textContent = "";
+  for (const u of users) listEl.append(userRow(u));
+}
+
+function userRow(u) {
+  const row = document.createElement("div");
+  row.className = "user-row";
+
+  const main = document.createElement("div");
+  main.className = "user-main";
+  const email = document.createElement("span");
+  email.className = "user-email";
+  email.textContent = u.email;
+  if (u.isAdmin) email.append(badge("admin", "admin"));
+  if (!u.verified) email.append(badge("unverified", "unverified"));
+  const sub = document.createElement("span");
+  sub.className = "user-sub";
+  const limit = u.deviceLimit < 0 ? "∞" : u.deviceLimit;
+  sub.textContent = `${u.devices} of ${limit} devices · added ${new Date(u.createdAt).toLocaleDateString()}`;
+  main.append(email, sub);
+
+  const actions = document.createElement("div");
+  actions.className = "user-actions";
+
+  // Device-limit editor.
+  const limInput = document.createElement("input");
+  limInput.type = "number";
+  limInput.title = "Device limit (−1 = unlimited)";
+  limInput.value = String(u.deviceLimit);
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "btn-ghost";
+  saveBtn.type = "button";
+  saveBtn.textContent = "Save";
+  saveBtn.onclick = async () => {
+    saveBtn.disabled = true;
+    try {
+      await fetch(`api/admin/users?id=${u.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceLimit: parseInt(limInput.value, 10) || 0 }),
+      });
+    } catch { /* re-render reflects state */ }
+    renderUsers();
+  };
+  actions.append(limInput, saveBtn);
+
+  // Delete (never your own admin account).
+  if (!u.self) {
+    const del = document.createElement("button");
+    del.className = "btn-danger";
+    del.type = "button";
+    del.textContent = "Delete";
+    del.onclick = async () => {
+      if (!confirm(`Permanently delete ${u.email} and ALL of their data? This cannot be undone.`)) return;
+      try { await fetch(`api/admin/users?id=${u.id}`, { method: "DELETE" }); } catch { /* re-render */ }
+      renderUsers();
+    };
+    actions.append(del);
+  }
+
+  row.append(main, actions);
+  return row;
+}
+
+function badge(cls, text) {
+  const b = document.createElement("span");
+  b.className = "user-badge " + cls;
+  b.textContent = text;
+  return b;
 }
 
 function esc(s) {

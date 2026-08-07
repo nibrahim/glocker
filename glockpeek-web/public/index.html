@@ -33,6 +33,7 @@
         <li><button data-view="sources">Sources</button></li>
         <li><button data-view="bypasses">Bypasses</button></li>
         <li id="nav-devices" hidden><button data-view="devices">Devices</button></li>
+        <li id="nav-users" hidden><button data-view="users">Users</button></li>
       </ul>
 
       <div class="sidebar-foot">
@@ -294,6 +295,17 @@
                 <button id="device-done" class="btn-ghost" type="button">Done</button>
               </div>
             </div>
+          </section>
+        </section>
+
+        <section class="view" data-view="users">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Accounts</h2>
+              <p class="panel-sub">Every glockpeek account. As admin you can set a device limit or delete an account and all of its data. <span id="user-count"></span></p>
+            </div>
+            <div id="user-list" class="user-list"></div>
+            <p id="user-error" class="login-error" hidden></p>
           </section>
         </section>
       </main>

@@ -42,9 +42,13 @@ func TestHandleKeywordsRequest(t *testing.T) {
 		t.Errorf("Expected 2 URL keywords, got %d", len(urlKeywords))
 	}
 
+	// 2 configured entries + the hardcoded hosted dashboard (always whitelisted).
 	whitelist := response["whitelist"].([]interface{})
-	if len(whitelist) != 2 {
-		t.Errorf("Expected 2 whitelist entries, got %d", len(whitelist))
+	if len(whitelist) != 3 {
+		t.Errorf("Expected 3 whitelist entries (2 configured + hardcoded dashboard), got %d", len(whitelist))
+	}
+	if whitelist[0] != hostedDashboardDomain {
+		t.Errorf("Expected %q to be whitelisted by default, got %v", hostedDashboardDomain, whitelist[0])
 	}
 }
 
@@ -457,5 +461,37 @@ func TestIsValidUnblockReason_WithConfig(t *testing.T) {
 
 	if IsValidUnblockReason(cfg, "gaming") {
 		t.Error("Should reject invalid reason 'gaming'")
+	}
+}
+
+func TestIsDashboardHost_HostedDashboardAlwaysExempt(t *testing.T) {
+	exempt := []string{
+		"glockerapp.com", "www.glockerapp.com", "GlockerApp.com", "peek.glockerapp.com",
+		"127.0.0.1", "localhost", "glocker.localhost",
+	}
+	for _, h := range exempt {
+		if !isDashboardHost(h) {
+			t.Errorf("isDashboardHost(%q) = false, want true (always exempt)", h)
+		}
+	}
+	for _, h := range []string{"glockerapp.com.evil.com", "notglockerapp.com", "example.com"} {
+		if isDashboardHost(h) {
+			t.Errorf("isDashboardHost(%q) = true, want false", h)
+		}
+	}
+}
+
+func TestEffectiveWhitelist_HardcodesDashboard(t *testing.T) {
+	cfg := &config.Config{}
+	if wl := effectiveWhitelist(cfg); len(wl) == 0 || wl[0] != hostedDashboardDomain {
+		t.Fatalf("effectiveWhitelist should always include %q, got %v", hostedDashboardDomain, wl)
+	}
+	cfg.ExtensionKeywords.Whitelist = []string{"example.com"}
+	wl := effectiveWhitelist(cfg)
+	if len(wl) != 2 || wl[0] != hostedDashboardDomain || wl[1] != "example.com" {
+		t.Errorf("effectiveWhitelist = %v, want [%s example.com]", wl, hostedDashboardDomain)
+	}
+	if len(cfg.ExtensionKeywords.Whitelist) != 1 {
+		t.Errorf("config whitelist was mutated: %v", cfg.ExtensionKeywords.Whitelist)
 	}
 }

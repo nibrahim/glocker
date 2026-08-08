@@ -1,0 +1,15 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+override.tf
+override.tf.json
+
+# Ansible — real inventory/secrets stay local
+ansible/inventory.ini
+ansible/group_vars/all.yml
+*.retry
+.vault_pass

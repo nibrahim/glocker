@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>glocker — a focus tool I built for myself</title>
+<meta name="description" content="Why I built glocker: an honest account of blocking distractions on Linux, the compromises root forces, what it actually does, and the pieces it's made of." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23d98a2b'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23fff7ea'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem("glocker-theme");
+      var t = saved || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", t);
+    } catch (e) {}
+  })();
+</script>
+<style>
+  :root {
+    --radius: 16px;
+    --edge: 999px;
+    --display: "Newsreader", Georgia, serif;
+    --display-weight: 500;
+    --display-spacing: -0.01em;
+    --body: "Nunito Sans", system-ui, sans-serif;
+
+    --bg: #f4ecdd;
+    --surface: #fffaf0;
+    --ink: #33281d;
+    --ink-soft: #6d5f4f;
+    --accent: #cf7f24;
+    --line: #e5d7bf;
+    --on-accent: #fffaf0;
+    --grain-opacity: 0.42;
+  }
+  :root[data-theme="dark"] {
+    --bg: #16120c;
+    --surface: #1f1a12;
+    --ink: #f1e8d9;
+    --ink-soft: #ab9f8c;
+    --accent: #e6a13a;
+    --line: #302a1f;
+    --on-accent: #16120c;
+    --grain-opacity: 0.12;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--body); font-size: 18px; line-height: 1.7;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+    transition: background-color 0.6s ease, color 0.6s ease;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(1100px 560px at 82% -10%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 60%),
+      radial-gradient(820px 460px at -6% 106%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 55%);
+    opacity: var(--grain-opacity); transition: opacity 0.6s ease;
+  }
+  .wrap { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 0 26px; }
+
+  /* Materialise effect (headings only): each letter forms out of a soft,
+     accent-tinted blur and blooms into place. */
+  .morph .ch.scramble { opacity: 0.4; filter: blur(1.4px); color: var(--accent); }
+  .morph .ch.on { animation: chBloom 460ms ease-out both; }
+  @keyframes chBloom {
+    0%   { opacity: 0.15; filter: blur(5px); color: var(--accent); text-shadow: 0 0 14px var(--accent); }
+    55%  { opacity: 1; text-shadow: 0 0 7px color-mix(in srgb, var(--accent) 55%, transparent); }
+    100% { opacity: 1; filter: blur(0); color: inherit; text-shadow: none; }
+  }
+
+  /* ── Top bar ────────────────────────────────────────── */
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 26px 0 12px; }
+  .wordmark { display: inline-flex; align-items: center; gap: 11px; font-family: var(--display);
+    font-weight: 600; font-size: 22px; letter-spacing: var(--display-spacing); color: var(--ink); text-decoration: none; }
+  .mark { width: 19px; height: 19px; border-radius: 50%; background: var(--accent);
+    box-shadow: inset 0 0 0 5px var(--surface); transition: background 0.6s ease; }
+  .shifter { display: inline-flex; gap: 5px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--edge); padding: 5px; }
+  .shifter button { font-family: var(--body); font-weight: 700; font-size: 12.5px; border: none; cursor: pointer;
+    padding: 7px 14px; border-radius: var(--edge); background: transparent; color: var(--ink-soft);
+    transition: color 0.2s ease, background 0.2s ease; }
+  .shifter button:hover { color: var(--ink); }
+  .shifter button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+
+  /* ── Long-form article ──────────────────────────────── */
+  .hero { padding: 36px 0 6px; }
+  .eyebrow { font-family: var(--body); font-weight: 800; font-size: 13px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 16px; }
+  h1 { font-family: var(--display); font-weight: var(--display-weight); letter-spacing: var(--display-spacing);
+    font-size: clamp(36px, 5.6vw, 56px); line-height: 1.06; margin: 0 0 20px; }
+  .lead { font-size: 20px; color: var(--ink-soft); margin: 0; }
+
+  section.chapter { padding: 26px 0; }
+  h2 { font-family: var(--display); font-weight: var(--display-weight); letter-spacing: var(--display-spacing);
+    font-size: clamp(24px, 3.6vw, 32px); line-height: 1.14; margin: 0 0 14px; }
+  .chapter p { margin: 0 0 14px; color: var(--ink); }
+  .chapter p:last-child { margin-bottom: 0; }
+  .chapter p.muted { color: var(--ink-soft); }
+  strong { font-weight: 800; color: var(--ink); }
+  em.term { font-style: normal; color: var(--accent); font-weight: 700; }
+  a.inline { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+
+  /* Spec list (mechanisms, pieces) */
+  .spec { display: flex; flex-direction: column; margin: 26px 0 0; }
+  .row { display: grid; grid-template-columns: 190px 1fr; gap: 24px; padding: 15px 2px; border-top: 1px solid var(--line); }
+  .row:last-child { border-bottom: 1px solid var(--line); }
+  .row .k { font-family: var(--display); font-weight: var(--display-weight); font-size: 20px; line-height: 1.2;
+    color: var(--ink); margin: 0; letter-spacing: var(--display-spacing); }
+  .row .k code { font-family: var(--body); font-size: 17px; font-weight: 800; }
+  .row .v { font-size: 16.5px; color: var(--ink-soft); margin: 0; }
+
+  /* Get-it options */
+  .plans { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 6px; }
+  .plan { border: 1px solid var(--line); border-radius: var(--radius); padding: 22px 24px; background: var(--surface);
+    display: flex; flex-direction: column; transition: background 0.6s ease, border-color 0.6s ease; }
+  .plan--paid { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+  .plan-k { font-family: var(--display); font-weight: var(--display-weight); font-size: 20px; margin: 0 0 8px; color: var(--ink); }
+  .plan-k .tag { font-family: var(--body); font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--on-accent); background: var(--accent); padding: 2px 8px; border-radius: 999px; vertical-align: middle; margin-left: 8px; }
+  .plan-v { font-size: 15.5px; color: var(--ink-soft); margin: 0 0 14px; }
+  .cmd { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 13px; line-height: 1.6;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; margin: 0 0 14px; color: var(--ink); overflow-x: auto; }
+  .plan-foot { margin-top: auto; }
+  .plan-link { color: var(--accent); font-weight: 800; font-size: 15px; text-decoration: none; }
+  .plan-link:hover { text-decoration: underline; }
+  .plan-note { color: var(--ink-soft); font-size: 14px; }
+  @media (max-width: 680px) { .plans { grid-template-columns: 1fr; } }
+
+  .pull { border-left: 4px solid var(--accent); background: var(--surface); border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 26px 30px; margin: 30px 0; transition: background 0.6s ease; }
+  .pull p { margin: 0; font-family: var(--display); font-style: italic; font-size: 22px; line-height: 1.35; color: var(--ink); }
+
+  footer { padding: 44px 0 60px; border-top: 1px solid var(--line); margin-top: 24px; }
+  .foot-row { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; justify-content: space-between; }
+  .foot-note { color: var(--ink-soft); font-size: 15px; margin: 0; }
+  .foot-links { display: flex; gap: 20px; }
+  .foot-links a { color: var(--ink); text-decoration: none; font-weight: 700; font-size: 15px; }
+  .foot-links a:hover { color: var(--accent); }
+
+  a:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+  @media (max-width: 680px) { .row { grid-template-columns: 1fr; gap: 6px; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar">
+      <a class="wordmark" href="#top"><span class="mark" aria-hidden="true"></span>glocker</a>
+      <div class="shifter" role="group" aria-label="Colour theme">
+        <button type="button" data-set="light" aria-pressed="true">Light</button>
+        <button type="button" data-set="dark" aria-pressed="false">Dark</button>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <p class="eyebrow"><span class="morph" data-light="A focus tool I built for myself" data-dark="Built so I couldn't let myself off">A focus tool I built for myself</span></p>
+        <h1><span class="morph"
+            data-light="Something that makes the wrong choice hard."
+            data-dark="You installed this for a reason."
+          >Something that makes the wrong choice hard.</span></h1>
+        <p class="lead"><span class="morph"
+            data-light="Glocker blocks distracting sites and apps on Linux. It can't truly stop you — you own the machine — so it makes slipping out slow and deliberate instead."
+            data-dark="Glocker blocks distracting sites and apps on Linux. It can't truly stop you — you own the machine — so it makes slipping out slow, deliberate, and impossible to do on autopilot."
+          >Glocker blocks distracting sites and apps on Linux. It can't truly stop you — you own the machine — so it makes slipping out slow and deliberate instead.</span></p>
+      </section>
+
+      <section class="chapter">
+        <h2><span class="morph" data-light="Why it exists" data-dark="Why willpower wasn't enough">Why it exists</span></h2>
+        <p>Nothing else fit — closed, commercial, Mac-first, no Firefox. And there's a moment, in a fog of distraction, where I make the wrong call without noticing. I wanted something standing in that moment.</p>
+        <p class="muted">On Linux you have root, so nothing can truly lock you out — the usual <code>/etc/hosts</code> hacks and cron scripts undo in seconds. So glocker doesn't build a cage. It just adds enough friction to outlast the fog.</p>
+      </section>
+
+      <section class="chapter">
+        <h2><span class="morph" data-light="What it does" data-dark="What it does to you">What it does</span></h2>
+        <p><span class="morph" data-light="Everything runs on time windows you set, and the layers overlap on purpose." data-dark="Everything runs on your schedule, and the layers overlap so no single one is your way out.">Everything runs on time windows you set, and the layers overlap on purpose.</span></p>
+        <div class="spec">
+          <div class="row"><p class="k">Sites &amp; domains</p><p class="v">Sent nowhere in <code>/etc/hosts</code> (plus iptables), the file made immutable so a quick edit won't stick.</p></div>
+          <div class="row"><p class="k">Programs</p><p class="v">Named apps close the moment they launch in a blocked window.</p></div>
+          <div class="row"><p class="k">Firefox extension</p><p class="v">Watches page content for your keywords — the part host-blocking can't see.</p></div>
+          <div class="row"><p class="k">Screen lock</p><p class="v">Too many hits in a window and the screen locks.</p></div>
+          <div class="row"><p class="k">Mindful uninstall</p><p class="v">A slow, letter-by-letter typing gate that resets on a mistake. A decision, not a reflex.</p></div>
+          <div class="row"><p class="k">Accountability</p><p class="v">Slips can email someone you chose.</p></div>
+        </div>
+        <p style="margin-top:22px" class="muted">Room for real life: unblock a domain for a set time, or grant a sometimes-needed app one hour a day — both with a logged reason, not a hidden hack.</p>
+      </section>
+
+      <section class="chapter">
+        <h2><span class="morph" data-light="See the picture: glockpeek" data-dark="See the receipts: glockpeek">See the picture: glockpeek</span></h2>
+        <p><em class="term">glockpeek</em> is a local dashboard that reads it all back — violations, unblocks, and where your hours actually went. Your data stays on your machine.</p>
+      </section>
+
+      <section class="chapter">
+        <h2><span class="morph"
+            data-light="Why it's hard to switch off"
+            data-dark="Why you can't just switch it off"
+          >Why it's hard to switch off</span></h2>
+        <p>It runs as a privileged service that holds your <code>sudo</code> during work hours and makes its own files immutable — so backing out means waiting for the window or dropping to real root. And it's not one program but four that watch each other:</p>
+        <div class="spec">
+          <div class="row"><p class="k"><code>glocker</code></p><p class="v">The daemon — does the blocking and records everything locally.</p></div>
+          <div class="row"><p class="k"><code>glockpeek</code></p><p class="v">The dashboard — reads the records back.</p></div>
+          <div class="row"><p class="k"><code>glockdoc</code></p><p class="v">The watchdog — checks glocker's alive, and survives an uninstall so a silent teardown still shows.</p></div>
+          <div class="row"><p class="k"><code>glocklock</code></p><p class="v">The screen locker — behind the violation lock and the mindful gate.</p></div>
+        </div>
+      </section>
+
+      <section class="chapter">
+        <h2><span class="morph" data-light="Getting it" data-dark="Lock yourself in">Getting it</span></h2>
+        <div class="plans">
+          <div class="plan">
+            <p class="plan-k">Free &amp; open source</p>
+            <p class="plan-v">Everything's on GitHub — agent, dashboard, all of it. Edit one config file, then one command builds it, pulls the blocklists from various curated sources, and installs the lot.</p>
+            <pre class="cmd">make full-install</pre>
+            <p class="plan-foot"><a class="plan-link" href="https://github.com/nibrahim/glocker/blob/master/INSTALL.md">Setup guide →</a><a class="plan-link" href="https://github.com/nibrahim/glocker" style="margin-left:18px">GitHub →</a></p>
+          </div>
+          <div class="plan plan--paid">
+            <p class="plan-k">Hosted <span class="tag">paid</span></p>
+            <p class="plan-v">Rather not run a server? Install just the agent and let the dashboard and accountability email live on <strong>glocker.com</strong> — kept running for a small subscription.</p>
+            <p class="plan-foot"><span class="plan-note">Coming soon.</span></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="chapter">
+        <h2><span class="morph" data-light="It worked for me" data-dark="It works because I can't cheat it">It worked for me</span></h2>
+        <p><span class="morph"
+            data-light="This isn't a product — it's what I built because nothing fit, and it's what keeps me at my desk. If your setup looks like mine (Linux, Firefox, root you can't help having), it might work for you too. Open source; bend it to your own bad habits."
+            data-dark="This isn't a product — it's what I built because I couldn't trust myself, and it's the only thing that's kept me at my desk. If your setup looks like mine (Linux, Firefox, root you can't help having), it'll hold you too. Open source; bend it to your own bad habits."
+          >This isn't a product — it's what I built because nothing fit, and it's what keeps me at my desk. If your setup looks like mine (Linux, Firefox, root you can't help having), it might work for you too. Open source; bend it to your own bad habits.</span></p>
+      </section>
+    </main>
+
+    <footer>
+      <div class="foot-row">
+        <p class="foot-note">Built by its own worst-case user. Open source, for Linux.</p>
+        <nav class="foot-links">
+          <a href="https://github.com/nibrahim/glocker">GitHub</a>
+          <a href="#top">Back to top</a>
+        </nav>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var buttons = document.querySelectorAll(".shifter button");
+      var morphs = Array.prototype.slice.call(document.querySelectorAll(".morph"));
+      var GLYPHS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+      var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      var LOCK = { " ": 1, "—": 1, "&": 1, ":": 1 };
+
+      // Capture each element's default (light) text/markup once. A few carry
+      // data-light / data-dark variants so a couple of lines rewrite per theme.
+      morphs.forEach(function (el) { el._text = el.textContent; el._html = el.innerHTML; });
+
+      function targetFor(el, theme) {
+        return el.dataset[theme] != null ? el.dataset[theme] : el._text;
+      }
+      function finalize(el, theme) {
+        if (el.dataset[theme] != null) el.textContent = el.dataset[theme];
+        else el.innerHTML = el._html;
+      }
+
+      function scramble(el, theme, delay) {
+        var target = targetFor(el, theme), chars = target.split("");
+        el.textContent = "";
+        var spans = chars.map(function (ch) {
+          var s = document.createElement("span");
+          s.className = "ch"; s.textContent = ch;
+          if (!LOCK[ch]) s.classList.add("scramble");
+          el.appendChild(s); return s;
+        });
+        var settled = chars.map(function (ch) { return !!LOCK[ch]; });
+        var threshold = chars.map(function (ch, i) {
+          return LOCK[ch] ? 0 : Math.min(0.97, (i / chars.length) * 0.5 + Math.random() * 0.5);
+        });
+        var start = null, dur = 620;
+        function step(ts) {
+          if (start === null) start = ts;
+          var p = Math.min(1, (ts - start) / dur);
+          for (var i = 0; i < chars.length; i++) {
+            if (settled[i]) continue;
+            if (p >= threshold[i]) {
+              settled[i] = true; spans[i].textContent = chars[i];
+              spans[i].classList.remove("scramble"); spans[i].classList.add("on");
+            } else {
+              spans[i].textContent = GLYPHS.charAt((Math.random() * GLYPHS.length) | 0);
+            }
+          }
+          if (p < 1) requestAnimationFrame(step);
+          else setTimeout(function () { finalize(el, theme); }, 460);
+        }
+        setTimeout(function () { requestAnimationFrame(step); }, delay);
+      }
+
+      function materialise(theme) {
+        morphs.forEach(function (el, i) {
+          if (reduce) { finalize(el, theme); return; }
+          scramble(el, theme, i * 34);
+        });
+      }
+
+      function setTheme(theme) {
+        root.setAttribute("data-theme", theme);
+        buttons.forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.set === theme)); });
+        try { localStorage.setItem("glocker-theme", theme); } catch (e) {}
+      }
+
+      buttons.forEach(function (b) {
+        b.addEventListener("click", function () {
+          if (root.getAttribute("data-theme") === b.dataset.set) return;
+          setTheme(b.dataset.set);
+          materialise(b.dataset.set); // re-form, rewriting the varied lines
+        });
+      });
+
+      var t0 = root.getAttribute("data-theme") || "light";
+      setTheme(t0);
+      materialise(t0); // entrance
+    })();
+  </script>
+</body>
+</html>

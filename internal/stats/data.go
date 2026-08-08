@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"glocker/internal/reports"
+	"glocker/internal/store"
 )
 
 // minUnmanagedDuration matches cmd/glockpeek and lib/parse.js: shorter
@@ -70,10 +71,11 @@ type dataResponse struct {
 	Usage      []usageSample   `json:"usage"`
 }
 
-// buildData assembles the full parsed history the dashboard renders. Times are
-// emitted as epoch milliseconds and every slice is sorted ascending, matching
-// glockpeek-web/lib/parse.js exactly.
-func buildData(p logPaths, now time.Time) dataResponse {
+// buildData assembles the full history the dashboard renders, reading from the
+// glockpeek DB (populated by the glocker syncer). Times are epoch milliseconds
+// and every slice is sorted ascending, matching glockpeek-web/lib/parse.js.
+// Sources reflect whether each table has any rows.
+func buildData(db *store.DB, userID uint, now time.Time) dataResponse {
 	resp := dataResponse{
 		Now:        now.UnixMilli(),
 		Violations: []violationJSON{},
@@ -83,14 +85,17 @@ func buildData(p logPaths, now time.Time) dataResponse {
 		Downtime:   []downtimeJSON{},
 		Usage:      []usageSample{},
 	}
+	if db == nil {
+		return resp
+	}
 
-	if entries, err := reports.ParseReportsLog(p.reports); err == nil {
-		resp.Sources.Reports = true
-		// Exclude violations the user marked as false positives (non-destructive:
-		// the raw log is untouched; this overlay just hides them everywhere).
-		ignored := loadIgnoredSet(p.ignored)
-		for _, e := range entries {
-			if ignored[ignoreKey(e.Timestamp.UnixMilli(), e.Keyword, e.URL)] {
+	// Violations, minus the ones marked false-positive (non-destructive overlay:
+	// the stored rows are untouched; this just hides them from the response).
+	if rows, err := db.Violations(userID); err == nil {
+		resp.Sources.Reports = len(rows) > 0
+		ignored := ignoredSet(db, userID)
+		for _, e := range rows {
+			if ignored[ignoreKey(e.TS, e.Keyword, e.URL)] {
 				continue
 			}
 			domain := e.Domain
@@ -98,44 +103,40 @@ func buildData(p logPaths, now time.Time) dataResponse {
 				domain = hostFromURL(e.URL)
 			}
 			resp.Violations = append(resp.Violations, violationJSON{
-				TS: e.Timestamp.UnixMilli(), Type: string(e.Type),
-				Keyword: e.Keyword, URL: e.URL, Domain: domain,
+				TS: e.TS, Type: e.Type, Keyword: e.Keyword, URL: e.URL, Domain: domain,
 			})
 		}
-		sort.Slice(resp.Violations, func(i, j int) bool { return resp.Violations[i].TS < resp.Violations[j].TS })
 	}
 
-	if entries, err := reports.ParseUnblocksLog(p.unblocks); err == nil {
-		resp.Sources.Unblocks = true
-		for _, e := range entries {
-			if e.UnblockTime.IsZero() {
-				continue
-			}
-			u := unblockJSON{TS: e.UnblockTime.UnixMilli(), Reason: e.Reason, Domain: e.Domain}
-			if !e.RestoreTime.IsZero() {
-				ms := e.RestoreTime.UnixMilli()
-				u.RestoreTS = &ms
-			}
-			resp.Unblocks = append(resp.Unblocks, u)
+	if rows, err := db.Unblocks(userID); err == nil {
+		resp.Sources.Unblocks = len(rows) > 0
+		for _, e := range rows {
+			resp.Unblocks = append(resp.Unblocks, unblockJSON{
+				TS: e.TS, RestoreTS: e.RestoreTS, Reason: e.Reason, Domain: e.Domain,
+			})
 		}
-		sort.Slice(resp.Unblocks, func(i, j int) bool { return resp.Unblocks[i].TS < resp.Unblocks[j].TS })
 	}
 
 	var lifecycle []reports.LifecycleEntry
-	if entries, err := reports.ParseLifecycleLog(p.lifecycle); err == nil {
-		resp.Sources.Lifecycle = true
-		lifecycle = entries
-		for _, e := range entries {
+	if rows, err := db.LifecycleEvents(userID); err == nil {
+		resp.Sources.Lifecycle = len(rows) > 0
+		for _, e := range rows {
 			resp.Lifecycle = append(resp.Lifecycle, lifecycleJSON{
-				TS: e.Timestamp.UnixMilli(), Type: e.Type, Reason: e.Reason, Note: e.Note,
+				TS: e.TS, Type: e.Type, Reason: e.Reason, Note: e.Note,
+			})
+			lifecycle = append(lifecycle, reports.LifecycleEntry{
+				Timestamp: time.UnixMilli(e.TS), Type: e.Type, Reason: e.Reason, Note: e.Note,
 			})
 		}
-		sort.Slice(resp.Lifecycle, func(i, j int) bool { return resp.Lifecycle[i].TS < resp.Lifecycle[j].TS })
 	}
 	resp.Unmanaged = unmanagedPeriods(lifecycle, now)
 
-	if samples, err := reports.ParseHeartbeatLog(p.heartbeat); err == nil {
-		resp.Sources.Heartbeat = true
+	if rows, err := db.Heartbeats(userID); err == nil {
+		resp.Sources.Heartbeat = len(rows) > 0
+		samples := make([]reports.HeartbeatSample, 0, len(rows))
+		for _, h := range rows {
+			samples = append(samples, reports.HeartbeatSample{Timestamp: time.UnixMilli(h.TS), Alive: h.Alive})
+		}
 		for _, d := range reports.DowntimePeriods(samples, now, minUnmanagedDuration) {
 			resp.Downtime = append(resp.Downtime, downtimeJSON{
 				Start: d.Start.UnixMilli(), End: d.End.UnixMilli(), Open: d.Open,
@@ -143,12 +144,22 @@ func buildData(p logPaths, now time.Time) dataResponse {
 		}
 	}
 
-	if samples, ok, _ := readUsageLog(p.usage); ok {
-		resp.Sources.Usage = true
-		if samples != nil {
-			resp.Usage = samples
+	if rows, err := db.UsageSamples(userID); err == nil {
+		resp.Sources.Usage = len(rows) > 0
+		for _, s := range rows {
+			us := usageSample{TS: s.TS, IdleMS: s.IdleMS, WindowCount: s.WindowCount}
+			if s.ActiveClass != "" || s.ActiveInstance != "" || s.ActiveTitle != "" {
+				us.Active = &usageActive{Class: s.ActiveClass, Instance: s.ActiveInstance, Title: s.ActiveTitle}
+			}
+			resp.Usage = append(resp.Usage, us)
 		}
 	}
+
+	// Rows come back TS-ascending from the store, but keep the guarantee explicit.
+	sort.Slice(resp.Violations, func(i, j int) bool { return resp.Violations[i].TS < resp.Violations[j].TS })
+	sort.Slice(resp.Unblocks, func(i, j int) bool { return resp.Unblocks[i].TS < resp.Unblocks[j].TS })
+	sort.Slice(resp.Lifecycle, func(i, j int) bool { return resp.Lifecycle[i].TS < resp.Lifecycle[j].TS })
+	sort.Slice(resp.Usage, func(i, j int) bool { return resp.Usage[i].TS < resp.Usage[j].TS })
 
 	return resp
 }

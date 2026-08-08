@@ -8,6 +8,22 @@ const (
 	GlockdocInstallPath  = "/usr/local/bin/glockdoc"
 	HeartbeatCronPath    = "/etc/cron.d/glocker-doc"
 	GlockerConfigFile    = "/etc/glocker/config.yaml"
+
+	// DefaultDatabaseDriver / DefaultDatabaseDSN are glockpeek's store defaults
+	// when config.Database is unset. sqlite file under /var/lib (mutable state,
+	// not /etc). Swap to "postgres" + a connection-string DSN for a hosted instance.
+	DefaultDatabaseDriver = "sqlite"
+	DefaultDatabaseDSN    = "/var/lib/glocker/glockpeek.db"
+
+	// GlockpeekMode values (see Config.GlockpeekMode). Empty defaults to local.
+	GlockpeekModeLocal  = "local"
+	GlockpeekModeHosted = "hosted"
+
+	// DefaultGlockpeekURL is where the syncer ships records when Sync.GlockpeekURL
+	// is unset — the local glockpeek on its default port.
+	DefaultGlockpeekURL = "http://127.0.0.1:4317"
+	// DefaultSyncIntervalSeconds is the incremental sync cadence default.
+	DefaultSyncIntervalSeconds = 300
 	HostsMarkerStart     = "### GLOCKER START ###"
 	SudoersPath          = "/etc/sudoers"
 	SudoersBackup        = "/etc/sudoers.glocker.backup"
@@ -51,6 +67,18 @@ type SudoersConfig struct {
 	AllowedSudoersLine string       `yaml:"allowed_sudoers_line"`
 	BlockedSudoersLine string       `yaml:"blocked_sudoers_line"`
 	AllowWindows       []TimeWindow `yaml:"allow_windows"`
+}
+
+// MailConfig configures outbound transactional email (Mailgun-backed) — used by
+// glockpeek for account-verification mail. Disabled unless Enabled with a domain
+// + api key; From defaults to noreply@<domain>. Unlike the daemon's legacy
+// accountability mail, the domain here is configurable (not hardcoded).
+type MailConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Domain  string `yaml:"domain"`  // Mailgun sending domain, e.g. mg.glockerapp.com
+	APIKey  string `yaml:"api_key"`
+	From    string `yaml:"from"`    // e.g. noreply@mg.glockerapp.com
+	Region  string `yaml:"region"`  // "us" (default) or "eu"
 }
 
 // AccountabilityConfig configures email notifications via Mailgun.
@@ -246,4 +274,63 @@ type Config struct {
 	PanicCommand            string                  `yaml:"panic_command"`
 	Dev                     bool                    `yaml:"dev"`
 	LogLevel                string                  `yaml:"log_level"`
+	// GlockpeekListen is the address the standalone glockpeek dashboard process
+	// serves on (localhost only). Empty falls back to the built-in default.
+	GlockpeekListen string `yaml:"glockpeek_listen"`
+	// Database configures glockpeek's store. Dialect-agnostic (via GORM): sqlite
+	// locally, postgres for a hosted instance. Empty fields fall back to defaults.
+	Database DatabaseConfig `yaml:"database"`
+	// GlockpeekSecureCookies marks the dashboard's session cookie Secure. Set
+	// true for a hosted instance served over HTTPS (including behind a
+	// TLS-terminating proxy). Leave false for plain-http local use.
+	GlockpeekSecureCookies bool `yaml:"glockpeek_secure_cookies"`
+	// GlockpeekMode selects how the dashboard runs. Default GlockpeekModeLocal:
+	//   local  - personal desktop. Binds 127.0.0.1 only (unreachable from other
+	//            hosts), no login/registration, and the ingest endpoint is open
+	//            to same-machine clients (no token).
+	//   hosted - shared/remote instance: per-account logins + ingest tokens +
+	//            isolation (see GlockpeekSecureCookies). Bind address honored as
+	//            configured. [not the focus yet.]
+	GlockpeekMode string `yaml:"glockpeek_mode"`
+	// Sync configures the agent-side syncer (a goroutine in the daemon) that
+	// ships local /var records to a glockpeek instance. Local-first: recording
+	// and enforcement never depend on it.
+	Sync SyncConfig `yaml:"sync"`
+	// Mail is glockpeek's outbound transactional email (account verification).
+	Mail MailConfig `yaml:"mail"`
+	// GlockpeekAppURL is glockpeek's own public base URL (e.g.
+	// https://glockerapp.com), used to build links in emails (verification).
+	// No trailing slash. Server-side (glockpeek), like Mail.
+	GlockpeekAppURL string `yaml:"app_url"`
+	// GlockpeekAdminEmail names the account granted admin powers (user management
+	// in the dashboard). Hosted mode only; empty means no admin account.
+	GlockpeekAdminEmail string `yaml:"admin_email"`
+}
+
+// SyncConfig controls the glocker->glockpeek syncer. The agent keeps recording
+// to /var files as the source of truth; the syncer periodically pushes new
+// records to glockpeek's ingest API (one-shot backfill at startup, then
+// incremental). Idempotent, so it never loses or double-counts across retries.
+type SyncConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// GlockpeekURL is the base URL of the glockpeek instance
+	// (default DefaultGlockpeekURL). Point it at a remote host to sync off-box.
+	GlockpeekURL string `yaml:"glockpeek_url"`
+	// Token is the ingest bearer token; required only when the target glockpeek
+	// is in hosted mode. Empty for a local instance (open ingest).
+	Token string `yaml:"token"`
+	// IntervalSeconds is the incremental sync cadence (default
+	// DefaultSyncIntervalSeconds).
+	IntervalSeconds int `yaml:"interval_seconds"`
+}
+
+// DatabaseConfig selects glockpeek's DB backend. The abstraction is GORM, so
+// switching from sqlite to postgres is just a driver + DSN change here — no
+// query rewrites. Consumed by the standalone glockpeek process, not the daemon.
+type DatabaseConfig struct {
+	// Driver is "sqlite" (default) or "postgres".
+	Driver string `yaml:"driver"`
+	// DSN is the data source. For sqlite it's a file path
+	// (default DefaultDatabaseDSN); for postgres a libpq/pgx connection string.
+	DSN string `yaml:"dsn"`
 }

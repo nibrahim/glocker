@@ -27,6 +27,8 @@ const VIEW_TITLES = {
   usage: "Usage",
   sources: "Sources",
   bypasses: "Bypasses",
+  devices: "Devices",
+  users: "Admin",
 };
 
 // Cookie key for the persisted time window. Declared here (before init runs) so
@@ -35,11 +37,147 @@ const WINDOW_COOKIE = "gp_window";
 
 init();
 
+// init gates on authentication: if there's no valid session, show the login
+// screen; otherwise boot the dashboard. Login success calls bootDashboard()
+// directly (no full reload).
 async function init() {
+  let me = null;
+  try {
+    const res = await fetch("api/me");
+    if (res.ok) me = await res.json();
+  } catch { /* network error -> treat as unauthenticated */ }
+  if (!me) {
+    showLogin();
+    return;
+  }
+  bootDashboard(me);
+}
+
+// showLogin reveals the login form and wires submit -> POST api/login.
+function showLogin() {
+  document.getElementById("loading").hidden = true;
+  document.getElementById("dash").hidden = true;
+  const screen = document.getElementById("login");
+  screen.hidden = false;
+  const form = document.getElementById("login-form");
+  const errEl = document.getElementById("login-error");
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    errEl.hidden = true;
+    const email = document.getElementById("login-user").value;
+    const password = document.getElementById("login-pass").value;
+    let res;
+    try {
+      res = await fetch("api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch (err) {
+      errEl.textContent = `Could not reach the server: ${err.message}`;
+      errEl.hidden = false;
+      return;
+    }
+    if (!res.ok) {
+      errEl.textContent = res.status === 401 ? "Invalid email or password" : `Sign-in failed (${res.status})`;
+      errEl.hidden = false;
+      return;
+    }
+    document.getElementById("login-pass").value = "";
+    screen.hidden = true;
+    document.getElementById("loading").hidden = false;
+    bootDashboard({ auth: true }); // login only happens when auth is enabled
+  };
+  setupRegister();
+}
+
+// setupRegister wires the sign-up card: the login<->register toggles and the
+// POST api/register submit. Registration requires a verified email before any
+// session exists, so success shows a "check your email" note rather than
+// signing the user in.
+function setupRegister() {
+  const loginForm = document.getElementById("login-form");
+  const regForm = document.getElementById("register-form");
+  const loginErr = document.getElementById("login-error");
+  const regErr = document.getElementById("register-error");
+  const regNote = document.getElementById("register-note");
+
+  const show = (which) => {
+    loginErr.hidden = true;
+    regErr.hidden = true;
+    loginForm.hidden = which !== "login";
+    regForm.hidden = which !== "register";
+  };
+  document.getElementById("show-register").onclick = (e) => { e.preventDefault(); show("register"); };
+  document.getElementById("show-login").onclick = (e) => { e.preventDefault(); show("login"); };
+
+  regForm.onsubmit = async (e) => {
+    e.preventDefault();
+    regErr.hidden = true;
+    regNote.hidden = true;
+    const email = document.getElementById("reg-user").value;
+    const password = document.getElementById("reg-pass").value;
+    const confirm = document.getElementById("reg-pass2").value;
+    if (password !== confirm) {
+      regErr.textContent = "Passwords do not match";
+      regErr.hidden = false;
+      return;
+    }
+    const submit = document.getElementById("register-submit");
+    submit.disabled = true;
+    let res;
+    try {
+      res = await fetch("api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch (err) {
+      regErr.textContent = `Could not reach the server: ${err.message}`;
+      regErr.hidden = false;
+      submit.disabled = false;
+      return;
+    }
+    if (!res.ok) {
+      const msg = {
+        400: "Enter a valid email and a password of at least 8 characters",
+        404: "Sign-ups are not enabled on this instance",
+        409: "That email is already registered",
+        429: "Too many attempts. Please wait a few minutes and try again",
+        502: "Could not send the verification email; please try again",
+        503: "Sign-ups are not available yet (email is not configured)",
+      }[res.status] || `Sign-up failed (${res.status})`;
+      regErr.textContent = msg;
+      regErr.hidden = false;
+      submit.disabled = false;
+      return;
+    }
+    // Success: no session yet — the account activates from the emailed link.
+    // Collapse the form to a confirmation; the "Sign in" toggle stays available.
+    regForm.querySelectorAll("label, #register-submit").forEach((el) => { el.hidden = true; });
+    regNote.textContent = "";
+    regNote.append("Account created. We sent a verification link to ");
+    const strong = document.createElement("strong");
+    strong.textContent = email;
+    regNote.append(strong, " — open it to activate your account, then sign in.");
+    regNote.hidden = false;
+  };
+}
+
+async function bootDashboard(me) {
+  // The login path calls us with a partial {auth:true}; fetch the full identity
+  // (email/admin) so admin-only UI can gate on it without a page reload.
+  if (me && me.admin === undefined) {
+    try {
+      const r = await fetch("api/me");
+      if (r.ok) me = await r.json();
+    } catch { /* keep partial me */ }
+  }
   restoreWindow(); // apply the saved range/offset before building controls
   buildRangeButtons();
   try {
     const res = await fetch("api/data");
+    if (res.status === 401) { showLogin(); return; }
     if (!res.ok) throw new Error(`server returned ${res.status}`);
     state.data = await res.json();
   } catch (err) {
@@ -64,6 +202,26 @@ async function init() {
 
   document.getElementById("loading").hidden = true;
   document.getElementById("dash").hidden = false;
+
+  // Data-sync panel (last daemon push). Refresh periodically so "N ago" stays
+  // current without a reload.
+  renderSync();
+  setInterval(renderSync, 30000);
+
+  // Sign-out + device management: only meaningful when auth is on (single-user
+  // mode has no login and ingest is tokenless).
+  if (me && me.auth) {
+    const logoutBtn = document.getElementById("logout-btn");
+    logoutBtn.hidden = false;
+    logoutBtn.onclick = async () => {
+      try { await fetch("api/logout", { method: "POST" }); } catch { /* fall through */ }
+      location.reload();
+    };
+    document.getElementById("nav-devices").hidden = false;
+    setupDevices();
+    // Admin-only: the accounts panel.
+    if (me.admin) document.getElementById("nav-users").hidden = false;
+  }
 
   // Delegated click: the calendar is re-rendered on every range change, but the
   // container element is stable so one listener suffices. Click (not hover) so
@@ -137,6 +295,8 @@ function setView(view) {
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === view));
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   document.getElementById("view-title").textContent = VIEW_TITLES[view] || view;
+  if (view === "devices") renderDevices();
+  if (view === "users") renderUsers();
   // Charts built while their view was display:none have zero size; fix on reveal.
   requestAnimationFrame(() => {
     for (const c of Object.values(state.charts)) {
@@ -2007,6 +2167,271 @@ function fmtDur(ms) {
   return `${h}h ${m}m`;
 }
 
+// ── Admin: accounts panel (only mounted for the configured admin) ───────
+async function renderUsers() {
+  const listEl = document.getElementById("user-list");
+  const countEl = document.getElementById("user-count");
+  const errEl = document.getElementById("user-error");
+  errEl.hidden = true;
+  let data;
+  try {
+    const res = await fetch("api/admin/users");
+    if (!res.ok) throw new Error(res.status);
+    data = await res.json();
+  } catch (e) {
+    errEl.textContent = `Could not load accounts (${e.message})`;
+    errEl.hidden = false;
+    return;
+  }
+  const users = data.users || [];
+  const totals = data.totals || {};
+  const recs = totals.records ?? users.reduce((s, u) => s + (u.records || 0), 0);
+  countEl.textContent = `${users.length} account${users.length === 1 ? "" : "s"} · ${recs.toLocaleString()} total records.`;
+  listEl.textContent = "";
+  for (const u of users) listEl.append(userRow(u));
+}
+
+function userRow(u) {
+  const row = document.createElement("div");
+  row.className = "user-row";
+
+  const main = document.createElement("div");
+  main.className = "user-main";
+  const email = document.createElement("span");
+  email.className = "user-email";
+  email.textContent = u.email;
+  if (u.isAdmin) email.append(badge("admin", "admin"));
+  if (!u.verified) email.append(badge("unverified", "unverified"));
+  const sub = document.createElement("span");
+  sub.className = "user-sub";
+  const limit = u.deviceLimit < 0 ? "∞" : u.deviceLimit;
+  const lastSync = u.lastSyncAt ? `last sync ${fmtAgo(u.lastSyncAt)}` : "never synced";
+  sub.textContent = `${(u.records || 0).toLocaleString()} records · ${u.devices} of ${limit} devices · ${lastSync} · added ${new Date(u.createdAt).toLocaleDateString()}`;
+  main.append(email, sub);
+
+  const actions = document.createElement("div");
+  actions.className = "user-actions";
+
+  // Device-limit editor.
+  const limInput = document.createElement("input");
+  limInput.type = "number";
+  limInput.title = "Device limit (−1 = unlimited)";
+  limInput.value = String(u.deviceLimit);
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "btn-ghost";
+  saveBtn.type = "button";
+  saveBtn.textContent = "Save";
+  saveBtn.onclick = async () => {
+    saveBtn.disabled = true;
+    try {
+      await fetch(`api/admin/users?id=${u.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceLimit: parseInt(limInput.value, 10) || 0 }),
+      });
+    } catch { /* re-render reflects state */ }
+    renderUsers();
+  };
+  actions.append(limInput, saveBtn);
+
+  // Delete (never your own admin account).
+  if (!u.self) {
+    const del = document.createElement("button");
+    del.className = "btn-danger";
+    del.type = "button";
+    del.textContent = "Delete";
+    del.onclick = async () => {
+      if (!confirm(`Permanently delete ${u.email} and ALL of their data? This cannot be undone.`)) return;
+      try { await fetch(`api/admin/users?id=${u.id}`, { method: "DELETE" }); } catch { /* re-render */ }
+      renderUsers();
+    };
+    actions.append(del);
+  }
+
+  row.append(main, actions);
+  return row;
+}
+
+function badge(cls, text) {
+  const b = document.createElement("span");
+  b.className = "user-badge " + cls;
+  b.textContent = text;
+  return b;
+}
+
 function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+// ── Devices: connect a glocker agent via its own ingest token ───────────
+// A token is one device. It's shown exactly once (only its hash is stored), so
+// minting reveals the ready-to-paste sync config block. setupDevices wires the
+// static controls once; renderDevices refreshes the list each time the view
+// opens.
+function setupDevices() {
+  const nameEl = document.getElementById("device-name");
+  const addBtn = document.getElementById("add-device");
+  const errEl = document.getElementById("device-error");
+  const reveal = document.getElementById("device-reveal");
+
+  addBtn.onclick = async () => {
+    errEl.hidden = true;
+    addBtn.disabled = true;
+    let res;
+    try {
+      res = await fetch("api/tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: nameEl.value.trim() }),
+      });
+    } catch (err) {
+      errEl.textContent = `Could not reach the server: ${err.message}`;
+      errEl.hidden = false;
+      addBtn.disabled = false;
+      return;
+    }
+    addBtn.disabled = false;
+    if (res.status === 402) { showDeviceUpsell(true); return; } // at plan limit
+    if (!res.ok) {
+      errEl.textContent = `Could not create the device (${res.status})`;
+      errEl.hidden = false;
+      return;
+    }
+    const { token } = await res.json();
+    nameEl.value = "";
+    document.getElementById("device-config").textContent = deviceConfig(token);
+    reveal.hidden = false;
+    renderDevices();
+  };
+
+  document.getElementById("device-copy").onclick = async () => {
+    const btn = document.getElementById("device-copy");
+    try {
+      await navigator.clipboard.writeText(document.getElementById("device-config").textContent);
+      btn.textContent = "Copied ✓";
+      setTimeout(() => { btn.textContent = "Copy config"; }, 1500);
+    } catch { /* clipboard may be blocked; the text is on-screen to copy manually */ }
+  };
+  document.getElementById("device-done").onclick = () => {
+    reveal.hidden = true;
+    document.getElementById("device-config").textContent = "";
+  };
+}
+
+// deviceConfig builds the sync block the user pastes into the agent's config.
+function deviceConfig(token) {
+  return [
+    "sync:",
+    "  enabled: true",
+    `  glockpeek_url: "${location.origin}"`,
+    `  token: "${token}"`,
+    "  interval_seconds: 300",
+  ].join("\n");
+}
+
+function showDeviceUpsell(show) {
+  const el = document.getElementById("device-upsell");
+  el.textContent = "You've reached your device limit. More devices are a paid feature — reply to your welcome email to upgrade.";
+  el.hidden = !show;
+}
+
+async function renderDevices() {
+  const listEl = document.getElementById("device-list");
+  const usageEl = document.getElementById("device-usage");
+  const nameEl = document.getElementById("device-name");
+  const addBtn = document.getElementById("add-device");
+  let data;
+  try {
+    const res = await fetch("api/tokens");
+    if (!res.ok) throw new Error(res.status);
+    data = await res.json();
+  } catch {
+    usageEl.textContent = "";
+    return;
+  }
+
+  const limitText = data.limit < 0 ? "∞" : data.limit;
+  usageEl.textContent = `${data.used} of ${limitText} device${data.limit === 1 ? "" : "s"} used.`;
+
+  listEl.textContent = "";
+  if (!data.tokens.length) {
+    const empty = document.createElement("div");
+    empty.className = "device-empty";
+    empty.textContent = "No devices connected yet.";
+    listEl.append(empty);
+  }
+  for (const t of data.tokens) listEl.append(deviceRow(t));
+
+  const atLimit = !data.canAdd;
+  nameEl.disabled = atLimit;
+  addBtn.disabled = atLimit;
+  showDeviceUpsell(atLimit);
+}
+
+function deviceRow(t) {
+  const row = document.createElement("div");
+  row.className = "device-row";
+
+  const meta = document.createElement("div");
+  meta.className = "device-meta";
+  const name = document.createElement("span");
+  name.className = "device-name";
+  name.textContent = t.name || "device";
+  const sub = document.createElement("span");
+  sub.className = "device-sub";
+  const added = new Date(t.createdAt).toLocaleDateString();
+  sub.textContent = `added ${added} · ${t.lastUsedAt ? `last synced ${fmtAgo(t.lastUsedAt)}` : "never synced"}`;
+  meta.append(name, sub);
+
+  const btn = document.createElement("button");
+  btn.className = "btn-danger";
+  btn.type = "button";
+  btn.textContent = "Revoke";
+  btn.onclick = async () => {
+    if (!confirm(`Revoke "${t.name || "device"}"? That device will stop syncing.`)) return;
+    try { await fetch(`api/tokens?id=${t.id}`, { method: "DELETE" }); } catch { /* re-render reflects state */ }
+    renderDevices();
+  };
+
+  row.append(meta, btn);
+  return row;
+}
+
+// fmtAgo renders an epoch-ms instant as a short relative string ("3m ago").
+function fmtAgo(ms) {
+  const diff = Date.now() - ms;
+  if (diff < 5000) return "just now";
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+// renderSync fills the Data-sync panel from /api/sync: when the daemon last
+// pushed, the last batch's makeup, and the stored total.
+async function renderSync() {
+  const el = document.getElementById("sync-status");
+  if (!el) return;
+  let s;
+  try {
+    const res = await fetch("api/sync");
+    if (!res.ok) throw new Error(res.status);
+    s = await res.json();
+  } catch {
+    el.innerHTML = `<div class="empty">sync status unavailable</div>`;
+    return;
+  }
+  const totals = s.totals || {};
+  const totalRows = Object.values(totals).reduce((a, b) => a + b, 0);
+  const last = s.last || {};
+  const parts = Object.entries(last).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`);
+  const when = s.lastSyncAt ? esc(fmtAgo(s.lastSyncAt)) : "never";
+  el.innerHTML = `
+    <div class="sync-row"><span class="sync-label">Last sync</span><span class="sync-val${s.lastSyncAt ? "" : " sync-stale"}">${when}</span></div>
+    <div class="sync-row"><span class="sync-label">Last batch</span><span class="sync-val">${parts.length ? esc(parts.join(", ")) : "&mdash;"}</span></div>
+    <div class="sync-row"><span class="sync-label">Stored total</span><span class="sync-val">${totalRows.toLocaleString()} records</span></div>
+  `;
 }

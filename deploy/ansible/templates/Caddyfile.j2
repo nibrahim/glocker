@@ -1,0 +1,5 @@
+# Managed by Ansible. Caddy fetches + renews a Let's Encrypt cert automatically.
+{{ domain }} {
+    encode gzip
+    reverse_proxy 127.0.0.1:4317
+}

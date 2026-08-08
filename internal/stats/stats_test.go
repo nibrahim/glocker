@@ -1,243 +1,428 @@
 package stats
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"glocker/internal/store"
 )
 
-// newMux registers the stats routes on a fresh mux (http.DefaultServeMux can
-// only be registered once per process).
-func newMux() *http.ServeMux {
+// newMux registers the stats routes on a fresh mux backed by a temp-file sqlite
+// store, and returns both.
+func newMux(t *testing.T) (*http.ServeMux, *store.DB) {
+	t.Helper()
+	sdb, err := store.Open(store.Options{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "test.db")})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = sdb.Close() })
 	mux := http.NewServeMux()
-	Register(mux, Options{})
-	return mux
+	Register(mux, sdb, Options{Auth: true}) // most tests exercise the auth-on path
+	return mux, sdb
 }
 
-func local(req *http.Request) *http.Request {
-	req.RemoteAddr = "127.0.0.1:54321"
-	return req
-}
-
-// ── rules store ─────────────────────────────────────────
-func TestSanitizeRulesAndColors(t *testing.T) {
-	rules := sanitizeRules([]Rule{
-		{Program: " ^Emacs$ ", Title: "glocker", Tag: " Project:glocker "},
-		{Tag: ""}, // no tag -> dropped
-	})
-	if len(rules) != 1 || rules[0].Program != "^Emacs$" || rules[0].Tag != "Project:glocker" {
-		t.Fatalf("sanitizeRules = %+v", rules)
-	}
-	colors := sanitizeColors(map[string]string{
-		"Activity:work": "#F0A020", // normalized to lower
-		"Bad:short":     "#fff",    // dropped
-		"":              "#000000", // empty key dropped
-	})
-	if len(colors) != 1 || colors["Activity:work"] != "#f0a020" {
-		t.Fatalf("sanitizeColors = %+v", colors)
-	}
-}
-
-func TestLoadSaveConfigRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "usage-rules.json")
-	saved, err := saveConfig(rulesConfig{
-		Rules:  []Rule{{Program: "firefox", Title: "YouTube", Tag: "Activity:leisure"}},
-		Colors: map[string]string{"Activity:leisure": "#c0468f", "bad": "x"},
-	}, path)
+// account creates a user and returns its id, a session cookie, and an API token.
+func account(t *testing.T, sdb *store.DB, name string) (uint, *http.Cookie, string) {
+	t.Helper()
+	u, err := sdb.CreateUser(name, "pw-"+name)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("create user: %v", err)
 	}
-	if len(saved.Colors) != 1 {
-		t.Errorf("bad colour not dropped: %+v", saved.Colors)
-	}
-	got, err := loadConfig(path)
+	tok, err := sdb.CreateSession(u.ID)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("create session: %v", err)
 	}
-	if len(got.Rules) != 1 || got.Rules[0].Tag != "Activity:leisure" || got.Colors["Activity:leisure"] != "#c0468f" {
-		t.Fatalf("round trip mismatch: %+v", got)
+	api, err := sdb.CreateAPIToken(u.ID, "test")
+	if err != nil {
+		t.Fatalf("create token: %v", err)
 	}
+	return u.ID, &http.Cookie{Name: sessionCookie, Value: tok}, api
 }
 
-func TestLoadConfigLegacyArrayAndMissing(t *testing.T) {
-	dir := t.TempDir()
-	legacy := filepath.Join(dir, "legacy.json")
-	if err := os.WriteFile(legacy, []byte(`[{"program":"","title":"","tag":"A:b"}]`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, _ := loadConfig(legacy)
-	if len(cfg.Rules) != 1 || cfg.Rules[0].Tag != "A:b" || cfg.Colors == nil {
-		t.Fatalf("legacy array not handled: %+v", cfg)
-	}
-	// Missing file -> empty, non-nil, no error.
-	cfg, err := loadConfig(filepath.Join(dir, "nope.json"))
-	if err != nil || len(cfg.Rules) != 0 || cfg.Colors == nil {
-		t.Fatalf("missing file: cfg=%+v err=%v", cfg, err)
-	}
+func do(mux *http.ServeMux, req *http.Request) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
 }
 
-// ── usage reader ────────────────────────────────────────
-func TestReadUsageLog(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "usage.jsonl")
-	lines := strings.Join([]string{
-		`{"ts":"2026-07-07T15:36:11.24+05:30","idle_ms":5,"windows":[{"active":true,"class":"kitty","instance":"kitty","title":"zsh"},{"active":false,"class":"Emacs","title":"x"}]}`,
-		`garbage`,
-		`{"ts":"2026-07-07T15:36:01+05:30","idle_ms":90000,"windows":[]}`,
-	}, "\n")
-	if err := os.WriteFile(path, []byte(lines), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	samples, ok, err := readUsageLog(path)
-	if err != nil || !ok {
-		t.Fatalf("ok=%v err=%v", ok, err)
-	}
-	if len(samples) != 2 {
-		t.Fatalf("got %d samples, want 2", len(samples))
-	}
-	// sorted ascending -> the 15:36:01 empty-window sample first
-	if samples[0].Active != nil || samples[0].WindowCount != 0 || samples[0].IdleMS != 90000 {
-		t.Errorf("sample[0] = %+v", samples[0])
-	}
-	if samples[1].Active == nil || samples[1].Active.Class != "kitty" || samples[1].WindowCount != 2 {
-		t.Errorf("sample[1] = %+v (active=%+v)", samples[1], samples[1].Active)
-	}
-
-	// Missing file -> ok=false, no error.
-	_, ok, err = readUsageLog(filepath.Join(dir, "none.jsonl"))
-	if ok || err != nil {
-		t.Errorf("missing usage log: ok=%v err=%v", ok, err)
-	}
-}
-
-// ── handlers ────────────────────────────────────────────
-func TestLocalhostGuard(t *testing.T) {
-	mux := newMux()
-	// Default httptest RemoteAddr (192.0.2.1) is non-loopback -> 403.
-	for _, p := range []string{"/stats/", "/stats/api/data", "/stats/api/rules"} {
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
-		if rec.Code != http.StatusForbidden {
-			t.Errorf("%s from non-loopback: got %d, want 403", p, rec.Code)
+// ── auth gating ─────────────────────────────────────────
+func TestAuthRequired(t *testing.T) {
+	mux, _ := newMux(t)
+	// No session cookie -> 401 on gated routes.
+	for _, p := range []string{"/api/data", "/api/rules", "/api/ignored", "/api/me", "/api/health"} {
+		if rec := do(mux, httptest.NewRequest("GET", p, nil)); rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s without session: got %d, want 401", p, rec.Code)
 		}
+	}
+	// No bearer token -> 401 on ingest.
+	if rec := do(mux, httptest.NewRequest("POST", "/api/ingest", strings.NewReader("{}"))); rec.Code != http.StatusUnauthorized {
+		t.Errorf("ingest without token: got %d, want 401", rec.Code)
+	}
+	// Static assets are public.
+	if rec := do(mux, httptest.NewRequest("GET", "/", nil)); rec.Code != http.StatusOK {
+		t.Errorf("index should be public: got %d", rec.Code)
+	}
+}
+
+// TestAuthDisabled is the self-hosted default: no login, no token — every route
+// works and resolves to the single implicit account.
+func TestAuthDisabled(t *testing.T) {
+	sdb, err := store.Open(store.Options{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "test.db")})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = sdb.Close() })
+	du, err := sdb.EnsureDefaultUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, sdb, Options{Auth: false, DefaultUserID: du.ID})
+
+	// Ingest with no token works and attributes to the default account.
+	ing := httptest.NewRequest("POST", "/api/ingest",
+		strings.NewReader(`{"violations":[{"ts":1,"keyword":"k","url":"u","domain":"d"}]}`))
+	if rec := do(mux, ing); rec.Code != http.StatusOK {
+		t.Fatalf("ingest without token (auth off): %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Data with no cookie works.
+	rec := do(mux, httptest.NewRequest("GET", "/api/data", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("data without cookie (auth off): %d", rec.Code)
+	}
+	var d dataResponse
+	json.Unmarshal(rec.Body.Bytes(), &d)
+	if len(d.Violations) != 1 {
+		t.Errorf("want 1 violation for the implicit account, got %+v", d.Violations)
+	}
+
+	// /api/me reports auth:false so the frontend hides sign-out.
+	me := do(mux, httptest.NewRequest("GET", "/api/me", nil))
+	if me.Code != http.StatusOK || !strings.Contains(me.Body.String(), `"auth":false`) {
+		t.Errorf("/api/me (auth off): %d %s", me.Code, me.Body.String())
+	}
+}
+
+// fakeMailer records what would have been sent instead of hitting Mailgun.
+type fakeMailer struct {
+	to, text []string
+}
+
+func (f *fakeMailer) Enabled() bool { return true }
+func (f *fakeMailer) Send(_ context.Context, to, _, text, _ string) error {
+	f.to = append(f.to, to)
+	f.text = append(f.text, text)
+	return nil
+}
+
+func TestRegisterVerifyLogin(t *testing.T) {
+	sdb, err := store.Open(store.Options{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "test.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sdb.Close() })
+	fm := &fakeMailer{}
+	mux := http.NewServeMux()
+	Register(mux, sdb, Options{Auth: true, Mailer: fm, AppURL: "https://glockerapp.com"})
+
+	// Each POST comes from a distinct client IP so the /api/register rate limiter
+	// (covered by its own test) doesn't conflate these independent requests.
+	reqN := 0
+	post := func(path, body string) *httptest.ResponseRecorder {
+		reqN++
+		req := httptest.NewRequest("POST", path, strings.NewReader(body))
+		req.Header.Set("X-Forwarded-For", fmt.Sprintf("203.0.113.%d", reqN))
+		return do(mux, req)
+	}
+
+	// Register → 200, and an email with a verify link was "sent".
+	if rec := post("/api/register", `{"email":"New@User.com","password":"longenough1"}`); rec.Code != http.StatusOK {
+		t.Fatalf("register: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(fm.to) != 1 || fm.to[0] != "new@user.com" {
+		t.Fatalf("verification email recipients = %v (want [new@user.com], normalized)", fm.to)
+	}
+	if !strings.Contains(fm.text[0], "https://glockerapp.com/verify?token=") {
+		t.Errorf("email missing verify link: %q", fm.text[0])
+	}
+
+	// Login before verifying → 403.
+	if rec := post("/api/login", `{"email":"new@user.com","password":"longenough1"}`); rec.Code != http.StatusForbidden {
+		t.Errorf("login before verify: got %d, want 403", rec.Code)
+	}
+
+	// Pull the token from the store and hit the verify link.
+	var vt store.VerificationToken
+	if err := sdb.First(&vt).Error; err != nil {
+		t.Fatalf("no verification token stored: %v", err)
+	}
+	if rec := do(mux, httptest.NewRequest("GET", "/verify?token="+vt.Token, nil)); rec.Code != http.StatusOK {
+		t.Fatalf("verify: %d", rec.Code)
+	}
+
+	// Login now succeeds; the token was consumed.
+	if rec := post("/api/login", `{"email":"new@user.com","password":"longenough1"}`); rec.Code != http.StatusOK {
+		t.Errorf("login after verify: got %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(mux, httptest.NewRequest("GET", "/verify?token="+vt.Token, nil)); rec.Code != http.StatusBadRequest {
+		t.Errorf("re-using a consumed token: got %d, want 400", rec.Code)
+	}
+
+	// Duplicate email → 409; weak inputs → 400.
+	if rec := post("/api/register", `{"email":"new@user.com","password":"longenough1"}`); rec.Code != http.StatusConflict {
+		t.Errorf("duplicate register: got %d, want 409", rec.Code)
+	}
+	if rec := post("/api/register", `{"email":"bad","password":"longenough1"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad email: got %d, want 400", rec.Code)
+	}
+	if rec := post("/api/register", `{"email":"ok@x.com","password":"short"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("short password: got %d, want 400", rec.Code)
+	}
+}
+
+func TestRegisterUnavailableWithoutMailer(t *testing.T) {
+	mux, _ := newMux(t) // Auth:true but no Mailer
+	rec := do(mux, httptest.NewRequest("POST", "/api/register", strings.NewReader(`{"email":"a@b.com","password":"longenough1"}`)))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("register without mailer: got %d, want 503", rec.Code)
+	}
+}
+
+func TestLoginFlow(t *testing.T) {
+	mux, sdb := newMux(t)
+	if _, err := sdb.CreateUser("noufal@example.com", "hunter2hunter2"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Bad password -> 401.
+	bad := do(mux, httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"email":"noufal@example.com","password":"nope"}`)))
+	if bad.Code != http.StatusUnauthorized {
+		t.Fatalf("bad login: got %d", bad.Code)
+	}
+
+	// Good password -> 200 + session cookie.
+	ok := do(mux, httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"email":"noufal@example.com","password":"hunter2hunter2"}`)))
+	if ok.Code != http.StatusOK {
+		t.Fatalf("good login: got %d %s", ok.Code, ok.Body.String())
+	}
+	var cookie *http.Cookie
+	for _, c := range ok.Result().Cookies() {
+		if c.Name == sessionCookie {
+			cookie = c
+		}
+	}
+	if cookie == nil || cookie.Value == "" {
+		t.Fatal("login did not set a session cookie")
+	}
+
+	// The cookie authenticates /api/me.
+	req := httptest.NewRequest("GET", "/api/me", nil)
+	req.AddCookie(cookie)
+	if rec := do(mux, req); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "noufal") {
+		t.Errorf("/api/me with cookie: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
 func TestServesIndexAndAssets(t *testing.T) {
-	mux := newMux()
-
-	// /stats redirects to /stats/
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/stats", nil)))
-	if rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != "/stats/" {
-		t.Errorf("/stats redirect: code=%d loc=%q", rec.Code, rec.Header().Get("Location"))
-	}
-
-	// index + assets
-	for _, tc := range []struct{ path, needle string }{
-		{"/stats/", "glock"},
-		{"/stats/app.js", "renderUsage"},
-		{"/stats/styles.css", "--bg"},
-		{"/stats/chart.umd.min.js", "Chart"},
-	} {
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, local(httptest.NewRequest("GET", tc.path, nil)))
-		if rec.Code != http.StatusOK {
-			t.Errorf("%s: got %d, want 200", tc.path, rec.Code)
-			continue
+	mux, _ := newMux(t)
+	for _, p := range []string{"/stats", "/stats/"} {
+		rec := do(mux, httptest.NewRequest("GET", p, nil))
+		if rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != "/" {
+			t.Errorf("%s redirect: code=%d loc=%q", p, rec.Code, rec.Header().Get("Location"))
 		}
-		if !strings.Contains(rec.Body.String(), tc.needle) {
-			t.Errorf("%s: body missing %q", tc.path, tc.needle)
+	}
+	for _, tc := range []struct{ path, needle string }{
+		{"/", "glock"},
+		{"/app.js", "renderUsage"},
+	} {
+		rec := do(mux, httptest.NewRequest("GET", tc.path, nil))
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), tc.needle) {
+			t.Errorf("%s: got %d, missing %q", tc.path, rec.Code, tc.needle)
 		}
 	}
 }
 
-func TestDataEndpoint(t *testing.T) {
-	dir := t.TempDir()
-	write := func(name, content string) string {
-		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-	t.Setenv("GLOCKER_REPORTS_LOG", write("reports.log", "[2025-11-17 15:35:46] | url-keyword:porn | https://www.google.com/search?q=porn\n"))
-	t.Setenv("GLOCKER_LIFECYCLE_LOG", write("lifecycle.log", strings.Join([]string{
-		`{"timestamp":"2026-02-11T14:00:00+05:30","type":"uninstall","reason":"temp"}`,
-		`{"timestamp":"2026-02-12T14:00:00+05:30","type":"install"}`,
-	}, "\n")))
-	t.Setenv("GLOCKER_USAGE_LOG", write("usage.jsonl",
-		`{"ts":"2026-07-07T15:36:11+05:30","idle_ms":5,"windows":[{"active":true,"class":"kitty","title":"zsh"}]}`+"\n"))
-	// Point unblocks at a missing path so sources.unblocks is false (don't fall
-	// back to the machine's real /var/log default).
-	t.Setenv("GLOCKER_UNBLOCKS_LOG", filepath.Join(dir, "absent-unblocks.log"))
+// TestIngestThenData drives the full authed path: POST a batch with a bearer
+// token, then GET /api/data with a session cookie.
+func TestIngestThenData(t *testing.T) {
+	mux, sdb := newMux(t)
+	_, cookie, api := account(t, sdb, "noufal")
 
-	mux := newMux()
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/stats/api/data", nil)))
+	payload := `{
+      "violations":[{"ts":1000,"type":"url-keyword","keyword":"porn","url":"https://x/?q=porn","domain":"x"}],
+      "lifecycle":[{"ts":100000,"type":"uninstall","reason":"temp"},{"ts":100000000,"type":"install"}],
+      "usage":[{"ts":500,"idleMs":5,"activeClass":"kitty","windowCount":1}],
+      "heartbeat":[{"ts":600,"alive":true}]
+    }`
+	ingest := func() {
+		req := httptest.NewRequest("POST", "/api/ingest", strings.NewReader(payload))
+		req.Header.Set("Authorization", "Bearer "+api)
+		if rec := do(mux, req); rec.Code != http.StatusOK {
+			t.Fatalf("ingest: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	ingest()
+	ingest() // idempotent
+
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	req.AddCookie(cookie)
+	rec := do(mux, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("data: got %d", rec.Code)
+		t.Fatalf("data: %d", rec.Code)
 	}
 	var d dataResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
 		t.Fatal(err)
 	}
-	if !d.Sources.Reports || !d.Sources.Lifecycle || !d.Sources.Usage || d.Sources.Unblocks {
-		t.Errorf("sources = %+v", d.Sources)
-	}
-	if len(d.Violations) != 1 || d.Violations[0].Keyword != "porn" || d.Violations[0].Domain != "www.google.com" {
+	if len(d.Violations) != 1 || d.Violations[0].Keyword != "porn" {
 		t.Errorf("violations = %+v", d.Violations)
-	}
-	if len(d.Unmanaged) != 1 || d.Unmanaged[0].Open || d.Unmanaged[0].Reason != "temp" {
-		t.Errorf("unmanaged = %+v", d.Unmanaged)
 	}
 	if len(d.Usage) != 1 || d.Usage[0].Active == nil || d.Usage[0].Active.Class != "kitty" {
 		t.Errorf("usage = %+v", d.Usage)
 	}
-	// Arrays must never serialize as null.
+	if len(d.Unmanaged) != 1 || d.Unmanaged[0].Reason != "temp" {
+		t.Errorf("unmanaged = %+v", d.Unmanaged)
+	}
 	if !strings.Contains(rec.Body.String(), `"unblocks":[]`) {
-		t.Errorf("empty unblocks should be [] not null: %s", rec.Body.String())
+		t.Errorf("empty unblocks should be [] not null")
+	}
+}
+
+// TestTenantSeparationOverHTTP proves account B's token can't surface account A's
+// data through the API.
+func TestTenantSeparationOverHTTP(t *testing.T) {
+	mux, sdb := newMux(t)
+	_, _, aliceTok := account(t, sdb, "alice")
+	_, bobCookie, _ := account(t, sdb, "bob")
+
+	req := httptest.NewRequest("POST", "/api/ingest",
+		strings.NewReader(`{"violations":[{"ts":1,"keyword":"k","url":"u","domain":"d"}]}`))
+	req.Header.Set("Authorization", "Bearer "+aliceTok)
+	if rec := do(mux, req); rec.Code != http.StatusOK {
+		t.Fatalf("alice ingest: %d", rec.Code)
+	}
+
+	// Bob reads his own data — must be empty.
+	req = httptest.NewRequest("GET", "/api/data", nil)
+	req.AddCookie(bobCookie)
+	rec := do(mux, req)
+	var d dataResponse
+	json.Unmarshal(rec.Body.Bytes(), &d)
+	if len(d.Violations) != 0 {
+		t.Errorf("bob should not see alice's data, got %+v", d.Violations)
+	}
+}
+
+func TestIgnoredHidesViolation(t *testing.T) {
+	mux, sdb := newMux(t)
+	_, cookie, api := account(t, sdb, "noufal")
+
+	ing := httptest.NewRequest("POST", "/api/ingest",
+		strings.NewReader(`{"violations":[{"ts":1000,"keyword":"porn","url":"https://x/?q=porn","domain":"x"}]}`))
+	ing.Header.Set("Authorization", "Bearer "+api)
+	do(mux, ing)
+
+	put := httptest.NewRequest("PUT", "/api/ignored",
+		strings.NewReader(`{"ignored":[{"ts":1000,"keyword":"porn","url":"https://x/?q=porn","domain":"x"}]}`))
+	put.AddCookie(cookie)
+	if rec := do(mux, put); rec.Code != http.StatusOK {
+		t.Fatalf("put ignored: %d %s", rec.Code, rec.Body.String())
+	}
+
+	get := httptest.NewRequest("GET", "/api/data", nil)
+	get.AddCookie(cookie)
+	var d dataResponse
+	json.Unmarshal(do(mux, get).Body.Bytes(), &d)
+	if len(d.Violations) != 0 {
+		t.Errorf("ignored violation should be hidden, got %+v", d.Violations)
+	}
+}
+
+// TestSyncStatus checks the /api/sync panel data: null before any ingest, then
+// last-batch counts + totals after.
+func TestSyncStatus(t *testing.T) {
+	mux, sdb := newMux(t)
+	_, cookie, api := account(t, sdb, "noufal")
+
+	// Before any ingest: lastSyncAt is null.
+	req := httptest.NewRequest("GET", "/api/sync", nil)
+	req.AddCookie(cookie)
+	rec := do(mux, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"lastSyncAt":null`) {
+		t.Fatalf("pre-ingest sync = %d %s", rec.Code, rec.Body.String())
+	}
+
+	ing := httptest.NewRequest("POST", "/api/ingest",
+		strings.NewReader(`{"violations":[{"ts":1,"keyword":"k","url":"u"}],"heartbeat":[{"ts":2,"alive":true}]}`))
+	ing.Header.Set("Authorization", "Bearer "+api)
+	do(mux, ing)
+
+	req = httptest.NewRequest("GET", "/api/sync", nil)
+	req.AddCookie(cookie)
+	var s struct {
+		LastSyncAt *int64         `json:"lastSyncAt"`
+		Last       map[string]int `json:"last"`
+		Totals     map[string]int `json:"totals"`
+	}
+	json.Unmarshal(do(mux, req).Body.Bytes(), &s)
+	if s.LastSyncAt == nil || *s.LastSyncAt == 0 {
+		t.Error("lastSyncAt should be set after ingest")
+	}
+	if s.Last["violations"] != 1 || s.Last["heartbeat"] != 1 {
+		t.Errorf("last batch counts = %+v", s.Last)
+	}
+	if s.Totals["violations"] != 1 {
+		t.Errorf("totals = %+v", s.Totals)
 	}
 }
 
 func TestRulesGetPut(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "usage-rules.json")
-	t.Setenv("GLOCKER_USAGE_RULES", path)
-	mux := newMux()
+	mux, sdb := newMux(t)
+	_, cookie, _ := account(t, sdb, "noufal")
 
-	// GET on empty -> {rules:[],colors:{}}
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/stats/api/rules", nil)))
-	if !strings.Contains(rec.Body.String(), `"rules":[]`) || !strings.Contains(rec.Body.String(), `"colors":{}`) {
+	get := httptest.NewRequest("GET", "/api/rules", nil)
+	get.AddCookie(cookie)
+	if rec := do(mux, get); !strings.Contains(rec.Body.String(), `"rules":[]`) {
 		t.Fatalf("empty GET = %s", rec.Body.String())
 	}
 
-	// PUT rules + colours (with a junk rule and bad colour)
 	body := `{"rules":[{"program":"^Emacs$","title":"","tag":"Activity:work"},{"nope":true}],"colors":{"Activity:work":"#3aa0ff","x":"bad"}}`
-	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, local(httptest.NewRequest("PUT", "/stats/api/rules", strings.NewReader(body))))
-	if rec.Code != http.StatusOK {
+	put := httptest.NewRequest("PUT", "/api/rules", strings.NewReader(body))
+	put.AddCookie(cookie)
+	if rec := do(mux, put); rec.Code != http.StatusOK {
 		t.Fatalf("PUT: %d %s", rec.Code, rec.Body.String())
 	}
-	var cfg rulesConfig
-	if err := json.Unmarshal(rec.Body.Bytes(), &cfg); err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Rules) != 1 || cfg.Rules[0].Tag != "Activity:work" || len(cfg.Colors) != 1 || cfg.Colors["Activity:work"] != "#3aa0ff" {
-		t.Fatalf("PUT result = %+v", cfg)
-	}
 
-	// It persisted to disk and GET returns it.
-	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, local(httptest.NewRequest("GET", "/stats/api/rules", nil)))
-	if !strings.Contains(rec.Body.String(), "Activity:work") || !strings.Contains(rec.Body.String(), "#3aa0ff") {
-		t.Errorf("GET after PUT = %s", rec.Body.String())
+	get2 := httptest.NewRequest("GET", "/api/rules", nil)
+	get2.AddCookie(cookie)
+	var cfg rulesConfig
+	json.Unmarshal(do(mux, get2).Body.Bytes(), &cfg)
+	if len(cfg.Rules) != 1 || cfg.Rules[0].Tag != "Activity:work" || cfg.Colors["Activity:work"] != "#3aa0ff" {
+		t.Fatalf("persisted rules = %+v", cfg)
 	}
-	if _, err := os.Stat(path); err != nil {
-		t.Errorf("rules file not written: %v", err)
+	if len(cfg.Colors) != 1 {
+		t.Errorf("bad colour should have been dropped: %+v", cfg.Colors)
+	}
+}
+
+// TestSanitizeRulesAndColors covers the pure sanitizers.
+func TestSanitizeRulesAndColors(t *testing.T) {
+	rules := sanitizeRules([]Rule{
+		{Program: " ^Emacs$ ", Title: "glocker", Tag: " Project:glocker "},
+		{Tag: ""},
+	})
+	if len(rules) != 1 || rules[0].Program != "^Emacs$" || rules[0].Tag != "Project:glocker" {
+		t.Fatalf("sanitizeRules = %+v", rules)
+	}
+	colors := sanitizeColors(map[string]string{"Activity:work": "#F0A020", "Bad:short": "#fff"})
+	if len(colors) != 1 || colors["Activity:work"] != "#f0a020" {
+		t.Fatalf("sanitizeColors = %+v", colors)
 	}
 }

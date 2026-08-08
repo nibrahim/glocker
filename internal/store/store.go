@@ -1,0 +1,170 @@
+package store
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/glebarez/sqlite" // pure-Go (modernc) sqlite driver — no cgo
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+)
+
+// Options selects the backend. Driver is "sqlite" (default) or "postgres";
+// empty fields fall back to the config defaults. For sqlite, DSN is a file path.
+type Options struct {
+	Driver string
+	DSN    string
+}
+
+// DB wraps the GORM handle. Callers use the embedded *gorm.DB directly; the
+// wrapper exists so we can add helpers (ingest, queries) without leaking GORM
+// everywhere later.
+type DB struct {
+	*gorm.DB
+}
+
+// Open connects using the given driver/DSN and runs migrations. The dialector is
+// the only dialect-specific choice — everything above this is portable GORM, so
+// swapping sqlite<->postgres is contained here.
+func Open(o Options) (*DB, error) {
+	driver := o.Driver
+	if driver == "" {
+		driver = "sqlite"
+	}
+	dsn := o.DSN
+	if dsn == "" {
+		return nil, fmt.Errorf("store: empty DSN for driver %q", driver)
+	}
+
+	var dialector gorm.Dialector
+	switch driver {
+	case "sqlite":
+		// Ensure the parent dir exists for a file DSN (skip in-memory).
+		if !strings.HasPrefix(dsn, ":memory:") && !strings.Contains(dsn, "mode=memory") {
+			if dir := filepath.Dir(dsn); dir != "" && dir != "." {
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					return nil, fmt.Errorf("store: creating db dir %s: %w", dir, err)
+				}
+			}
+		}
+		dialector = sqlite.Open(dsn)
+	case "postgres":
+		dialector = postgres.Open(dsn)
+	default:
+		return nil, fmt.Errorf("store: unsupported driver %q (want sqlite or postgres)", driver)
+	}
+
+	gdb, err := gorm.Open(dialector, &gorm.Config{
+		// Warn-level, but don't treat "record not found" as an error — it's a
+		// normal control-flow signal (e.g. the default-user lookup on first run).
+		Logger: logger.New(log.New(os.Stderr, "", log.LstdFlags), logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+			// Log SQL with $1,$2 placeholders, never the bound values — the values
+			// are user content (URLs, window titles, keyword hits) and must not
+			// leak into the journal/logs.
+			ParameterizedQueries: true,
+		}),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("store: open %s: %w", driver, err)
+	}
+
+	db := &DB{gdb}
+	if err := db.Migrate(); err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
+// Migrate creates/updates all tables. Safe to call repeatedly (idempotent).
+func (db *DB) Migrate() error {
+	// Older schemas indexed the raw URL in the violations/ignored unique index,
+	// which overflows Postgres's btree row-size limit for long URLs. Move to a
+	// fixed-size url_hash first — non-destructively, so no records are lost and a
+	// full re-sync from the local logs stays possible.
+	if err := db.migrateURLHash(); err != nil {
+		return fmt.Errorf("store: url_hash migration: %w", err)
+	}
+	if err := db.AutoMigrate(AllModels()...); err != nil {
+		return fmt.Errorf("store: migrate: %w", err)
+	}
+	return nil
+}
+
+// migrateURLHash upgrades the violations and ignored tables from a URL-in-the-
+// unique-index schema to a hashed one. For each table it adds url_hash if
+// missing, backfills it from the url, then drops the old index so AutoMigrate
+// rebuilds it on url_hash. It never deletes rows; the backfill is deterministic,
+// so it can't create a conflict the old (…, url) index didn't already prevent.
+func (db *DB) migrateURLHash() error {
+	for _, t := range []struct {
+		model any
+		index string
+	}{
+		{&Violation{}, "ux_violation"},
+		{&IgnoredViolation{}, "ux_ignored"},
+	} {
+		if !db.Migrator().HasTable(t.model) {
+			continue // fresh DB: AutoMigrate builds the hashed schema directly
+		}
+		if !db.Migrator().HasColumn(t.model, "URLHash") {
+			if err := db.Migrator().AddColumn(t.model, "URLHash"); err != nil {
+				return err
+			}
+		}
+		if err := db.backfillURLHash(t.model); err != nil {
+			return err
+		}
+		// Drop the stale (url-based) index so AutoMigrate recreates it on url_hash.
+		// Raw SQL, not Migrator().DropIndex — the latter emits invalid
+		// `DROP INDEX CURRENT_SCHEMA()."name"` on Postgres. `DROP INDEX IF EXISTS
+		// <name>` is valid on both Postgres and SQLite; the name is a fixed literal.
+		if err := db.Exec("DROP INDEX IF EXISTS " + t.index).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// backfillURLHash fills url_hash for any rows that lack it, computing it from the
+// stored url. Runs in one transaction.
+func (db *DB) backfillURLHash(model any) error {
+	type idURL struct {
+		ID  uint
+		URL string
+	}
+	var rows []idURL
+	if err := db.Model(model).
+		Where("url_hash IS NULL OR url_hash = ''").
+		Select("id", "url").Find(&rows).Error; err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return db.DB.Transaction(func(tx *gorm.DB) error {
+		for _, r := range rows {
+			if err := tx.Model(model).Where("id = ?", r.ID).
+				Update("url_hash", hashURL(r.URL)).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// Close releases the underlying connection pool.
+func (db *DB) Close() error {
+	sqlDB, err := db.DB.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}

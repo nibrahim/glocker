@@ -143,6 +143,12 @@ body {
   box-shadow: inset 2px 0 0 var(--danger);
 }
 
+/* Admin nav item: set apart from the regular views (divider + signal accent). */
+.nav li.nav-admin { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.nav li.nav-admin button { color: var(--signal); }
+.nav li.nav-admin button:hover { color: var(--signal); background: rgba(240, 160, 32, 0.08); }
+.nav li.nav-admin button.active { color: #fff; background: var(--panel-2); box-shadow: inset 2px 0 0 var(--signal); }
+
 .sidebar-foot { margin-top: auto; padding: 0 8px; }
 .src { font-family: var(--mono); font-size: 10px; line-height: 1.8; color: var(--ink-faint); }
 
@@ -868,3 +874,113 @@ canvas { max-height: 260px; }
 .btn-primary { color: #07090d; background: var(--signal); border: 1px solid var(--signal); }
 .btn-primary:hover { box-shadow: 0 0 0 2px rgba(240,160,32,0.25); }
 .btn-primary:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
+
+/* ── Login screen ─────────────────────────────────────── */
+.login-screen {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg);
+}
+.login-card {
+  width: min(360px, 90vw);
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 32px; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--panel); box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.login-card .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.login-card label {
+  display: flex; flex-direction: column; gap: 6px;
+  font-family: var(--display); font-size: 12px; color: var(--ink-dim);
+}
+.login-card input {
+  font-family: var(--mono); font-size: 14px; color: var(--ink);
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.login-card input:focus { border-color: var(--signal); box-shadow: 0 0 0 2px rgba(240,160,32,0.2); }
+.login-card .btn-primary { margin-top: 4px; padding: 10px 14px; }
+.login-error {
+  margin: 0; font-family: var(--mono); font-size: 12.5px; color: var(--danger, #ff4d4d);
+  text-align: center;
+}
+.login-note {
+  margin: 0; font-family: var(--mono); font-size: 12.5px; color: var(--signal);
+  text-align: center; line-height: 1.5;
+}
+.login-alt {
+  margin: 0; font-family: var(--display); font-size: 12px; color: var(--ink-dim);
+  text-align: center;
+}
+.login-alt a { color: var(--signal); text-decoration: none; }
+.login-alt a:hover { text-decoration: underline; }
+
+/* ── Devices (connect your agent) ─────────────────────── */
+.device-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.device-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2);
+}
+.device-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.device-name { font-family: var(--display); font-weight: 600; color: var(--ink); font-size: 14px; }
+.device-sub { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); }
+.device-empty { font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim); padding: 4px 0; }
+.device-usage { font-family: var(--mono); color: var(--ink-dim); }
+.device-add { display: flex; gap: 8px; align-items: center; }
+.device-add input {
+  flex: 1; font-family: var(--mono); font-size: 13px; color: var(--ink);
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 9px 12px; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.device-add input:focus { border-color: var(--signal); box-shadow: 0 0 0 2px rgba(240,160,32,0.2); }
+.device-add input:disabled { opacity: 0.5; }
+.device-upsell { margin: 12px 0 0; font-family: var(--display); font-size: 12.5px; color: var(--signal); }
+.device-reveal { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px; }
+.device-config {
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink);
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px; overflow-x: auto; white-space: pre; margin: 8px 0 12px;
+}
+.device-reveal-actions { display: flex; gap: 8px; }
+.btn-danger {
+  font-family: var(--display); font-weight: 600; font-size: 12px;
+  border-radius: 8px; padding: 7px 12px; cursor: pointer;
+  color: var(--danger, #ff4d4d); background: transparent; border: 1px solid var(--line);
+  transition: border-color 0.15s;
+}
+.btn-danger:hover { border-color: var(--danger, #ff4d4d); }
+
+/* ── Admin: accounts ──────────────────────────────────── */
+.user-list { display: flex; flex-direction: column; gap: 8px; }
+.user-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2);
+}
+.user-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.user-email { font-family: var(--display); font-weight: 600; color: var(--ink); font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.user-sub { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); }
+.user-actions { display: flex; align-items: center; gap: 8px; }
+.user-actions input {
+  width: 56px; font-family: var(--mono); font-size: 13px; color: var(--ink); text-align: center;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 6px; outline: none;
+}
+.user-actions input:focus { border-color: var(--signal); box-shadow: 0 0 0 2px rgba(240,160,32,0.2); }
+.user-badge {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 2px 6px; border-radius: 5px; border: 1px solid var(--line-2);
+}
+.user-badge.admin { color: var(--signal); border-color: var(--signal); }
+.user-badge.unverified { color: var(--ink-dim); }
+
+/* ── Data-sync panel ──────────────────────────────────── */
+.sync-status { display: flex; flex-direction: column; gap: 8px; }
+.sync-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--line);
+}
+.sync-row:last-child { border-bottom: none; padding-bottom: 0; }
+.sync-label {
+  font-family: var(--display); font-size: 12px; color: var(--ink-faint);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.sync-val { font-family: var(--mono); font-size: 13.5px; color: var(--ink); text-align: right; }
+.sync-val.sync-stale { color: var(--ink-faint); }

@@ -344,3 +344,59 @@ func SetLastViolationReset(t time.Time) {
 	defer violationsMutex.Unlock()
 	lastViolationReset = t
 }
+
+// ── Syncer status (glocker -> glockpeek) ────────────────
+// SyncSummary is what the syncer reports for `glocker -status`: when it last
+// pushed a batch, the size of that batch, and cumulative totals for the session.
+
+// SyncSummary holds the syncer's last-push info for status reporting.
+type SyncSummary struct {
+	LastSyncAt time.Time
+	Last       map[string]int   // counts in the most recent batch
+	Total      map[string]int   // cumulative counts pushed this session
+	Cursors    map[string]int64 // per-source high-water TS (ms) after the last push
+}
+
+var (
+	syncSummary SyncSummary
+	syncMutex   sync.RWMutex
+)
+
+// RecordSync updates the syncer status after a successful push. counts is the
+// batch just sent, keyed by source (violations/unblocks/lifecycle/usage/heartbeat);
+// cursors is the per-source high-water TS after the push, used to report how many
+// records have since accumulated. Both are copied.
+func RecordSync(counts map[string]int, cursors map[string]int64) {
+	syncMutex.Lock()
+	defer syncMutex.Unlock()
+	syncSummary.LastSyncAt = time.Now()
+	syncSummary.Last = counts
+	if syncSummary.Total == nil {
+		syncSummary.Total = map[string]int{}
+	}
+	for k, v := range counts {
+		syncSummary.Total[k] += v
+	}
+	syncSummary.Cursors = make(map[string]int64, len(cursors))
+	for k, v := range cursors {
+		syncSummary.Cursors[k] = v
+	}
+}
+
+// GetSyncSummary returns a copy of the current syncer status. LastSyncAt is zero
+// if nothing has been synced this session.
+func GetSyncSummary() SyncSummary {
+	syncMutex.RLock()
+	defer syncMutex.RUnlock()
+	out := SyncSummary{LastSyncAt: syncSummary.LastSyncAt, Last: map[string]int{}, Total: map[string]int{}, Cursors: map[string]int64{}}
+	for k, v := range syncSummary.Last {
+		out.Last[k] = v
+	}
+	for k, v := range syncSummary.Total {
+		out.Total[k] = v
+	}
+	for k, v := range syncSummary.Cursors {
+		out.Cursors[k] = v
+	}
+	return out
+}

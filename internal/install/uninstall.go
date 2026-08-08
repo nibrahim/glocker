@@ -125,6 +125,16 @@ func RestoreSystemChanges(cfg *config.Config) error {
 		log.Println("✓ glocklock binary removed")
 	}
 
+	// Stop, disable, and remove the glockpeek dashboard service (not immutable).
+	log.Println("Removing glockpeek dashboard service...")
+	exec.Command("systemctl", "disable", "--now", "glockpeek.service").Run()
+	if err := os.Remove(GlockpeekServicePath); err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("   Warning: couldn't remove glockpeek service file: %v", err)
+		}
+	}
+	exec.Command("systemctl", "daemon-reload").Run()
+
 	// Remove glockpeek binary (no immutable flag to remove)
 	log.Println("Removing glockpeek binary...")
 	if err := os.Remove(config.GlockpeekInstallPath); err != nil {

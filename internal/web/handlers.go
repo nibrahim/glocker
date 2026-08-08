@@ -264,7 +264,7 @@ func HandleKeywordsRequest(cfg *config.Config, w http.ResponseWriter, r *http.Re
 	response := map[string]interface{}{
 		"url_keywords":     cfg.ExtensionKeywords.URLKeywords,
 		"content_keywords": combinedContentKeywords,
-		"whitelist":        cfg.ExtensionKeywords.Whitelist,
+		"whitelist":        effectiveWhitelist(cfg),
 	}
 
 	// Encode and send response
@@ -286,11 +286,28 @@ func hostOf(raw string) string {
 	return ""
 }
 
-// isDashboardHost reports whether a host is loopback / the glocker dashboard
-// alias (glocker.localhost, any *.localhost, 127.0.0.1, ::1, localhost).
+// hostedDashboardDomain is the public glockpeek dashboard. It is ALWAYS exempt
+// from monitoring — hardcoded, not config-driven — because the dashboard shows
+// the very keywords it records (your flagged URLs/searches), so scanning it
+// would flag itself. It must never be blocked or reported.
+const hostedDashboardDomain = "glockerapp.com"
+
+// isDashboardHost reports whether a host is always exempt from content
+// monitoring: loopback / the local glocker dashboard (glocker.localhost, any
+// *.localhost, 127.0.0.1, ::1, localhost) or the hosted glockpeek dashboard
+// (glockerapp.com and its subdomains).
 func isDashboardHost(h string) bool {
 	h = strings.ToLower(strings.TrimSpace(h))
-	return h == "127.0.0.1" || h == "::1" || h == "localhost" || strings.HasSuffix(h, ".localhost")
+	if h == "127.0.0.1" || h == "::1" || h == "localhost" || strings.HasSuffix(h, ".localhost") {
+		return true
+	}
+	return h == hostedDashboardDomain || strings.HasSuffix(h, "."+hostedDashboardDomain)
+}
+
+// effectiveWhitelist is the configured extension whitelist plus the hardcoded
+// always-allowed hosted dashboard, sent to the extension so it never scans it.
+func effectiveWhitelist(cfg *config.Config) []string {
+	return append([]string{hostedDashboardDomain}, cfg.ExtensionKeywords.Whitelist...)
 }
 
 func HandleReportRequest(cfg *config.Config, w http.ResponseWriter, r *http.Request) {
@@ -374,7 +391,7 @@ func HandleSSERequest(cfg *config.Config, w http.ResponseWriter, r *http.Request
 	initialKeywords := map[string]interface{}{
 		"url_keywords":     cfg.ExtensionKeywords.URLKeywords,
 		"content_keywords": combinedContentKeywords,
-		"whitelist":        cfg.ExtensionKeywords.Whitelist,
+		"whitelist":        effectiveWhitelist(cfg),
 	}
 	if keywordsJSON, err := json.Marshal(initialKeywords); err == nil {
 		fmt.Fprintf(w, "data: %s\n\n", keywordsJSON)

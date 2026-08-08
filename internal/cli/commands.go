@@ -13,6 +13,7 @@ import (
 	"glocker/internal/notify"
 	"glocker/internal/reports"
 	"glocker/internal/state"
+	"glocker/internal/syncer"
 	"glocker/internal/web"
 )
 
@@ -131,8 +132,54 @@ func GetStatusResponse(cfg *config.Config) string {
 		response.WriteString(fmt.Sprintf("Time Remaining: %v\n", remaining.Round(time.Second)))
 	}
 
+	// Show glockpeek sync status.
+	response.WriteString("\n")
+	if !cfg.Sync.Enabled {
+		response.WriteString("Sync (glockpeek): disabled\n")
+	} else {
+		ss := state.GetSyncSummary()
+		// Records sitting in the local logs that the next push will carry.
+		pending := formatSyncCounts(syncer.PendingCounts(cfg, ss.Cursors))
+		interval := time.Duration(cfg.Sync.IntervalSeconds) * time.Second
+		if interval <= 0 {
+			interval = time.Duration(config.DefaultSyncIntervalSeconds) * time.Second
+		}
+		if ss.LastSyncAt.IsZero() {
+			response.WriteString("Sync (glockpeek): enabled — nothing pushed yet\n")
+			response.WriteString(fmt.Sprintf("  Pending: %s\n", pending))
+		} else {
+			response.WriteString(fmt.Sprintf("Sync (glockpeek): last push %s ago\n",
+				now.Sub(ss.LastSyncAt).Round(time.Second)))
+			response.WriteString(fmt.Sprintf("  This session: %s\n", formatSyncCounts(ss.Total)))
+			nextIn := ss.LastSyncAt.Add(interval).Sub(now).Round(time.Second)
+			if nextIn > 0 {
+				response.WriteString(fmt.Sprintf("  Pending: %s; next push in %s\n", pending, nextIn))
+			} else {
+				response.WriteString(fmt.Sprintf("  Pending: %s; next push imminent\n", pending))
+			}
+		}
+	}
+
 	response.WriteString("\nEND\n")
 	return response.String()
+}
+
+// formatSyncCounts renders per-source sync counts in a stable order, skipping
+// zeros, with a total, e.g. "2 violations, 2 usage (4 records)".
+func formatSyncCounts(m map[string]int) string {
+	order := []string{"violations", "unblocks", "lifecycle", "usage", "heartbeat"}
+	var parts []string
+	total := 0
+	for _, k := range order {
+		if n := m[k]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, k))
+			total += n
+		}
+	}
+	if total == 0 {
+		return "0 records"
+	}
+	return fmt.Sprintf("%s (%d records)", strings.Join(parts, ", "), total)
 }
 
 // GetInfoResponse returns a formatted configuration information report.

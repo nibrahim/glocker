@@ -46,6 +46,29 @@ Glocker uses **9 independent monitoring systems** that work together:
 
 Each system can be independently enabled/disabled and configured with time windows for fine-grained control.
 
+## Architecture
+
+Glocker is three cooperating processes:
+
+- **`glocker`** — the privileged agent. Does the enforcement and data
+  collection: usage monitoring, `/etc/hosts` management, sudoers control, killing
+  forbidden programs, mindful uninstalls, processing local commands (`-block`,
+  `-unblock`, …), and running the local web server the browser extension reports
+  violations into. It records everything to log files under `/var/log/`.
+- **`glockpeek`** — the stats service and web dashboard, a **separate process**
+  (its own systemd service, localhost only). It reads the same
+  `/etc/glocker/config.yaml`, reads the logs directly, and serves the dashboard
+  at the root (default `http://127.0.0.1:4317/`). The glocker daemon no
+  longer serves the dashboard itself.
+- **`glockdoc`** — the watchdog. Runs periodically and records whether glocker is
+  alive to a heartbeat log, and is **deliberately left in place by an uninstall**
+  so a silent teardown is still recorded.
+
+`glocker` and `glockdoc` watch the machine locally; `glockpeek` reads and
+displays. The longer-term direction — glocker syncing to a local *or hosted*
+glockpeek, mutual glocker/glockdoc monitoring, end-to-end encryption, and an
+open-core hosted tier — is captured in [`ROADMAP.md`](ROADMAP.md).
+
 ## Documentation
 
 - **[Installation & Usage Guide](docs/installation.md)** - Commands, utilities, development setup
@@ -63,14 +86,15 @@ Each system can be independently enabled/disabled and configured with time windo
 - **Lifecycle Logging** - Install and uninstall events are recorded with a required reason and optional note; valid reasons are gated by config
 - **Content Monitoring** - Firefox extension watches for keywords on any page
 - **Screen Locker** - Time-based or text-based mindful unlocking
-- **Log Analysis** - Visual summaries of violations and patterns with `glockpeek`
+- **Stats Dashboard** - Web dashboard (`glockpeek`) with violations, clean streaks, usage analytics, and exposure patterns
 - **Panic Mode** - Nuclear option: suspend system and re-suspend on early wake
 
 ## Utilities
 
-- **[glocker](cmd/glocker/)** - Main daemon and CLI
+- **[glocker](cmd/glocker/)** - Main daemon and CLI (enforcement + data collection)
+- **[glockpeek](cmd/glockpeek/)** - Standalone stats web dashboard; serves on localhost (default `:4317`), reading the logs
+- **[glockdoc](cmd/glockdoc/)** - Liveness watchdog; records whether glocker is running (survives uninstall)
 - **[glocklock](cmd/glocklock/)** - X11 screen locker with time/text-based modes
-- **[glockpeek](cmd/glockpeek/)** - Log analysis tool with visual summaries
 
 ## Example Configuration
 
@@ -172,52 +196,64 @@ glocker -panic 30        # Suspend for 30 minutes
 
 # Uninstall with accountability
 sudo glocker -uninstall "maintenance" -note "kernel upgrade"
-
-# Analysis
-glockpeek                          # Show violation/unblock summaries
-glockpeek -detail 2024-06-15       # Detail view for a date (also accepts
-                                   # "last week", "last month", etc.)
-glockpeek -from 2024-06 -to 2024-07  # Range view across months
 ```
 
-## Log Analysis with glockpeek
+## Stats Dashboard (glockpeek)
 
-`glockpeek` reads Glocker's log files — violations (`/var/log/glocker-reports.log`), unblocks (`/var/log/glocker-unblocks.log`), and lifecycle events (`/var/log/glocker-lifecycle.log`) — and renders colored, terminal-friendly summaries so you can see your patterns at a glance. It is read-only and needs no daemon or root.
+`glockpeek` runs as its own systemd service and serves a web dashboard of your
+exposure and usage analytics. It is **DB-backed** (SQLite locally, Postgres for a
+hosted instance — via GORM, so switching is just a driver + DSN change) and
+**multi-tenant** under the hood, which lets the same code run as a zero-config
+personal desktop tool or as a shared/hosted instance. The glocker agent doesn't
+write to the dashboard directly; a syncer pushes local records into glockpeek's
+**ingest API**, so the two can live on different machines (see PLAN, untracked).
 
-**Summary view (default)** — aggregate statistics across all logs:
+glockpeek runs in one of two modes (`glockpeek_mode`, default `local`):
+
+**`local` (default) — personal desktop.** Binds `127.0.0.1` only (unreachable
+from other hosts), no login or account to create, and the ingest endpoint is open
+to same-machine clients (no token). Just run it and open the page:
 
 ```bash
-glockpeek            # Violations summary: totals, by type (URL vs content
-                     # keyword), time-of-day periods, top keywords, top
-                     # domains, day-of-week distribution
-glockpeek -unblocks  # Unblocks summary: totals, time of day, top domains,
-                     # reasons cited, day of week
+glockpeek                        # uses /etc/glocker/config.yaml
+xdg-open http://127.0.0.1:4317/
 ```
 
-Bars are colored relative to the average (red = above average, green = below) so outliers stand out.
+Any local user on that machine can view it — fine for a personal desktop; use
+`hosted` for a shared box.
 
-**Date-range filtering** — scope any summary to a period. Accepts `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`:
+**`hosted` — shared/remote instance.** Per-account logins (httpOnly **session
+cookie**) + ingest **tokens** (the syncer sends `Authorization: Bearer <token>`,
+which identifies its account) + isolation. Manage accounts with admin subcommands
+(they touch the DB, so run them on the DB host as the service user):
 
 ```bash
-glockpeek -from 2024                  # Everything from 2024 onward
-glockpeek -from 2024-01 -to 2024-06   # First half of 2024
-glockpeek -unblocks -from 2024-06     # Unblocks since June 2024
+glockpeek -adduser noufal     # create a dashboard account (prompts for a password)
+glockpeek -passwd  noufal     # change a password
+glockpeek -addtoken noufal    # mint an ingest API token for the syncer (printed once)
 ```
 
-**Detailed timelines** — `-detail` picks the right granularity (day / week / month / year) from the input and accepts both exact dates and natural-language expressions:
+- **Config** (`conf.yaml`): `glockpeek_mode` (`local`/`hosted`), `glockpeek_listen`
+  (address, hosted mode), `database` (driver + DSN), `glockpeek_secure_cookies`
+  (set true when served over HTTPS).
 
-```bash
-glockpeek -detail yesterday      # Hour-by-hour breakdown for a single day
-glockpeek -detail 'last week'    # Day-by-day, Monday–Sunday
-glockpeek -detail 2024-06        # Day-by-day calendar for a month
-glockpeek -detail 'last month'   # Same, for the previous month
-glockpeek -detail 2024           # Month-by-month rollup for a year
-glockpeek -detail 'last year'    # Same, for the previous year
-```
+**How data gets there.** The glocker daemon keeps recording to its `/var` logs
+(the source of truth) and enforcing offline; a **syncer** goroutine
+(`sync.enabled`) mirrors new records up to glockpeek's ingest API — a one-shot
+backfill at startup, then incremental on a timer. It's local-first: if glockpeek
+is down the syncer just retries, and enforcement is never affected. The Data-sync
+panel on the dashboard shows when the daemon last pushed. Point `sync.glockpeek_url`
+at a remote host to sync off-box.
 
-Detail views fold in the **lifecycle log**: any period during which Glocker was uninstalled (longer than 2 minutes — quick upgrades are ignored) is marked `UNMANAGED` in red, annotated with the reason and note from the uninstall, and counted separately from clean and violating periods. This makes gaps in coverage visible rather than silently absent. Hours/days with more than 2 violations are flagged as egregious (inverse video) to distinguish deliberate attempts from accidental hits.
+The dashboard surfaces violation totals and types, clean streaks, a
+coverage/health score, per-day activity, and usage analytics (per-program
+title-word breakdowns). Periods during which Glocker was uninstalled are shown as
+`UNMANAGED` coverage gaps rather than silently absent.
 
-## Architecture
+The installed service currently runs as **root** (unprivileged operation is a
+planned hardening step before self-hosting ships to others).
+
+## Implementation
 
 Glocker is a **Go application** that runs as a systemd service with setuid root privileges:
 
@@ -234,8 +270,9 @@ See [architecture documentation](docs/architecture.md) for detailed design.
 glocker/
 ├── cmd/                        # Binaries
 │   ├── glocker/                # Main daemon
-│   ├── glocklock/              # Screen locker
-│   └── glockpeek/              # Log analyzer
+│   ├── glockpeek/              # Standalone stats web dashboard
+│   ├── glockdoc/               # Liveness watchdog
+│   └── glocklock/              # Screen locker
 ├── internal/                   # Application packages
 │   ├── cli/                    # Command processors
 │   ├── config/                 # Configuration loading
@@ -245,7 +282,8 @@ glocker/
 │   └── ...
 ├── extensions/firefox/         # Browser extension
 ├── conf/conf.yaml              # Sample config (~60MB)
-├── extras/glocker.service      # Systemd service
+├── extras/glocker.service      # Systemd service (daemon)
+├── extras/glockpeek.service    # Systemd service (dashboard)
 └── docs/                       # Documentation
 ```
 
@@ -259,7 +297,7 @@ See [CLAUDE.md](CLAUDE.md) for complete file map and developer guide.
 ## System Requirements
 
 - Linux with systemd
-- Go 1.21+ (for building)
+- Go 1.25+ (for building)
 - iptables (optional, for firewall blocking)
 - Firefox (for browser extension)
 - Root access (for installation)

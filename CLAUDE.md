@@ -374,16 +374,67 @@ Endpoints for browser extension communication (internal/web/handlers.go):
 
 Server started by internal/web/server.go:StartWebTrackingServer()
 
-**Stats dashboard (`internal/stats/`, mounted at `/stats`, localhost only):**
-- Reachable at `http://glocker.localhost/stats` — `UpdateHosts` special-cases a
-  `127.0.0.1/::1 glocker.localhost` alias into the managed /etc/hosts block (see
-  internal/enforcement/hosts.go); resolving to loopback keeps the guard happy.
-- `GET /stats/` - glockpeek dashboard (embedded frontend; a copy of `glockpeek-web/public`)
-- `GET /stats/api/data` - full parsed history (violations/unblocks/lifecycle/unmanaged/usage), same JSON as glockpeek-web
-- `GET /stats/api/health` - liveness + resolved log paths
-- `GET|PUT /stats/api/rules` - usage categorization config `{rules, colors}`, stored at `/var/lib/glocker/usage-rules.json` (mutable state, not /etc)
-- `GET|PUT /stats/api/ignored` - false-positive violations `{ignored:[{ts,keyword,url,domain}]}`, stored at `/var/lib/glocker/ignored-violations.json`. `buildData` filters these out of the violations it returns (non-destructive; the raw reports log is untouched). Marked/restored from the day-detail hit list in the History view.
-- Reads the usage log at `/var/log/glocker-usage.jsonl`. All `/stats` routes reject non-loopback clients (403).
+**Stats dashboard (`internal/stats/` + `internal/store/`, served by the standalone
+`glockpeek` process):**
+- Served by **`cmd/glockpeek`** as its own binary + systemd service
+  (`extras/glockpeek.service`), NOT by the glocker daemon. Reads
+  `/etc/glocker/config.yaml` for `glockpeek_listen` (default `127.0.0.1:4317`),
+  `database` (driver+DSN), and `glockpeek_secure_cookies`.
+- **DB-backed, multi-tenant.** `internal/store` is a GORM layer (sqlite via
+  pure-Go `glebarez/sqlite`, or postgres) — the dashboard no longer parses log
+  files. Every stats row carries a `UserID`; all reads/ingest are scoped to the
+  authenticated account. Records are populated by the glocker syncer (see below)
+  through the ingest API.
+- **Two modes** (`glockpeek_mode`, default **local**). `cmd/glockpeek` maps mode →
+  `stats.Options.Auth` (local→false, hosted→true).
+  - **local**: `main.forceLoopback` pins the bind to `127.0.0.1` regardless of
+    `glockpeek_listen`; `requireUser`/`requireToken` inject an implicit account
+    (`EnsureDefaultUser`, username `local`), so no login/token and ingest is open
+    to same-machine clients.
+  - **hosted**: real logins + tokens + isolation (below); bind honored as configured.
+- **Hosted auth** (`internal/stats/auth.go`): humans log in (`POST /api/login`) → argon2id
+  verify (`alexedwards/argon2id`) → httpOnly session cookie (`glockpeek_session`,
+  opaque token in the `sessions` table). The syncer uses a bearer **API token**
+  (hashed in the `api_tokens` table) on `/api/ingest`. Middleware: `requireUser`
+  (cookie) / `requireToken` (bearer). Admin CLI: `glockpeek -adduser/-passwd/-addtoken`
+  (needs access to the DB, so run as the service user). `/api/me` returns `{auth}`
+  so the frontend hides sign-out in single-user mode.
+- `stats.Register(mux, db, Options{SecureCookies})` mounts:
+  - `GET /` - dashboard (embedded frontend, copy of `glockpeek-web/public`) — **public**
+  - `POST /api/login` — **public**; `POST /api/logout`, `GET /api/me` — session
+  - `GET /api/data` - full history (session-gated), unmanaged/downtime derived from
+    lifecycle/heartbeat rows; ignored overlay filtered in `buildData`
+  - `GET /api/health` - `{ok, counts}` for the account (session)
+  - `GET|PUT /api/rules` - `{rules, colors}` in the DB (session)
+  - `GET|PUT /api/ignored` - false-positive overlay in the DB (session)
+  - `POST /api/ingest` - batched idempotent upsert from the syncer (**bearer token**);
+    also stamps the `sync_status` row (last-ingest time + last-batch counts).
+    `GET /api/ingest` returns `{cursors}` — per-source max stored TS
+    (`store.HighWaterMarks`) — so the syncer seeds cursors from what glockpeek
+    already has (glockpeek is the source of truth for sync progress).
+  - `GET /api/sync` - `{lastSyncAt, last{counts}, totals}` for the dashboard's
+    Data-sync panel (session)
+  - Legacy `/stats`, `/stats/` 301-redirect to `/`. (The old
+    `glocker.localhost/stats` alias in hosts.go is vestigial.)
+- Frontend must be kept in sync between `glockpeek-web/public/` and
+  `internal/stats/assets/` (the embedded copy). `app.js` gates on `GET /api/me`
+  and shows a login screen when unauthenticated.
+
+**Syncer (`internal/syncer/`, a goroutine in the glocker daemon):**
+- Wired in cmd/glocker/main.go under `cfg.Sync.Enabled`: `go syncer.New(cfg).Run()`.
+- Local-first: reads the `/var` logs (via `reports` parsers + its own usage-JSONL
+  parser), builds a **plain-JSON** batch (deliberately NOT importing `store`, so
+  the agent binary stays free of GORM), and POSTs to `<glockpeek_url>/api/ingest`.
+  At startup `seedCursors` GETs glockpeek's high-water marks so a restart only
+  sends the gap (not a full re-backfill); on any error cursors stay 0 and it
+  backfills — always safe (idempotent). Then incremental every `interval_seconds`
+  with the in-memory per-source max-TS cursor. Errors are logged and retried next
+  tick — enforcement never depends on it. After each push it calls
+  `state.RecordSync`, which `glocker -status` surfaces (last push + session totals).
+- The syncer's payload JSON tags must match glockpeek's ingest decoder
+  (store-model JSON). `TestSyncIntoRealGlockpeek` guards that across the boundary.
+- Config `sync.{enabled, glockpeek_url, token, interval_seconds}`; token only for a
+  hosted glockpeek. Cursor is in-memory (restart re-backfills; idempotent).
 
 ### Extension Communication Flow
 

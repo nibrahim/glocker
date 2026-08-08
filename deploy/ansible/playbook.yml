@@ -1,0 +1,148 @@
+---
+# One-time, idempotent setup of the glockpeek host: Postgres, Caddy (TLS), the
+# service user, config, the systemd unit, and the firewall.
+#
+# It does NOT build, ship, or start the glockpeek binary — that's `make deploy`
+# from the repo root (build locally, scp, restart). Likewise the first dashboard
+# account + ingest token are a one-time post-deploy step (see deploy/README.md);
+# both need the binary, which only arrives via `make deploy`.
+#
+# Order: `make -C deploy configure` (this)  ->  `make deploy`  ->  create account.
+- name: Provision the glockpeek host
+  hosts: glockpeek
+  become: true
+
+  tasks:
+    # ── Base ────────────────────────────────────────────
+    - name: Apt update + base packages
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+        name:
+          - ufw
+          - unattended-upgrades
+          - acl
+          - ca-certificates
+          - curl
+          - debian-keyring
+          - debian-archive-keyring
+          - apt-transport-https
+          - postgresql
+          - postgresql-contrib
+          - python3-psycopg2
+        state: present
+
+    # ── Caddy (official repo) ───────────────────────────
+    - name: Add Caddy apt key
+      ansible.builtin.get_url:
+        url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+        dest: /etc/apt/keyrings/caddy-stable.asc
+        mode: "0644"
+    - name: Add Caddy apt repo
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/caddy-stable.asc] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main"
+        filename: caddy-stable
+        state: present
+    - name: Install Caddy
+      apt:
+        update_cache: true
+        name: caddy
+        state: present
+
+    # ── Service user + dirs ─────────────────────────────
+    - name: Create glockpeek system user
+      ansible.builtin.user:
+        name: glockpeek
+        system: true
+        shell: /usr/sbin/nologin
+        home: /var/lib/glockpeek
+        create_home: true
+    - name: Lock down the state dir
+      ansible.builtin.file:
+        path: /var/lib/glockpeek
+        owner: glockpeek
+        group: glockpeek
+        mode: "0750"
+        state: directory
+    - name: Ensure /etc/glocker exists
+      ansible.builtin.file:
+        path: /etc/glocker
+        state: directory
+        mode: "0755"
+
+    # ── Postgres ────────────────────────────────────────
+    - name: Create Postgres role
+      become_user: postgres
+      community.postgresql.postgresql_user:
+        name: "{{ pg_user }}"
+        password: "{{ pg_password }}"
+    - name: Create Postgres database
+      become_user: postgres
+      community.postgresql.postgresql_db:
+        name: "{{ pg_db }}"
+        owner: "{{ pg_user }}"
+
+    # ── glockpeek config + unit (binary comes from `make deploy`) ──
+    # Is the binary shipped yet? On the very first provision it isn't, so the
+    # restart handler must skip rather than fail trying to start a missing binary.
+    - name: Check whether the glockpeek binary is installed yet
+      ansible.builtin.stat:
+        path: /usr/local/bin/glockpeek
+      register: glockpeek_bin
+    - name: Write glockpeek config
+      ansible.builtin.template:
+        src: config.yaml.j2
+        dest: /etc/glocker/config.yaml
+        owner: root
+        group: glockpeek
+        mode: "0640"      # secret DSN — readable by the service user only
+      notify: restart glockpeek
+    - name: Install systemd unit
+      ansible.builtin.template:
+        src: glockpeek.service.j2
+        dest: /etc/systemd/system/glockpeek.service
+        mode: "0644"
+      notify: restart glockpeek
+    - name: Enable glockpeek (started by `make deploy` once the binary lands)
+      ansible.builtin.systemd:
+        name: glockpeek
+        enabled: true
+        daemon_reload: true
+
+    # ── Caddy + firewall ────────────────────────────────
+    - name: Write Caddyfile
+      ansible.builtin.template:
+        src: Caddyfile.j2
+        dest: /etc/caddy/Caddyfile
+        mode: "0644"
+      notify: reload caddy
+    - name: Enable + start Caddy
+      ansible.builtin.systemd:
+        name: caddy
+        enabled: true
+        state: started
+    - name: Firewall — allow ssh/http/https
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop: ["22", "80", "443"]
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+
+  handlers:
+    - name: reload caddy
+      ansible.builtin.systemd:
+        name: caddy
+        state: reloaded
+    # Only restart if the binary is present; on first provision it ships later
+    # via `make deploy`, which starts the service itself.
+    - name: restart glockpeek
+      ansible.builtin.systemd:
+        name: glockpeek
+        state: restarted
+        daemon_reload: true
+      when: glockpeek_bin.stat.exists

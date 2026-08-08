@@ -27,6 +27,63 @@ dev: false
 #   error - Only critical errors
 log_level: "info"
 
+# Listen address for the standalone glockpeek stats dashboard.
+# glockpeek runs as its own service and serves the dashboard at / (localhost
+# only). Default (if unset): 127.0.0.1:4317
+glockpeek_listen: "127.0.0.1:4317"
+
+# glockpeek's stats database. Dialect-agnostic (GORM): use sqlite locally or
+# switch to postgres for a hosted instance without changing anything else.
+#   driver: "sqlite" (default) | "postgres"
+#   dsn:    sqlite -> file path (default /var/lib/glocker/glockpeek.db)
+#           postgres -> e.g. "host=... user=... password=... dbname=... sslmode=require"
+database:
+  driver: "sqlite"
+  dsn: "/var/lib/glocker/glockpeek.db"
+
+# How glockpeek runs:
+#   local  - personal desktop (default). Binds 127.0.0.1 only (unreachable from
+#            other hosts), no login/registration, and the ingest endpoint is open
+#            to same-machine clients (no token).
+#   hosted - shared/remote instance: per-account logins + ingest tokens (manage
+#            accounts with `glockpeek -adduser`). [not the focus yet]
+glockpeek_mode: "local"
+
+# Mark the dashboard's session cookie Secure (hosted mode only). Set true when
+# served over HTTPS (including behind a TLS-terminating proxy).
+glockpeek_secure_cookies: false
+
+# Syncer: a goroutine in the glocker daemon that ships local /var records to
+# glockpeek's ingest API. Local-first — this only mirrors the files up on a
+# timer; recording and enforcement never depend on it. One-shot backfill at
+# startup, then incremental every interval_seconds; idempotent, so retries are
+# free.
+#   glockpeek_url  - where to push (default http://127.0.0.1:4317, the local one)
+#   token          - ingest bearer token; only needed for a hosted glockpeek
+#   interval_seconds - incremental cadence (default 300)
+sync:
+  enabled: true
+  glockpeek_url: "http://127.0.0.1:4317"
+  token: ""
+  interval_seconds: 300
+
+# Outbound email for account verification (Mailgun). SERVER-SIDE — this belongs
+# to the hosted *glockpeek* instance, NOT the agent: on a hosted setup it lives in
+# the glockpeek host's config (see deploy/ansible), and the api_key must never be
+# put on an agent. Leave it disabled/empty here on a laptop agent.
+# region is "us" (default) or "eu" — match your Mailgun domain's region.
+mail:
+  enabled: false
+  domain: "mg.glockerapp.com"
+  api_key: ""
+  from: "noreply@mg.glockerapp.com"
+  region: "us"
+
+# glockpeek's own public base URL (SERVER-SIDE), used to build links in emails
+# (e.g. the account-verification link). No trailing slash. Only needed on a
+# hosted glockpeek with signups enabled.
+app_url: "https://glockerapp.com"
+
 # ----------------------------------------------------------------------------
 # Core Enforcement Mechanisms
 # ----------------------------------------------------------------------------

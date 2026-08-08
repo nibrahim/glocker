@@ -49,6 +49,8 @@ type Options struct {
 	// AdminEmail names the account granted admin powers (user management). Empty
 	// disables the admin panel/endpoints.
 	AdminEmail string
+	// Captcha turns on the proof-of-work captcha on the signup endpoint.
+	Captcha bool
 }
 
 // Register mounts the dashboard and its API onto mux, backed by database.
@@ -65,6 +67,7 @@ func Register(mux *http.ServeMux, database *store.DB, o Options) {
 	mail = o.Mailer
 	appURL = o.AppURL
 	adminEmail = strings.TrimSpace(o.AdminEmail)
+	initCaptcha(o.Captcha)
 	sub, err := fs.Sub(assetsFS, "assets")
 	if err != nil {
 		return // embed failure is a build-time bug; nothing to serve
@@ -86,6 +89,10 @@ func Register(mux *http.ServeMux, database *store.DB, o Options) {
 	mux.HandleFunc("/api/login", handleLogin)
 	mux.HandleFunc("/api/register", rateLimited(regLimiter, handleRegister))
 	mux.HandleFunc("/verify", handleVerify) // browser link from the email, not /api/
+	if o.Captcha {
+		// Public: the signup captcha challenge (the frontend fetches + solves it).
+		mux.HandleFunc("/api/altcha", handleAltchaChallenge)
+	}
 
 	// Session-gated: everything that shows or edits account data.
 	mux.HandleFunc("/api/me", requireUser(handleMe))

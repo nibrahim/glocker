@@ -84,6 +84,11 @@ mail:
 # hosted glockpeek with signups enabled.
 app_url: "https://glockerapp.com"
 
+# Proof-of-work captcha on the signup endpoint (SERVER-SIDE, hosted glockpeek).
+# Adds per-attempt CPU cost (Altcha PoW) to blunt automated signups, on top of
+# the register rate limiter. Leave false on a laptop agent. Default: false.
+captcha: false
+
 # ----------------------------------------------------------------------------
 # Core Enforcement Mechanisms
 # ----------------------------------------------------------------------------

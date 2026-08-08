@@ -305,6 +305,8 @@ type Config struct {
 	// GlockpeekAdminEmail names the account granted admin powers (user management
 	// in the dashboard). Hosted mode only; empty means no admin account.
 	GlockpeekAdminEmail string `yaml:"admin_email"`
+	// GlockpeekCaptcha turns on the proof-of-work captcha on signup (hosted).
+	GlockpeekCaptcha bool `yaml:"captcha"`
 }
 
 // SyncConfig controls the glocker->glockpeek syncer. The agent keeps recording

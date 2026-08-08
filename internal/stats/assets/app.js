@@ -95,6 +95,37 @@ function showLogin() {
 // POST api/register submit. Registration requires a verified email before any
 // session exists, so success shows a "check your email" note rather than
 // signing the user in.
+// Altcha proof-of-work captcha (invisible): fetch a challenge and brute-force
+// the matching number in the background so it's ready by the time the user
+// submits. If the endpoint is absent (captcha disabled) we send nothing and the
+// server won't require it. Each solution is single-use, so we refresh after each
+// attempt.
+let altchaPromise = null;
+
+function ensureCaptcha() {
+  altchaPromise = (async () => {
+    let ch;
+    try {
+      const r = await fetch("api/altcha");
+      if (!r.ok) return ""; // captcha not enabled on this instance
+      ch = await r.json();
+    } catch { return ""; }
+    return await solveAltcha(ch);
+  })();
+}
+
+async function solveAltcha(ch) {
+  const enc = new TextEncoder();
+  for (let n = 0; n <= ch.maxnumber; n++) {
+    const digest = await crypto.subtle.digest("SHA-256", enc.encode(ch.salt + n));
+    const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    if (hex === ch.challenge) {
+      return btoa(JSON.stringify({ algorithm: ch.algorithm, challenge: ch.challenge, number: n, salt: ch.salt, signature: ch.signature }));
+    }
+  }
+  return "";
+}
+
 function setupRegister() {
   const loginForm = document.getElementById("login-form");
   const regForm = document.getElementById("register-form");
@@ -108,7 +139,7 @@ function setupRegister() {
     loginForm.hidden = which !== "login";
     regForm.hidden = which !== "register";
   };
-  document.getElementById("show-register").onclick = (e) => { e.preventDefault(); show("register"); };
+  document.getElementById("show-register").onclick = (e) => { e.preventDefault(); show("register"); ensureCaptcha(); };
   document.getElementById("show-login").onclick = (e) => { e.preventDefault(); show("login"); };
 
   regForm.onsubmit = async (e) => {
@@ -125,22 +156,25 @@ function setupRegister() {
     }
     const submit = document.getElementById("register-submit");
     submit.disabled = true;
+    // Wait for the background PoW solve (usually already done), then include it.
+    const altcha = altchaPromise ? await altchaPromise : "";
     let res;
     try {
       res = await fetch("api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, altcha }),
       });
     } catch (err) {
       regErr.textContent = `Could not reach the server: ${err.message}`;
       regErr.hidden = false;
       submit.disabled = false;
+      ensureCaptcha(); // the challenge was consumed; get a fresh one for retry
       return;
     }
     if (!res.ok) {
       const msg = {
-        400: "Enter a valid email and a password of at least 8 characters",
+        400: "Check your details and try again (a valid email and 8+ char password).",
         404: "Sign-ups are not enabled on this instance",
         409: "That email is already registered",
         429: "Too many attempts. Please wait a few minutes and try again",
@@ -150,6 +184,7 @@ function setupRegister() {
       regErr.textContent = msg;
       regErr.hidden = false;
       submit.disabled = false;
+      ensureCaptcha(); // single-use challenge spent; refresh for the next attempt
       return;
     }
     // Success: no session yet — the account activates from the emailed link.

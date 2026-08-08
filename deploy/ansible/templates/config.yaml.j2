@@ -22,3 +22,6 @@ app_url: "https://{{ domain }}"
 
 # Account granted admin powers (user management in the dashboard).
 admin_email: "{{ admin_email | default('') }}"
+
+# Proof-of-work captcha on signup (anti-abuse).
+captcha: {{ (captcha | default(true)) | string | lower }}

@@ -41,9 +41,14 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		Altcha   string `json:"altcha"` // proof-of-work captcha solution
 	}
 	if err := json.Unmarshal(body, &in); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if captchaEnabled && !verifyAltcha(in.Altcha) {
+		http.Error(w, "captcha verification failed", http.StatusBadRequest)
 		return
 	}
 	in.Email = strings.TrimSpace(in.Email)

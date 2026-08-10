@@ -121,15 +121,6 @@ kill_on_block:
   - chromium
   - brave
 
-# Enable firewall blocking (iptables/ip6tables rules)
-# How it works:
-#   - Adds iptables DROP rules for specific IPs
-#   - Blocks both IPv4 and IPv6 traffic
-#   - More aggressive but requires resolving domains to IPs first
-# Note: Can affect system networking if misconfigured
-# Recommended: false (hosts file is usually sufficient)
-enable_firewall: false
-
 # Enable forbidden program monitoring and killing
 # How it works:
 #   - Monitors running processes every N seconds
@@ -150,7 +141,6 @@ enable_self_healing: false
 # How often to run the main enforcement loop (in seconds)
 # Controls how frequently Glocker:
 #   - Updates /etc/hosts with current blocked domains
-#   - Updates firewall rules
 #   - Checks time windows and applies time-based blocks
 #   - Updates sudoers restrictions
 # Lower values = more responsive but slightly higher CPU usage
@@ -180,21 +170,6 @@ tamper_detection:
   #   - Flash screen: "xdotool key ctrl+alt+l"
   #   - Run custom script: "/path/to/alert-script.sh"
   alarm_command: "mpg123 /home/user/Downloads/alarm.mp3"
-
-# ----------------------------------------------------------------------------
-# Mindful Uninstall Protection
-# ----------------------------------------------------------------------------
-
-# Mindful delay for uninstall (seconds)
-# Time you must wait after running 'glocker -uninstall' before it completes
-# Purpose: Forces reflection before removing protections
-# During this time:
-#   - You must stay at the terminal
-#   - You can cancel with Ctrl+C if you change your mind
-#   - A countdown is displayed
-# Recommended: 60-300 seconds (1-5 minutes)
-# Set to 0 to disable (NOT recommended - defeats the purpose)
-mindful_delay: 60
 
 # ----------------------------------------------------------------------------
 # Sudo Access Control

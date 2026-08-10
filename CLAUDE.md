@@ -62,7 +62,6 @@ glocker -uninstall
 - **`enforcement.go`** - Core blocking logic
   - `RunOnce()` - Main enforcement cycle
   - `UpdateHosts()` - Modifies `/etc/hosts` file
-  - `UpdateFirewall()` - Manages iptables rules
   - `UpdateSudoers()` - Controls sudo access
   - Time window evaluation logic
   - Immutable file protection (chattr)
@@ -158,7 +157,7 @@ glocker -uninstall
 |------|-------------|--------------|
 | Add new CLI flag | `main.go` | Add flag definition + handler |
 | Modify status output | `internal/cli/commands.go` | `GetStatusResponse()` |
-| Change blocking logic | `internal/enforcement/enforcement.go` | `UpdateHosts()`, `UpdateFirewall()` |
+| Change blocking logic | `internal/enforcement/enforcement.go` | `UpdateHosts()` |
 | Add socket command | `internal/ipc/server.go` | Add case in `HandleConnection()` |
 | Modify installation | `internal/install/install.go` | `InstallGlocker()` |
 | Add web endpoint | `internal/web/handlers.go` | Add handler function |
@@ -231,7 +230,6 @@ All configuration is in YAML with these main structs (internal/config/types.go):
 ```go
 type Config struct {
     EnableHosts             bool
-    EnableFirewall          bool
     EnableForbiddenPrograms bool
     Domains                 []Domain
     KillOnBlock             []string                // process names killed after `glocker -block` (DNS-cache flush)
@@ -298,7 +296,6 @@ type ForbiddenProgram struct {
    - Web tracking HTTP server on ports 80 and 443 (internal/web/server.go)
 4. Main loop applies enforcement every 60s:
    - Updates hosts file with blocked domains (internal/enforcement/enforcement.go)
-   - Updates firewall rules
    - Updates sudoers restrictions
    - Applies time window logic
 
@@ -370,7 +367,7 @@ Endpoints for browser extension communication (internal/web/handlers.go):
 - `POST /report` - Content monitoring reports from extension
 - `GET /keywords` - Returns current URL/content keyword lists
 - `GET /sse` - Server-sent events for real-time updates
-- `GET /blocked` - Blocked page display (shown when firewall blocks request)
+- `GET /blocked` - Blocked page display (served when a hosts-blocked domain is requested)
 
 Server started by internal/web/server.go:StartWebTrackingServer()
 
@@ -503,7 +500,6 @@ Go modules (go.mod):
 - `gopkg.in/yaml.v3` - Configuration parsing
 
 System dependencies:
-- `iptables` / `ip6tables` - Firewall rules
 - `systemd` - Service management
 - `chattr` / `lsattr` - File immutability
 - Firefox with extension support

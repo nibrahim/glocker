@@ -32,17 +32,16 @@ sudo glocker -uninstall "reason for uninstalling"
 
 ## What It Does
 
-Glocker uses **9 independent monitoring systems** that work together:
+Glocker uses **8 independent monitoring systems** that work together:
 
 1. **Hosts File Blocking** - Redirects blocked domains to `127.0.0.1`
-2. **Firewall Blocking** - Network-level blocking via iptables (optional)
-3. **Web Tracking** - Intercepts HTTP/HTTPS requests, records violations
-4. **Browser Extension** - Monitors page content for forbidden keywords
-5. **Forbidden Programs** - Kills specified programs during time windows
-6. **Violation Tracking** - Triggers actions when threshold exceeded (e.g., screen lock)
-7. **Sudoers Control** - Restricts `sudo` access during blocking periods
-8. **Tamper Detection** - Self-healing when critical files are modified
-9. **Panic Mode** - Emergency system suspension with re-suspend on early wake
+2. **Web Tracking** - Intercepts HTTP/HTTPS requests, records violations
+3. **Browser Extension** - Monitors page content for forbidden keywords
+4. **Forbidden Programs** - Kills specified programs during time windows
+5. **Violation Tracking** - Triggers actions when threshold exceeded (e.g., screen lock)
+6. **Sudoers Control** - Restricts `sudo` access during blocking periods
+7. **Tamper Detection** - Self-healing when critical files are modified
+8. **Panic Mode** - Emergency system suspension with re-suspend on early wake
 
 Each system can be independently enabled/disabled and configured with time windows for fine-grained control.
 
@@ -298,7 +297,6 @@ See [CLAUDE.md](CLAUDE.md) for complete file map and developer guide.
 
 - Linux with systemd
 - Go 1.25+ (for building)
-- iptables (optional, for firewall blocking)
 - Firefox (for browser extension)
 - Root access (for installation)
 

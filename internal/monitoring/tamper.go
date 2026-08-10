@@ -15,15 +15,13 @@ import (
 )
 
 // MonitorTampering continuously monitors file checksums and system state for tampering.
-// It checks files, firewall rules, and service status at regular intervals.
+// It checks files and service status at regular intervals.
 func MonitorTampering(cfg *config.Config, checksums []state.FileChecksum, filesToMonitor []string) {
 	// Set default check interval if not specified
 	checkInterval := cfg.TamperDetection.CheckInterval
 	if checkInterval == 0 {
 		checkInterval = 30 // Default: check every 30 seconds
 	}
-
-	firewallRuleCount := CountFirewallRules()
 
 	ticker := time.NewTicker(time.Duration(checkInterval) * time.Second)
 	defer ticker.Stop()
@@ -55,14 +53,6 @@ func MonitorTampering(cfg *config.Config, checksums []state.FileChecksum, filesT
 			}
 		}
 
-		// Check firewall rules
-		currentRuleCount := CountFirewallRules()
-		if currentRuleCount < firewallRuleCount {
-			tampered = true
-			reason := fmt.Sprintf("Firewall rules reduced from %d to %d", firewallRuleCount, currentRuleCount)
-			tamperReasons = append(tamperReasons, reason)
-		}
-
 		// Check if service is still running
 		if !IsServiceRunning() {
 			tampered = true
@@ -88,7 +78,6 @@ func MonitorTampering(cfg *config.Config, checksums []state.FileChecksum, filesT
 			}
 			// Also update global checksums
 			state.SetGlobalChecksums(checksums)
-			firewallRuleCount = CountFirewallRules()
 		}
 	}
 }
@@ -149,27 +138,6 @@ func UpdateChecksum(filePath string) {
 	newChecksum := CaptureChecksum(cfg, filePath)
 	state.UpdateChecksum(filePath, newChecksum.Checksum, newChecksum.Exists)
 	log.Printf("Updated checksum for %s: %s", filePath, newChecksum.Checksum)
-}
-
-// CountFirewallRules counts the number of glocker firewall rules currently active.
-func CountFirewallRules() int {
-	count := 0
-
-	// Count IPv4 rules
-	cmd := exec.Command("bash", "-c", "iptables -S OUTPUT | grep 'GLOCKER-BLOCK' | wc -l")
-	if output, err := cmd.Output(); err == nil {
-		fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count)
-	}
-
-	// Count IPv6 rules
-	cmd = exec.Command("bash", "-c", "ip6tables -S OUTPUT | grep 'GLOCKER-BLOCK' | wc -l")
-	if output, err := cmd.Output(); err == nil {
-		var count6 int
-		fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count6)
-		count += count6
-	}
-
-	return count
 }
 
 // IsServiceRunning checks if the glocker systemd service is active.

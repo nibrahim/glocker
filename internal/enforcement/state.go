@@ -110,13 +110,6 @@ func InitialEnforcement(cfg *config.Config) {
 		}
 	}
 
-	// Update firewall
-	if cfg.EnableFirewall {
-		if err := UpdateFirewall(blockedDomains, false); err != nil {
-			log.Printf("ERROR updating firewall: %v", err)
-		}
-	}
-
 	// Update sudoers
 	if cfg.Sudoers.Enabled {
 		if err := UpdateSudoers(cfg, now, false, false); err != nil {
@@ -250,11 +243,6 @@ func EnforcementCheck(cfg *config.Config) {
 				}
 			}
 
-			if freshCfg.EnableFirewall {
-				if err := UpdateFirewall(blockedDomains, false); err != nil {
-					log.Printf("ERROR updating firewall: %v", err)
-				}
-			}
 			// freshCfg goes out of scope here, freeing the domain list
 		}
 	}

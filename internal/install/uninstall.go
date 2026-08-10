@@ -12,28 +12,12 @@ import (
 )
 
 // RestoreSystemChanges removes all glocker modifications and restores the system to its original state.
-// This includes cleaning firewall rules, hosts file, sudoers, Firefox extension, and removing config files.
+// This includes cleaning the hosts file, sudoers, Firefox extension, and removing config files.
 func RestoreSystemChanges(cfg *config.Config) error {
 	log.Println("╔════════════════════════════════════════════════╗")
 	log.Println("║           RESTORING SYSTEM CHANGES             ║")
 	log.Println("╚════════════════════════════════════════════════╝")
 	log.Println()
-
-	// Clean up firewall rules
-	log.Println("Clearing firewall rules...")
-	clearCmd := `iptables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 iptables`
-	if err := exec.Command("bash", "-c", clearCmd).Run(); err != nil {
-		log.Printf("   Warning: couldn't clear IPv4 rules: %v", err)
-	} else {
-		log.Println("✓ IPv4 firewall rules cleared")
-	}
-
-	clearCmd6 := `ip6tables -S OUTPUT | grep 'GLOCKER-BLOCK' | sed 's/-A/-D/' | xargs -r -L1 ip6tables`
-	if err := exec.Command("bash", "-c", clearCmd6).Run(); err != nil {
-		log.Printf("   Warning: couldn't clear IPv6 rules: %v", err)
-	} else {
-		log.Println("✓ IPv6 firewall rules cleared")
-	}
 
 	// Clean up hosts file
 	log.Println("Restoring hosts file...")

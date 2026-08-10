@@ -245,7 +245,6 @@ type ForbiddenProgramsConfig struct {
 // Config is the main configuration structure for glocker.
 type Config struct {
 	EnableHosts             bool                    `yaml:"enable_hosts"`
-	EnableFirewall          bool                    `yaml:"enable_firewall"`
 	EnableForbiddenPrograms bool                    `yaml:"enable_forbidden_programs"`
 	Domains                 []Domain                `yaml:"domains"`
 	HostsPath               string                  `yaml:"hosts_path"`
@@ -269,7 +268,6 @@ type Config struct {
 	MindfulUninstall        MindfulUninstallConfig  `yaml:"mindful_uninstall"`
 	Heartbeat               HeartbeatConfig         `yaml:"heartbeat"`
 	UsageMonitor            UsageMonitorConfig      `yaml:"usage_monitor"`
-	MindfulDelay            int                     `yaml:"mindful_delay"` // Seconds
 	NotificationCommand     string                  `yaml:"notification_command"`
 	PanicCommand            string                  `yaml:"panic_command"`
 	Dev                     bool                    `yaml:"dev"`

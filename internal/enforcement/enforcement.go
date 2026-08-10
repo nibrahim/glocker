@@ -12,7 +12,7 @@ import (
 )
 
 // RunOnce performs a single enforcement cycle, applying all configured blocking mechanisms.
-// It updates hosts files, firewall rules, and sudoers restrictions based on current time windows.
+// It updates the hosts file and sudoers restrictions based on current time windows.
 func RunOnce(cfg *config.Config, dryRun bool) {
 	now := time.Now()
 	slog.Debug("Starting enforcement run", "time", now.Format("2006-01-02 15:04:05"), "dry_run", dryRun)
@@ -36,15 +36,6 @@ func RunOnce(cfg *config.Config, dryRun bool) {
 		}
 	} else {
 		slog.Debug("Hosts file management disabled")
-	}
-
-	if cfg.EnableFirewall {
-		slog.Debug("Updating firewall rules", "enabled", true)
-		if err := UpdateFirewall(blockedDomains, dryRun); err != nil {
-			log.Printf("ERROR updating firewall: %v", err)
-		}
-	} else {
-		slog.Debug("Firewall management disabled")
 	}
 
 	if cfg.Sudoers.Enabled {

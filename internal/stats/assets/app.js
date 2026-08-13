@@ -1982,7 +1982,7 @@ function renderUsageReadout(u, available) {
     el.innerHTML = `<div class="stat" title="No usage log was found on the server.">
       <div class="k">Usage tracking</div>
       <div class="v" style="font-size:20px">off</div>
-      <div class="sub">no usage log — run usage-tracker or set GLOCKER_USAGE_LOG</div>
+      <div class="sub">no usage data yet — enable usage_monitor in the glocker config</div>
     </div>`;
     return;
   }

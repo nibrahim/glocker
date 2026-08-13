@@ -7,7 +7,7 @@ export const DEFAULT_PATHS = {
   reports: process.env.GLOCKER_REPORTS_LOG || "/var/log/glocker-reports.log",
   unblocks: process.env.GLOCKER_UNBLOCKS_LOG || "/var/log/glocker-unblocks.log",
   lifecycle: process.env.GLOCKER_LIFECYCLE_LOG || "/var/log/glocker-lifecycle.log",
-  // Written by internal/usage (the usage-tracker); one JSON sample per line.
+  // Written by internal/usage (the usage monitor); one JSON sample per line.
   usage: process.env.GLOCKER_USAGE_LOG || "/var/log/glocker-usage.jsonl",
   // Written by the glockdoc watchdog; one liveness sample per line.
   heartbeat: process.env.GLOCKER_HEARTBEAT_LOG || "/var/log/glocker-heartbeat.jsonl",
@@ -116,7 +116,7 @@ export async function parseLifecycle(path = DEFAULT_PATHS.lifecycle) {
   return { available: true, entries };
 }
 
-// Parse the usage-tracker JSONL log. Each line is a Sample:
+// Parse the usage monitor JSONL log. Each line is a Sample:
 //   {"ts":"…","idle_ms":1200,"windows":[{"active":true,"class":"firefox",…}, …]}
 // We keep only what the dashboard aggregates over — the active window and idle
 // time — so the payload stays small even for long histories (the full window

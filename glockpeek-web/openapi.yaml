@@ -266,7 +266,7 @@ components:
     UsageSample:
       type: object
       description: >
-        One usage-tracker sample: the focused window and idle time at a point in
+        One usage monitor sample: the focused window and idle time at a point in
         time. The full window list from the log is dropped server-side; only the
         active window is forwarded.
       properties:

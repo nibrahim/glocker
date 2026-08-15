@@ -33,6 +33,46 @@ func CopyFile(src, dst string) error {
 	return os.Chmod(dst, sourceInfo.Mode())
 }
 
+// ReplaceFile atomically installs src's contents at dst, preserving src's
+// permissions. It writes to a temp file in dst's directory and renames it over
+// dst, so it succeeds even when dst is a currently-running executable — a plain
+// open-for-write (as CopyFile does) fails there with ETXTBSY ("text file
+// busy"). The rename swaps the directory entry; any running process keeps the
+// old inode. The temp file lives in dst's dir so the rename stays on one
+// filesystem (a cross-device rename would fail).
+func ReplaceFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	sourceInfo, err := sourceFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // best-effort cleanup if we bail before the rename
+
+	if _, err := tmp.ReadFrom(sourceFile); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(sourceInfo.Mode()); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, dst)
+}
+
 // CopyDir recursively copies a directory from src to dst.
 func CopyDir(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {

@@ -3,6 +3,7 @@ package utils
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -119,4 +120,51 @@ func TestRunningAsRoot(t *testing.T) {
 	// We just test that the function works
 	t.Logf("Running as root (real): %v", realRoot)
 	t.Logf("Running as root (effective): %v", effectiveRoot)
+}
+
+func TestReplaceFile(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+	if err := os.WriteFile(src, []byte("new-content"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("OLD"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ReplaceFile(src, dst); err != nil {
+		t.Fatalf("ReplaceFile: %v", err)
+	}
+
+	// Content is replaced and src's mode is preserved.
+	if b, _ := os.ReadFile(dst); string(b) != "new-content" {
+		t.Errorf("dst content = %q, want new-content", b)
+	}
+	if fi, _ := os.Stat(dst); fi.Mode().Perm() != 0o755 {
+		t.Errorf("dst mode = %v, want 0755", fi.Mode().Perm())
+	}
+
+	// No temp file left behind after a successful rename.
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".dst.tmp-") {
+			t.Errorf("leftover temp file: %s", e.Name())
+		}
+	}
+}
+
+func TestReplaceFileCreatesNewDestination(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "does-not-exist-yet")
+	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReplaceFile(src, dst); err != nil {
+		t.Fatalf("ReplaceFile to new dst: %v", err)
+	}
+	if b, _ := os.ReadFile(dst); string(b) != "x" {
+		t.Errorf("dst not created correctly: %q", b)
+	}
 }

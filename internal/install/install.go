@@ -84,10 +84,14 @@ func InstallGlocker() error {
 		log.Printf("Warning: couldn't set immutable flag on config file: %v", err)
 	}
 
-	// Step 4: Copy binary to install location
+	// Step 4: Install binary. Clear any prior immutable flag, then atomically
+	// replace (temp file + rename) so this works even when the old binary is
+	// immutable or currently running — a plain copy would fail with "text file
+	// busy" (ETXTBSY) on reinstall.
 	log.Printf("Installing binary to %s", config.InstallPath)
-	if err := utils.CopyFile(exePath, config.InstallPath); err != nil {
-		return fmt.Errorf("failed to copy binary: %w", err)
+	_ = exec.Command("chattr", "-i", config.InstallPath).Run()
+	if err := utils.ReplaceFile(exePath, config.InstallPath); err != nil {
+		return fmt.Errorf("failed to install binary: %w", err)
 	}
 
 	// Set ownership to root:root
@@ -110,8 +114,9 @@ func InstallGlocker() error {
 	glocklockSource := filepath.Join(filepath.Dir(exePath), "glocklock")
 	if _, err := os.Stat(glocklockSource); err == nil {
 		log.Printf("Installing glocklock to %s", config.GlocklockInstallPath)
-		if err := utils.CopyFile(glocklockSource, config.GlocklockInstallPath); err != nil {
-			log.Printf("Warning: failed to copy glocklock binary: %v", err)
+		_ = exec.Command("chattr", "-i", config.GlocklockInstallPath).Run()
+		if err := utils.ReplaceFile(glocklockSource, config.GlocklockInstallPath); err != nil {
+			log.Printf("Warning: failed to install glocklock binary: %v", err)
 		} else {
 			// Set ownership to root:root
 			if err := os.Chown(config.GlocklockInstallPath, 0, 0); err != nil {
@@ -137,8 +142,9 @@ func InstallGlocker() error {
 	glockpeekSource := filepath.Join(filepath.Dir(exePath), "glockpeek")
 	if _, err := os.Stat(glockpeekSource); err == nil {
 		log.Printf("Installing glockpeek to %s", config.GlockpeekInstallPath)
-		if err := utils.CopyFile(glockpeekSource, config.GlockpeekInstallPath); err != nil {
-			log.Printf("Warning: failed to copy glockpeek binary: %v", err)
+		// glockpeek runs as its own service, so its binary may be busy on reinstall.
+		if err := utils.ReplaceFile(glockpeekSource, config.GlockpeekInstallPath); err != nil {
+			log.Printf("Warning: failed to install glockpeek binary: %v", err)
 		} else {
 			// Set ownership to root:root
 			if err := os.Chown(config.GlockpeekInstallPath, 0, 0); err != nil {

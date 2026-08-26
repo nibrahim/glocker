@@ -1,16 +1,16 @@
 // Command usageprobe is a throwaway tool for exercising the usage Source
-// selector: it picks the backend for the current session, captures one (or
-// repeated) Sample(s), and prints them as JSON. Use it to check usage tracking
-// on a new machine or session — e.g. a nested Wayland compositor
+// selector: it picks the backend for the current session, captures Sample(s),
+// and prints a readable summary per capture. Use it to check usage tracking on a
+// new machine or session — e.g. a nested Wayland compositor
 // (`dbus-run-session -- gnome-shell --nested --wayland`, or `sway`) — without
-// installing the daemon:
+// installing the daemon. It only prints to the screen; it never writes a file or
+// the database.
 //
-//	go build -o usageprobe ./cmd/usageprobe && ./usageprobe
-//	./usageprobe -interval 2s          # watch the active window as you switch apps
+//	go run ./cmd/usageprobe                 # one capture
+//	go run ./cmd/usageprobe -interval 2s    # watch the active window as you switch apps
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -35,21 +35,46 @@ func main() {
 	defer src.Close()
 	fmt.Fprintf(os.Stderr, "backend: %s\n", backend)
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
 	for {
 		sample, err := src.Capture()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "capture: %v\n", err)
 			os.Exit(1)
 		}
-		if err := enc.Encode(sample); err != nil {
-			fmt.Fprintf(os.Stderr, "encode: %v\n", err)
-			os.Exit(1)
-		}
+		printSample(sample)
 		if *interval <= 0 {
 			return
 		}
 		time.Sleep(*interval)
 	}
+}
+
+// printSample renders one capture as a header line (time + active window + idle)
+// followed by the full window list, then a separator.
+func printSample(s usage.Sample) {
+	head := "idle / no active window"
+	if a := s.Active(); a != nil {
+		head = a.Class
+		if a.Title != "" {
+			head += " — " + a.Title
+		}
+	}
+	idle := "unknown"
+	if s.IdleMS >= 0 {
+		idle = fmt.Sprintf("%.1fs", float64(s.IdleMS)/1000)
+	}
+	fmt.Printf("%s : %s   (idle %s)\n", s.Timestamp.Format("15:04:05"), head, idle)
+
+	for _, w := range s.Windows {
+		mark := "  "
+		if w.Active {
+			mark = "* "
+		}
+		title := w.Title
+		if title == "" {
+			title = "(no title)"
+		}
+		fmt.Printf("   - %s%s · %s\n", mark, w.Class, title)
+	}
+	fmt.Println("---------------------------------------------")
 }

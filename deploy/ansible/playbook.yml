@@ -12,6 +12,9 @@
   hosts: glockpeek
   become: true
 
+  vars:
+    landing_root: /var/www/glocker-landing
+
   tasks:
     # ── Base ────────────────────────────────────────────
     - name: Apt update + base packages
@@ -108,6 +111,21 @@
         name: glockpeek
         enabled: true
         daemon_reload: true
+
+    # ── Landing page (static, served by Caddy at the apex) ──
+    - name: Create landing web root
+      ansible.builtin.file:
+        path: "{{ landing_root }}"
+        state: directory
+        owner: caddy
+        group: caddy
+        mode: "0755"
+    - name: Deploy landing page
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../website/"
+        dest: "{{ landing_root }}/"
+        mode: "0644"
+      notify: reload caddy
 
     # ── Caddy + firewall ────────────────────────────────
     - name: Write Caddyfile

@@ -2,8 +2,10 @@
 # The glockpeek binary is built locally from your working tree and shipped over,
 # so there's nothing here about repos or Go versions.
 
-# Public dashboard domain (must resolve to the droplet).
-domain: "peek.example.com"
+# Domains (both must resolve to the droplet — one A record each).
+# Apex serves the static landing page; the subdomain serves the glockpeek app.
+landing_domain: "example.com"
+dashboard_domain: "my.example.com"
 
 # Postgres.
 pg_db: "glockpeek"

@@ -1,5 +1,14 @@
-# Managed by Ansible. Caddy fetches + renews a Let's Encrypt cert automatically.
-{{ domain }} {
+# Managed by Ansible. Caddy fetches + renews Let's Encrypt certs automatically.
+
+# Landing page — static marketing site at the apex domain.
+{{ landing_domain }} {
+    encode gzip
+    root * {{ landing_root }}
+    file_server
+}
+
+# Dashboard — the glockpeek app.
+{{ dashboard_domain }} {
     encode gzip
     reverse_proxy 127.0.0.1:4317
 }

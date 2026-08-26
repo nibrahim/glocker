@@ -18,7 +18,7 @@ mail:
   region: "{{ mail_region | default('us') }}"
 
 # Public base URL, used to build verification links in emails.
-app_url: "https://{{ domain }}"
+app_url: "https://{{ dashboard_domain }}"
 
 # Account granted admin powers (user management in the dashboard).
 admin_email: "{{ admin_email | default('') }}"

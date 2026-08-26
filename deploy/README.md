@@ -15,7 +15,9 @@ deploy/
 
 - `terraform` (>= 1.5) and `ansible` (>= 2.15)
 - A DigitalOcean API token, and an SSH key already uploaded to your DO account
-- A domain you can point at the droplet (DNS on DO or anywhere)
+- Two hostnames pointing at the droplet (DNS on DO or anywhere): an **apex** for
+  the static landing page (e.g. `glockerapp.com`) and a **subdomain** for the
+  dashboard app (e.g. `my.glockerapp.com`) — one A record each
 - `ansible-galaxy collection install -r ansible/requirements.yml`
 
 ## 1. Provision the droplet
@@ -36,13 +38,14 @@ yourself and wait for it to propagate.
 ## 2. Set up the machine (once)
 
 The Ansible playbook is a **one-time, idempotent** provision — Postgres, Caddy,
-the service user, config, the systemd unit, the firewall. It does **not** build
-or ship the glockpeek binary; that's `make deploy`.
+the service user, config, the systemd unit, the firewall, and the static landing
+page (copied from `website/` to the apex domain's web root). It does **not**
+build or ship the glockpeek binary; that's `make deploy`.
 
 ```bash
 cd ../ansible
 cp inventory.example.ini inventory.ini            # put the droplet IP in
-cp group_vars/all.example.yml group_vars/all.yml  # set domain, DB + admin passwords
+cp group_vars/all.example.yml group_vars/all.yml  # set landing_domain + dashboard_domain, DB + admin passwords
 # optional but recommended: ansible-vault encrypt group_vars/all.yml
 ```
 
@@ -59,11 +62,13 @@ The binary is built locally from your working tree and shipped over — nothing 
 built on the box, nothing needs to be on GitHub. From the **repo root**:
 
 ```bash
-make deploy DEPLOY_HOST=peek.example.com
+make deploy DEPLOY_HOST=my.example.com
 ```
 
-This starts the service. Caddy fetches the TLS cert on first request (the domain
-must already resolve to the droplet).
+`DEPLOY_HOST` is the **dashboard** subdomain. This starts the service; Caddy
+fetches TLS certs for both hostnames on first request (both must already resolve
+to the droplet). The apex serves the landing page from `website/`; to update it,
+edit `website/index.html` and re-run `make configure`.
 
 ## 4. Create your account + ingest token (once)
 
@@ -83,13 +88,13 @@ In your local `conf/conf.yaml`:
 ```yaml
 sync:
   enabled: true
-  glockpeek_url: "https://peek.example.com"   # your domain
+  glockpeek_url: "https://my.example.com"   # your domain
   token: "<the ingest token from step 4>"
   interval_seconds: 300
 ```
 
 Then `sudo glocker -reload` (or `make full-install`). The agent now backfills and
-syncs to the hosted dashboard. Log in at `https://peek.example.com` with the admin
+syncs to the hosted dashboard. Log in at `https://my.example.com` with the admin
 account you created.
 
 Re-deploys after that are just `make deploy DEPLOY_HOST=...`; re-run the playbook

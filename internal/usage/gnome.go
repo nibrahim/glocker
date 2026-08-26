@@ -16,9 +16,10 @@ import (
 //   - the window list from the glocker GNOME Shell extension's private name
 //     app.glocker.Usage (must be installed + enabled — see extensions/gnome).
 //
-// It uses the session bus from the environment, so it works when run in the
-// user's session (e.g. usageprobe). Reaching a user's bus from the root daemon
-// needs that address plumbed through, like X11's XAUTHORITY — a later step.
+// The connection is supplied by the selector: from the environment when run in
+// the user's own session (e.g. usageprobe), or an explicit address the root
+// daemon derives for the user (Options.DBusAddress, the D-Bus analog of X11's
+// XAUTHORITY).
 type GNOMESource struct {
 	conn *dbus.Conn
 }

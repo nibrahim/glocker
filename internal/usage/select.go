@@ -71,7 +71,14 @@ func newLinuxSource(opts Options) (Source, string, error) {
 		// Sub-select by compositor. GNOME is detected by GNOME Shell being on the
 		// session bus (more reliable than XDG_CURRENT_DESKTOP, which a nested
 		// session inherits from its parent). wlroots/KDE come later.
-		if gnomeSessionPresent() {
+		if busNameHasOwner("org.gnome.Shell") {
+			// GNOME needs our extension for the window list. If it isn't up, fail
+			// with an actionable message instead of picking a backend that would
+			// error on every capture.
+			if !busNameHasOwner(glockerBridgeDest) {
+				return nil, "", fmt.Errorf("%w: GNOME/Wayland detected, but the glocker GNOME Shell extension isn't installed/enabled (see extensions/gnome)",
+					ErrUnsupportedSession)
+			}
 			src, err := NewGNOMESource()
 			return src, "linux/wayland/gnome", err
 		}
@@ -82,14 +89,15 @@ func newLinuxSource(opts Options) (Source, string, error) {
 	}
 }
 
-// gnomeSessionPresent reports whether GNOME Shell is on the session bus.
-func gnomeSessionPresent() bool {
+// busNameHasOwner reports whether a well-known name is currently owned on the
+// session bus (used to detect GNOME Shell and our extension bridge).
+func busNameHasOwner(name string) bool {
 	conn, err := dbus.SessionBus()
 	if err != nil {
 		return false
 	}
 	var has bool
-	err = conn.BusObject().Call("org.freedesktop.DBus.NameHasOwner", 0, "org.gnome.Shell").Store(&has)
+	err = conn.BusObject().Call("org.freedesktop.DBus.NameHasOwner", 0, name).Store(&has)
 	return err == nil && has
 }
 

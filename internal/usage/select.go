@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+
+	"github.com/godbus/dbus/v5"
 )
 
 // ErrUnsupportedSession means no usage backend fits the current session — a
@@ -66,11 +68,29 @@ func newLinuxSource(opts Options) (Source, string, error) {
 		src, err := NewX11SourceDisplay(opts.Display)
 		return src, "linux/x11", err
 	case "wayland":
-		return nil, "", fmt.Errorf("%w: Wayland session (%s) has no backend yet",
+		// Sub-select by compositor. GNOME is detected by GNOME Shell being on the
+		// session bus (more reliable than XDG_CURRENT_DESKTOP, which a nested
+		// session inherits from its parent). wlroots/KDE come later.
+		if gnomeSessionPresent() {
+			src, err := NewGNOMESource()
+			return src, "linux/wayland/gnome", err
+		}
+		return nil, "", fmt.Errorf("%w: Wayland session (%s) has no supported backend yet",
 			ErrUnsupportedSession, envOr("XDG_CURRENT_DESKTOP", "unknown"))
 	default:
 		return nil, "", fmt.Errorf("%w: no X11 or Wayland session detected", ErrUnsupportedSession)
 	}
+}
+
+// gnomeSessionPresent reports whether GNOME Shell is on the session bus.
+func gnomeSessionPresent() bool {
+	conn, err := dbus.SessionBus()
+	if err != nil {
+		return false
+	}
+	var has bool
+	err = conn.BusObject().Call("org.freedesktop.DBus.NameHasOwner", 0, "org.gnome.Shell").Store(&has)
+	return err == nil && has
 }
 
 func envOr(key, def string) string {

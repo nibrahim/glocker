@@ -7,6 +7,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/glebarez/sqlite v1.11.0
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/jezek/xgb v1.2.0
 	github.com/mailgun/mailgun-go/v4 v4.23.0
 	golang.org/x/term v0.45.0

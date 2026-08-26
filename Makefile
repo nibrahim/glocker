@@ -38,8 +38,16 @@ test: ## Run tests
 DEPLOY_USER ?= root
 DEPLOY_HOST ?= glockerapp.com
 
-deploy: ## Deploy dasboard to glockerapp.com
-	@test -n "$(DEPLOY_HOST)" || { echo "set DEPLOY_HOST, e.g. make deploy DEPLOY_HOST=peek.example.com"; exit 1; }
+deploy: ## Deploy dashboard binary to the VPS
+	@test -n "$(DEPLOY_HOST)" || { echo "set DEPLOY_HOST, e.g. make deploy DEPLOY_HOST=my.example.com"; exit 1; }
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o dist/glockpeek ./cmd/glockpeek
 	scp dist/glockpeek $(DEPLOY_USER)@$(DEPLOY_HOST):/tmp/glockpeek.new
 	ssh $(DEPLOY_USER)@$(DEPLOY_HOST) 'sudo install -m 0755 /tmp/glockpeek.new /usr/local/bin/glockpeek && rm -f /tmp/glockpeek.new && sudo systemctl restart glockpeek && sleep 2 && systemctl is-active glockpeek'
+
+# Ship just the static landing page (website/index.html) to the apex web root.
+# Same droplet as the dashboard, so DEPLOY_HOST can be the dashboard subdomain.
+# For copy tweaks this is all you need — no rebuild, no ansible run.
+deploy-landing: ## Deploy the static landing page to the apex web root
+	@test -n "$(DEPLOY_HOST)" || { echo "set DEPLOY_HOST, e.g. make deploy-landing DEPLOY_HOST=my.example.com"; exit 1; }
+	scp website/index.html $(DEPLOY_USER)@$(DEPLOY_HOST):/tmp/glocker-landing.html
+	ssh $(DEPLOY_USER)@$(DEPLOY_HOST) 'sudo install -D -o caddy -g caddy -m 0644 /tmp/glocker-landing.html /var/www/glocker-landing/index.html && rm -f /tmp/glocker-landing.html && echo "landing page updated"'

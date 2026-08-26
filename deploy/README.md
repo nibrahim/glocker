@@ -67,8 +67,9 @@ make deploy DEPLOY_HOST=my.example.com
 
 `DEPLOY_HOST` is the **dashboard** subdomain. This starts the service; Caddy
 fetches TLS certs for both hostnames on first request (both must already resolve
-to the droplet). The apex serves the landing page from `website/`; to update it,
-edit `website/index.html` and re-run `make configure`.
+to the droplet). The apex serves the landing page from `website/`; to update it
+later, edit `website/index.html` and run `make deploy-landing DEPLOY_HOST=...`
+(a plain scp — no rebuild, no full ansible run).
 
 ## 4. Create your account + ingest token (once)
 

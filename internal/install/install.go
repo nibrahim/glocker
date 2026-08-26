@@ -174,6 +174,10 @@ func InstallGlocker() error {
 		log.Printf("Warning: Failed to install Firefox extension: %v", err)
 	}
 
+	// Step 5b: Install the GNOME Shell window-bridge extension (GNOME/Wayland
+	// only; self-skips elsewhere) so usage tracking works there too.
+	InstallGnomeExtension(&cfg)
+
 	// Step 6: Install systemd service
 	servicePath := "/etc/systemd/system/glocker.service"
 	log.Println("Installing systemd service...")

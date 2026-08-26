@@ -1799,9 +1799,9 @@ function renderUsageTagHours(tu, available) {
 }
 
 // One bar per day in the window, stacked by tag (what you were doing that day).
-// The number above each bar is how much of that day the computer was active —
-// total active time / the day's elapsed span. Top labels are dropped when there
-// are too many days to fit them, but the bars still render.
+// The label above each bar is total active time that day and its share of the
+// 24-hour day, e.g. "7h 32m (31%)". Top labels are dropped when there are too
+// many days to fit them, but the bars still render.
 function renderUsagePerDay(tu, available, b) {
   const wrap = document.getElementById("usage-perday-wrap");
   if (!wrap) return;
@@ -1833,13 +1833,12 @@ function renderUsagePerDay(tu, available, b) {
     };
   });
 
-  // Active fraction of each day (of its elapsed span) → the number on top.
-  const now = state.data.now;
+  // Total active time each day, with its share of the 24-hour day → the label
+  // on top. Always out of 24h (not the elapsed span), so days are comparable.
   const topLabels = days.map((t) => {
     const activeMs = items.reduce((s, it) => s + ((tu.dayByTag.get(it.name) || new Map()).get(dayKey(t)) || 0), 0);
-    const span = Math.min(DAY, now - t);
-    if (span <= 0 || activeMs <= 0) return "";
-    return Math.round((activeMs / span) * 100) + "%";
+    if (activeMs <= 0) return "";
+    return `${fmtDur(activeMs)} (${Math.round((activeMs / DAY) * 100)}%)`;
   });
 
   // Two-line axis label: weekday on top, date below (month added on the 1st).

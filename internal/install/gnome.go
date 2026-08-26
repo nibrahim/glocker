@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -116,10 +117,41 @@ func copyExtensionTo(src, dst string, u *user.User) error {
 	})
 }
 
-// enableExtensionForUser appends the extension to the user's enabled list via
-// their session bus, so it loads on the next GNOME start. Runs as the user
-// (the installer is root), non-interactively.
+// RemoveGnomeExtension disables and deletes the window-bridge extension for the
+// desktop user. Best-effort and self-skipping (mirrors InstallGnomeExtension).
+func RemoveGnomeExtension(cfg *config.Config) {
+	username := desktopUser(cfg)
+	if username == "" {
+		return
+	}
+	u, err := user.Lookup(username)
+	if err != nil {
+		return
+	}
+	dst := filepath.Join(u.HomeDir, ".local", "share", "gnome-shell", "extensions", gnomeExtUUID)
+	if _, err := os.Stat(dst); err != nil {
+		return // not installed for this user
+	}
+	if err := editEnabledExtensions(username, u.Uid, removeEnabledExtension); err != nil {
+		log.Printf("GNOME extension: couldn't disable it (%v)", err)
+	}
+	if err := os.RemoveAll(dst); err != nil {
+		log.Printf("GNOME extension: couldn't remove files (%v)", err)
+		return
+	}
+	log.Printf("✓ GNOME window-tracking extension removed for %s", username)
+}
+
+// enableExtensionForUser adds the extension to the user's enabled list via their
+// session bus, so it loads on the next GNOME start.
 func enableExtensionForUser(username, uid string) error {
+	return editEnabledExtensions(username, uid, appendEnabledExtension)
+}
+
+// editEnabledExtensions reads the user's enabled-extensions list, applies edit,
+// and writes it back if it changed — running gsettings as the user (the
+// installer is root) against their session bus, non-interactively.
+func editEnabledExtensions(username, uid string, edit func(cur, uuid string) (string, bool)) error {
 	bus := "unix:path=/run/user/" + uid + "/bus"
 	gs := func(args ...string) (string, error) {
 		c := exec.Command("sudo", append([]string{"-n", "-u", username, "gsettings"}, args...)...)
@@ -131,9 +163,9 @@ func enableExtensionForUser(username, uid string) error {
 	if err != nil {
 		return fmt.Errorf("read enabled-extensions: %w", err)
 	}
-	next, changed := appendEnabledExtension(cur, gnomeExtUUID)
+	next, changed := edit(cur, gnomeExtUUID)
 	if !changed {
-		return nil // already enabled
+		return nil
 	}
 	if _, err := gs("set", "org.gnome.shell", "enabled-extensions", next); err != nil {
 		return fmt.Errorf("set enabled-extensions: %w", err)
@@ -142,15 +174,55 @@ func enableExtensionForUser(username, uid string) error {
 }
 
 // appendEnabledExtension returns the gsettings list value with uuid added and
-// whether it changed. Handles the empty forms "@as []" / "[]".
+// whether it changed.
 func appendEnabledExtension(cur, uuid string) (string, bool) {
-	if strings.Contains(cur, "'"+uuid+"'") {
+	items := parseGSettingsList(cur)
+	if slices.Contains(items, uuid) {
 		return cur, false
 	}
-	switch strings.TrimSpace(cur) {
-	case "@as []", "[]", "":
-		return "['" + uuid + "']", true
-	default:
-		return strings.TrimSuffix(strings.TrimSpace(cur), "]") + ", '" + uuid + "']", true
+	return formatGSettingsList(append(items, uuid)), true
+}
+
+// removeEnabledExtension returns the gsettings list value with uuid removed and
+// whether it changed.
+func removeEnabledExtension(cur, uuid string) (string, bool) {
+	items := parseGSettingsList(cur)
+	out := make([]string, 0, len(items))
+	removed := false
+	for _, it := range items {
+		if it == uuid {
+			removed = true
+			continue
+		}
+		out = append(out, it)
 	}
+	if !removed {
+		return cur, false
+	}
+	return formatGSettingsList(out), true
+}
+
+// parseGSettingsList extracts the quoted elements from a gsettings array value
+// like "['a', 'b']" or "@as []". Extension UUIDs never contain single quotes,
+// so splitting on "'" is safe.
+func parseGSettingsList(s string) []string {
+	parts := strings.Split(s, "'")
+	var out []string
+	for i := 1; i < len(parts); i += 2 {
+		out = append(out, parts[i])
+	}
+	return out
+}
+
+// formatGSettingsList renders elements as a gsettings array value; the empty
+// list uses the typed form "@as []" that gsettings requires.
+func formatGSettingsList(items []string) string {
+	if len(items) == 0 {
+		return "@as []"
+	}
+	q := make([]string, len(items))
+	for i, it := range items {
+		q[i] = "'" + it + "'"
+	}
+	return "[" + strings.Join(q, ", ") + "]"
 }

@@ -52,6 +52,9 @@ func RestoreSystemChanges(cfg *config.Config) error {
 		log.Println("✓ Firefox extension removed")
 	}
 
+	// Clean up the GNOME window-bridge extension (self-skips if not installed).
+	RemoveGnomeExtension(cfg)
+
 	// Make config file mutable and remove it
 	log.Println("Removing config file...")
 	if err := exec.Command("chattr", "-i", config.GlockerConfigFile).Run(); err != nil {

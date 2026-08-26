@@ -15,6 +15,7 @@ func TestDetectLinuxSession(t *testing.T) {
 		{"explicit x11", "x11", "", "", "", "x11"},
 		{"explicit wayland", "wayland", "", ":0", "", "wayland"}, // wayland wins even with DISPLAY set (XWayland)
 		{"wayland via WAYLAND_DISPLAY", "", "wayland-0", "", "", "wayland"},
+		{"nested wayland: session says x11 but WAYLAND_DISPLAY set", "x11", "wayland-0", ":0", "", "wayland"},
 		{"x11 via DISPLAY", "", "", ":0", "", "x11"},
 		{"x11 via opts.Display", "", "", "", ":1", "x11"},
 		{"nothing", "", "", "", "", ""},

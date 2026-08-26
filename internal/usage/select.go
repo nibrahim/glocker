@@ -38,22 +38,20 @@ func NewSource(opts Options) (Source, string, error) {
 	}
 }
 
-// sessionKind is "x11", "wayland", or "" (unknown), for the current Linux
-// session. XDG_SESSION_TYPE is authoritative; the *_DISPLAY vars are a fallback.
-// Wayland is checked first because a Wayland session usually also exports DISPLAY
-// (XWayland) — using the X11 backend there would see only XWayland clients, not
-// native Wayland windows.
+// detectLinuxSession returns "x11", "wayland", or "" (unknown) for the current
+// Linux session.
+//
+// A reachable Wayland compositor (WAYLAND_DISPLAY) is the strongest signal and
+// is checked first: it's set even in a nested Wayland-in-X11 session, where
+// XDG_SESSION_TYPE still reports the *outer* "x11" and DISPLAY points at
+// XWayland — using the X11 backend there would see the wrong (or no) windows.
+// Only when there's no Wayland socket do we fall back to XDG_SESSION_TYPE /
+// DISPLAY for X11.
 func detectLinuxSession(opts Options) string {
-	switch os.Getenv("XDG_SESSION_TYPE") {
-	case "wayland":
-		return "wayland"
-	case "x11":
-		return "x11"
-	}
-	if os.Getenv("WAYLAND_DISPLAY") != "" {
+	if os.Getenv("WAYLAND_DISPLAY") != "" || os.Getenv("XDG_SESSION_TYPE") == "wayland" {
 		return "wayland"
 	}
-	if opts.Display != "" || os.Getenv("DISPLAY") != "" {
+	if opts.Display != "" || os.Getenv("DISPLAY") != "" || os.Getenv("XDG_SESSION_TYPE") == "x11" {
 		return "x11"
 	}
 	return ""

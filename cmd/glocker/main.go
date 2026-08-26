@@ -625,17 +625,15 @@ func startUsageMonitor(cfg *config.Config) {
 	if interval <= 0 {
 		interval = time.Duration(config.DefaultUsageInterval) * time.Second
 	}
-	// The daemon runs as root; reach the user's X session via the configured
-	// authority cookie if given.
-	if um.XAuthority != "" {
-		os.Setenv("XAUTHORITY", um.XAuthority)
-	}
-
-	source, err := usage.NewX11SourceDisplay(um.Display)
+	// Pick a backend for the current session (X11 today; Wayland/other degrade
+	// gracefully). The daemon runs as root; reach the user's session via the
+	// configured X authority cookie if given.
+	source, backend, err := usage.NewSource(usage.Options{Display: um.Display, XAuthority: um.XAuthority})
 	if err != nil {
-		log.Printf("usage monitor: cannot connect to X (%v); tracker disabled", err)
+		log.Printf("usage monitor: no usable backend (%v); tracking disabled", err)
 		return
 	}
+	log.Printf("usage monitor: using %s backend", backend)
 	defer source.Close()
 
 	sink, err := usage.NewJSONLFileSink(logFile)

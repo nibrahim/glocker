@@ -33,18 +33,20 @@ const (
 	glockerBridgeCall = "app.glocker.Usage.GetWindows"
 )
 
-// NewGNOMESource connects to the session bus. It doesn't verify the extension
-// bridge here; Capture surfaces a clear error if it's missing.
-func NewGNOMESource() (*GNOMESource, error) {
-	conn, err := dbus.SessionBus()
-	if err != nil {
-		return nil, fmt.Errorf("gnome: connect session bus: %w", err)
-	}
-	return &GNOMESource{conn: conn}, nil
+// NewGNOMESource wraps an existing session-bus connection. The source takes
+// ownership of conn and closes it in Close. The caller (the selector) has
+// already verified the extension bridge is present.
+func NewGNOMESource(conn *dbus.Conn) *GNOMESource {
+	return &GNOMESource{conn: conn}
 }
 
-// Close is a no-op: SessionBus returns a shared connection owned by the library.
-func (s *GNOMESource) Close() error { return nil }
+// Close releases the session-bus connection.
+func (s *GNOMESource) Close() error {
+	if s.conn != nil {
+		return s.conn.Close()
+	}
+	return nil
+}
 
 func (s *GNOMESource) Capture() (Sample, error) {
 	windows, err := s.windows()

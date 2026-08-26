@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -625,10 +626,21 @@ func startUsageMonitor(cfg *config.Config) {
 	if interval <= 0 {
 		interval = time.Duration(config.DefaultUsageInterval) * time.Second
 	}
-	// Pick a backend for the current session (X11 today; Wayland/other degrade
-	// gracefully). The daemon runs as root; reach the user's session via the
-	// configured X authority cookie if given.
-	source, backend, err := usage.NewSource(usage.Options{Display: um.Display, XAuthority: um.XAuthority})
+	// Pick a backend for the current session (X11 or GNOME/Wayland; others
+	// degrade gracefully). The daemon runs as root, so it must be pointed at the
+	// user's session: X11 via Display/XAuthority, Wayland via the D-Bus address —
+	// taken from DBusAddress, else derived from the desktop user's uid.
+	dbusAddr := um.DBusAddress
+	if dbusAddr == "" && um.User != "" {
+		if u, err := user.Lookup(um.User); err == nil {
+			dbusAddr = "unix:path=/run/user/" + u.Uid + "/bus"
+		} else {
+			log.Printf("usage monitor: cannot resolve user %q for D-Bus (%v)", um.User, err)
+		}
+	}
+	source, backend, err := usage.NewSource(usage.Options{
+		Display: um.Display, XAuthority: um.XAuthority, DBusAddress: dbusAddr,
+	})
 	if err != nil {
 		log.Printf("usage monitor: no usable backend (%v); tracking disabled", err)
 		return

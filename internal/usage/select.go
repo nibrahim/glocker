@@ -16,10 +16,11 @@ import (
 var ErrUnsupportedSession = errors.New("usage: unsupported session")
 
 // Options configures source selection. Fields are backend-specific and ignored
-// by backends that don't use them (Display/XAuthority are X11-only).
+// by backends that don't use them.
 type Options struct {
-	Display    string // X11 DISPLAY override (empty = $DISPLAY)
-	XAuthority string // X11 XAUTHORITY override (empty = inherit)
+	Display     string // X11 DISPLAY override (empty = $DISPLAY)
+	XAuthority  string // X11 XAUTHORITY override (empty = inherit)
+	DBusAddress string // Wayland session-bus address (empty = $DBUS_SESSION_BUS_ADDRESS)
 }
 
 // NewSource picks a Source for the current desktop session and returns it with a
@@ -68,36 +69,49 @@ func newLinuxSource(opts Options) (Source, string, error) {
 		src, err := NewX11SourceDisplay(opts.Display)
 		return src, "linux/x11", err
 	case "wayland":
-		// Sub-select by compositor. GNOME is detected by GNOME Shell being on the
-		// session bus (more reliable than XDG_CURRENT_DESKTOP, which a nested
-		// session inherits from its parent). wlroots/KDE come later.
-		if busNameHasOwner("org.gnome.Shell") {
-			// GNOME needs our extension for the window list. If it isn't up, fail
-			// with an actionable message instead of picking a backend that would
-			// error on every capture.
-			if !busNameHasOwner(glockerBridgeDest) {
-				return nil, "", fmt.Errorf("%w: GNOME/Wayland detected, but the glocker GNOME Shell extension isn't installed/enabled (see extensions/gnome)",
-					ErrUnsupportedSession)
-			}
-			src, err := NewGNOMESource()
-			return src, "linux/wayland/gnome", err
-		}
-		return nil, "", fmt.Errorf("%w: Wayland session (%s) has no supported backend yet",
-			ErrUnsupportedSession, envOr("XDG_CURRENT_DESKTOP", "unknown"))
+		return newWaylandSource(opts)
 	default:
 		return nil, "", fmt.Errorf("%w: no X11 or Wayland session detected", ErrUnsupportedSession)
 	}
 }
 
-// busNameHasOwner reports whether a well-known name is currently owned on the
-// session bus (used to detect GNOME Shell and our extension bridge).
-func busNameHasOwner(name string) bool {
-	conn, err := dbus.SessionBus()
+// newWaylandSource sub-selects a Wayland backend by compositor, using the
+// session bus (opts.DBusAddress, or the environment). GNOME is detected by
+// GNOME Shell being on the bus — more reliable than XDG_CURRENT_DESKTOP, which a
+// nested session inherits from its parent. wlroots/KDE come later.
+func newWaylandSource(opts Options) (Source, string, error) {
+	conn, err := connectBus(opts.DBusAddress)
 	if err != nil {
-		return false
+		return nil, "", fmt.Errorf("%w: no session bus (%v)", ErrUnsupportedSession, err)
 	}
+	if nameHasOwner(conn, "org.gnome.Shell") {
+		// GNOME needs our extension for the window list. If it isn't up, fail with
+		// an actionable message instead of picking a backend that errors every capture.
+		if !nameHasOwner(conn, glockerBridgeDest) {
+			conn.Close()
+			return nil, "", fmt.Errorf("%w: GNOME/Wayland detected, but the glocker GNOME Shell extension isn't installed/enabled (see extensions/gnome)",
+				ErrUnsupportedSession)
+		}
+		return NewGNOMESource(conn), "linux/wayland/gnome", nil
+	}
+	conn.Close()
+	return nil, "", fmt.Errorf("%w: Wayland session (%s) has no supported backend yet",
+		ErrUnsupportedSession, envOr("XDG_CURRENT_DESKTOP", "unknown"))
+}
+
+// connectBus opens a private session-bus connection: to addr if given, else the
+// bus named by the environment. The caller owns and must Close it.
+func connectBus(addr string) (*dbus.Conn, error) {
+	if addr != "" {
+		return dbus.Connect(addr)
+	}
+	return dbus.ConnectSessionBus()
+}
+
+// nameHasOwner reports whether a well-known name is currently owned on conn.
+func nameHasOwner(conn *dbus.Conn, name string) bool {
 	var has bool
-	err = conn.BusObject().Call("org.freedesktop.DBus.NameHasOwner", 0, name).Store(&has)
+	err := conn.BusObject().Call("org.freedesktop.DBus.NameHasOwner", 0, name).Store(&has)
 	return err == nil && has
 }
 

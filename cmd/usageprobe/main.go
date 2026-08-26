@@ -21,12 +21,14 @@ import (
 
 func main() {
 	display := flag.String("display", "", "X11 DISPLAY override (empty = $DISPLAY)")
+	dbusAddr := flag.String("dbus", "", "Wayland session-bus address override (empty = $DBUS_SESSION_BUS_ADDRESS)")
 	interval := flag.Duration("interval", 0, "capture repeatedly at this interval (0 = once)")
 	flag.Parse()
 
 	src, backend, err := usage.NewSource(usage.Options{
-		Display:    *display,
-		XAuthority: os.Getenv("XAUTHORITY"),
+		Display:     *display,
+		XAuthority:  os.Getenv("XAUTHORITY"),
+		DBusAddress: *dbusAddr,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "no usage source: %v\n", err)

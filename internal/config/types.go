@@ -129,6 +129,12 @@ type UsageMonitorConfig struct {
 	Display string `yaml:"display"`
 	// XAuthority is the path to the user's X authority cookie (optional).
 	XAuthority string `yaml:"xauthority"`
+	// User is the desktop user whose session to track. On Wayland the daemon
+	// (root) derives the D-Bus address from it (unix:path=/run/user/<uid>/bus).
+	User string `yaml:"user"`
+	// DBusAddress overrides the Wayland session-bus address. Empty derives it
+	// from User; if User is also empty, the environment is used.
+	DBusAddress string `yaml:"dbus_address"`
 }
 
 // ContentMonitoringConfig controls content/keyword monitoring via browser extension.

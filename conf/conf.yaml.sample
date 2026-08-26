@@ -751,6 +751,13 @@ usage_monitor:
   # "/home/<user>/.Xauthority". Leave empty if root can already reach the display.
   xauthority: ""
 
+  # Wayland only: the desktop user whose session to track. The daemon (root)
+  # derives the session bus from it (unix:path=/run/user/<uid>/bus) to reach
+  # GNOME's window bridge + idle monitor. Needed on GNOME/Wayland; ignored on X11.
+  user: ""
+  # Override the Wayland session-bus address directly (empty = derive from user).
+  dbus_address: ""
+
 # ----------------------------------------------------------------------------
 # Forbidden Programs Monitoring
 # ----------------------------------------------------------------------------

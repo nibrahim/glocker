@@ -145,6 +145,25 @@ func RestoreSystemChanges(cfg *config.Config) error {
 	return nil
 }
 
+// PurgeWatchdog removes the glockdoc watchdog binary and its cron job. A normal
+// uninstall deliberately leaves both running so the heartbeat gap records the
+// downtime; -purge (or a standalone `glocker -purge`) is the explicit "remove
+// everything, including the watchdog" cleanup. Idempotent and best-effort.
+func PurgeWatchdog() {
+	log.Println("Purging glockdoc watchdog...")
+	// Neither file is immutable, but clear the flag defensively before removing.
+	_ = exec.Command("chattr", "-i", config.GlockdocInstallPath).Run()
+	for _, p := range []string{config.HeartbeatCronPath, config.GlockdocInstallPath} {
+		if err := os.Remove(p); err != nil {
+			if !os.IsNotExist(err) {
+				log.Printf("   Warning: couldn't remove %s: %v", p, err)
+			}
+		} else {
+			log.Printf("✓ Removed %s", p)
+		}
+	}
+}
+
 // cleanupHostsFile removes the glocker section from the hosts file.
 func cleanupHostsFile(cfg *config.Config) error {
 	hostsPath := cfg.HostsPath

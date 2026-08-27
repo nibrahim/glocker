@@ -20,6 +20,7 @@ import (
 	"glocker/internal/cli"
 	"glocker/internal/config"
 	"glocker/internal/enforcement"
+	"glocker/internal/envcheck"
 	"glocker/internal/install"
 	"glocker/internal/ipc"
 	"glocker/internal/mindful"
@@ -49,6 +50,7 @@ func main() {
 	panicMinutes := flag.Int("panic", 0, "Enter panic mode for N minutes (suspends system and re-suspends on early wake)")
 	lockFlag := flag.Bool("lock", false, "Immediately lock sudoers access (ignores time windows)")
 	securityCheckFlag := flag.Bool("security-check", false, "Report bypass/recovery routes (root login, recovery mode, extra sudoers, SSH root, autologin); read-only")
+	purgeFlag := flag.Bool("purge", false, "With -uninstall: also remove the glockdoc watchdog + its cron. Alone: clean up a leftover watchdog from an earlier uninstall.")
 	versionFlag := flag.Bool("version", false, "Show version information")
 
 	flag.Parse()
@@ -69,6 +71,16 @@ func main() {
 			managedUser = cfg.Sudoers.User
 		}
 		fmt.Print(precheck.Run(precheck.Options{ManagedUser: managedUser}).String())
+		return
+	}
+
+	// Standalone purge: remove a watchdog left over from an earlier uninstall.
+	// (Combined with -uninstall it's handled at the end of that flow instead.)
+	if *purgeFlag && *uninstallReason == "" {
+		if !install.RunningAsRoot(true) {
+			log.Fatal("Purge must be run as root (use sudo)")
+		}
+		install.PurgeWatchdog()
 		return
 	}
 
@@ -233,6 +245,13 @@ func main() {
 		log.Printf("   rm -f %s", config.InstallPath)
 		log.Printf("   rm -f %s", config.GlockerConfigFile)
 		log.Printf("   rmdir %s", filepath.Dir(config.GlockerConfigFile))
+
+		// -purge also removes the glockdoc watchdog + cron that a normal uninstall
+		// leaves behind to record downtime.
+		if *purgeFlag {
+			log.Println()
+			install.PurgeWatchdog()
+		}
 
 		return
 	}
@@ -550,6 +569,10 @@ func main() {
 	config.SetupLogging(cfg)
 
 	log.Println("Starting glocker daemon...")
+
+	// Warn if the machine is missing a capability glocker relies on (systemd,
+	// visudo, cron, or a filesystem that supports the immutable flag).
+	envcheck.LogWarnings(log.Printf)
 
 	// Restore program extensions so the rolling-24h cooldown survives restarts.
 	if err := state.LoadProgramExtensions(); err != nil {

@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"glocker/internal/config"
+	"glocker/internal/envcheck"
 	"glocker/internal/notify"
 	"glocker/internal/precheck"
 	"glocker/internal/reports"
@@ -50,6 +51,10 @@ func InstallGlocker() error {
 		return fmt.Errorf("configuration validation failed: %w", err)
 	}
 	log.Println("✓ Configuration file is valid")
+
+	// Warn about any missing capability (systemd, visudo, cron, immutable-flag
+	// support) before we start relying on them.
+	envcheck.LogWarnings(log.Printf)
 
 	// Pre-install security check (read-only): show the ways glocker could still
 	// be bypassed or recovered from, so the user sees their exposure. Reporting

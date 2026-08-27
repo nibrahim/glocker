@@ -33,6 +33,7 @@ func main() {
 	confPath := flag.String("conf", config.GlockerConfigFile, "Path to config file")
 	duration := flag.Duration("duration", 0, "Lock duration (overrides config)")
 	message := flag.String("message", "Screen locked", "Message to display")
+	background := flag.String("background", "", "Background image path (overrides config)")
 	flag.Parse()
 
 	// Load config (errors are non-fatal, we just use defaults)
@@ -49,10 +50,13 @@ func main() {
 		effectiveDuration = *duration // Command-line flag overrides config
 	}
 
-	// Get background image from config (X11 backend only, for now)
+	// Background image: config default, overridable by the flag.
 	var backgroundImage string
 	if cfg != nil && cfg.ViolationTracking.Background != "" {
 		backgroundImage = cfg.ViolationTracking.Background
+	}
+	if *background != "" {
+		backgroundImage = *background
 	}
 
 	// Pick the backend for the current session (X11 or Wayland) and lock.

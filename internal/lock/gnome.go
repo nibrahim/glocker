@@ -58,7 +58,7 @@ func (g *gnomeLocker) Lock() error {
 
 	obj := g.conn.Object(gnomeBridgeName, gnomeBridgePath)
 	var ok bool
-	if err := obj.Call(gnomeLockCall, 0, seconds).Store(&ok); err != nil {
+	if err := obj.Call(gnomeLockCall, 0, seconds, g.cfg.BackgroundImage, g.cfg.Message).Store(&ok); err != nil {
 		return fmt.Errorf("gnome lock (is the glocker GNOME Shell extension enabled?): %w", err)
 	}
 	if !ok {

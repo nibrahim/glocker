@@ -17,7 +17,9 @@
 //   interface app.glocker.Usage:
 //     GetWindows() -> s        JSON array of {class, instance, title, active}
 //   interface app.glocker.Lock:
-//     LockFor(i seconds) -> b  put up the timed lock; false if already locked
+//     LockFor(i seconds, s image, s message) -> b
+//                              put up the timed lock (optional full-screen image
+//                              + heading); false if already locked
 //     Unlock()                 release the lock early
 //
 // Only stable Meta/Main/St/Clutter APIs are used, so bumping shell-version for a
@@ -48,6 +50,8 @@ const LOCK_IFACE = `
   <interface name="app.glocker.Lock">
     <method name="LockFor">
       <arg type="i" direction="in" name="seconds"/>
+      <arg type="s" direction="in" name="image"/>
+      <arg type="s" direction="in" name="message"/>
       <arg type="b" direction="out" name="ok"/>
     </method>
     <method name="Unlock"/>
@@ -107,15 +111,21 @@ export default class GlockerBridgeExtension extends Extension {
     // ── app.glocker.Lock ───────────────────────────────────────────────────
 
     // LockFor puts up a full-screen modal overlay that grabs all input and
-    // unlocks itself after `seconds`. Returns false if already locked or the
-    // grab was refused. glocklock's gnome backend calls this and waits out the
-    // same duration.
-    LockFor(seconds) {
+    // unlocks itself after `seconds`. An optional background image fills the
+    // screen (behind the countdown); message prefixes the countdown text.
+    // Returns false if already locked or the grab was refused. glocklock's gnome
+    // backend calls this and waits out the same duration.
+    LockFor(seconds, image, message) {
         if (this._lockActor)
             return false;
         if (seconds < 1)
             seconds = 1;
 
+        let style = 'background-color: #1a3d2e;';
+        if (image && image.length > 0) {
+            style += ` background-image: url("file://${image}");` +
+                ' background-size: cover; background-position: center;';
+        }
         const actor = new St.Widget({
             reactive: true,
             can_focus: true,
@@ -125,14 +135,18 @@ export default class GlockerBridgeExtension extends Extension {
             y: 0,
             width: global.stage.width,
             height: global.stage.height,
-            style: 'background-color: #1a3d2e;',
+            style,
         });
+        // A dark pill behind the text keeps it readable over any image.
         const label = new St.Label({
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
-            style: 'color: #ffffff; font-size: 22px; text-align: center;',
+            style: 'color: #ffffff; font-size: 22px; text-align: center; ' +
+                'padding: 18px 28px; border-radius: 14px; ' +
+                'background-color: rgba(0, 0, 0, 0.55);',
         });
         actor.add_child(label);
+        const heading = (message && message.length > 0) ? message : 'Screen locked';
         // Swallow every key/button so nothing reaches apps beneath.
         actor.connect('key-press-event', () => Clutter.EVENT_STOP);
         actor.connect('button-press-event', () => Clutter.EVENT_STOP);
@@ -153,7 +167,7 @@ export default class GlockerBridgeExtension extends Extension {
         const render = () => {
             const m = Math.floor(remaining / 60);
             const s = remaining % 60;
-            label.text = `Screen locked\nUnlocking in ${m}:${String(s).padStart(2, '0')}`;
+            label.text = `${heading}\nUnlocking in ${m}:${String(s).padStart(2, '0')}`;
         };
         render();
         this._tick = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {

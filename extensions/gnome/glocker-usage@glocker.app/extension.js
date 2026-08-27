@@ -123,8 +123,9 @@ export default class GlockerBridgeExtension extends Extension {
 
         let style = 'background-color: #1a3d2e;';
         if (image && image.length > 0) {
-            style += ` background-image: url("file://${image}");` +
-                ' background-size: cover; background-position: center;';
+            // St's background-size supports the cover keyword; background-position
+            // wants numeric lengths (not "center"), so it's left at the default.
+            style += ` background-image: url("file://${image}"); background-size: cover;`;
         }
         const actor = new St.Widget({
             reactive: true,

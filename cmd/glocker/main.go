@@ -24,6 +24,7 @@ import (
 	"glocker/internal/ipc"
 	"glocker/internal/mindful"
 	"glocker/internal/monitoring"
+	"glocker/internal/precheck"
 	"glocker/internal/reports"
 	"glocker/internal/state"
 	"glocker/internal/syncer"
@@ -47,6 +48,7 @@ func main() {
 	addKeyword := flag.String("add-keyword", "", "Comma-separated list of keywords to add to both URL and content keyword lists")
 	panicMinutes := flag.Int("panic", 0, "Enter panic mode for N minutes (suspends system and re-suspends on early wake)")
 	lockFlag := flag.Bool("lock", false, "Immediately lock sudoers access (ignores time windows)")
+	securityCheckFlag := flag.Bool("security-check", false, "Report bypass/recovery routes (root login, recovery mode, extra sudoers, SSH root, autologin); read-only")
 	versionFlag := flag.Bool("version", false, "Show version information")
 
 	flag.Parse()
@@ -54,6 +56,19 @@ func main() {
 	// Handle version flag
 	if *versionFlag {
 		log.Println("Glocker v1.0.0")
+		return
+	}
+
+	// Handle security check (read-only; reads /etc/shadow so needs root)
+	if *securityCheckFlag {
+		if !install.RunningAsRoot(true) {
+			log.Fatal("Security check must be run as root (use sudo) — it reads /etc/shadow")
+		}
+		managedUser := ""
+		if cfg, err := config.LoadConfig(); err == nil {
+			managedUser = cfg.Sudoers.User
+		}
+		fmt.Print(precheck.Run(precheck.Options{ManagedUser: managedUser}).String())
 		return
 	}
 

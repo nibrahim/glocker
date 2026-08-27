@@ -13,6 +13,7 @@ import (
 
 	"glocker/internal/config"
 	"glocker/internal/notify"
+	"glocker/internal/precheck"
 	"glocker/internal/reports"
 	"glocker/internal/utils"
 	"glocker/internal/web"
@@ -49,6 +50,12 @@ func InstallGlocker() error {
 		return fmt.Errorf("configuration validation failed: %w", err)
 	}
 	log.Println("✓ Configuration file is valid")
+
+	// Pre-install security check (read-only): show the ways glocker could still
+	// be bypassed or recovered from, so the user sees their exposure. Reporting
+	// only for now — no lockdown is applied.
+	log.Println()
+	log.Print(precheck.Run(precheck.Options{ManagedUser: cfg.Sudoers.User}).String())
 
 	// Step 2: Get current executable path
 	exe, err := os.Executable()

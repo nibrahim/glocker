@@ -1,4 +1,4 @@
-.PHONY: build-all install full-install update-blocklists test deploy help
+.PHONY: build-all install full-install security-check update-blocklists test deploy deploy-landing help
 
 .DEFAULT_GOAL:=help
 help: ## display this help message
@@ -23,6 +23,10 @@ install: build-all ## Rebuild and reinstall
 full-install: build-all update-blocklists ## Rebuild, update blocklists, and reinstall
 	sudo ./glocker -uninstall "maintenance" -note "upgrade via Make" || true
 	sudo ./glocker -install
+
+
+security-check: build-all ## Report bypass/recovery routes (read-only, needs sudo)
+	sudo ./glocker -security-check
 
 
 update-blocklists: ## Update blocklists

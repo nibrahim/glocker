@@ -10,6 +10,8 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/jezek/xgb v1.2.0
 	github.com/mailgun/mailgun-go/v4 v4.23.0
+	github.com/neurlang/wayland v0.2.1
+	github.com/tuxx/wayland-ext-session-lock-go v0.0.0-20250328013740-430eff7f7869
 	golang.org/x/term v0.45.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -50,6 +52,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	github.com/yalue/native_endian v1.0.2 // indirect
 	golang.org/x/crypto v0.14.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect

@@ -472,16 +472,19 @@ violation_tracking:
   # The command runs with elevated privileges if Glocker is setuid root
   #
   # Common options:
-  #   - glocklock (mindful screen lock): "sudo -u username DISPLAY=:0 /usr/local/bin/glocklock"
+  #   - glocklock (timed screen lock, X11): "sudo -u username DISPLAY=:0 /usr/local/bin/glocklock"
+  #   - glocklock (timed screen lock, Wayland): "sudo -u username WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 /usr/local/bin/glocklock"
   #   - i3lock: "sudo -u username DISPLAY=:0 i3lock -c 000000"
   #   - gnome screensaver: "sudo -u username DISPLAY=:0 gnome-screensaver-command -l"
   #   - System suspend: "pm-suspend"
   #   - Shutdown: "shutdown -h +5" (shutdown in 5 minutes)
   #   - Custom script: "/path/to/escalation-script.sh"
   #
-  # Important: If running GUI command, you need:
+  # glocklock picks an X11 or Wayland backend automatically from the session; it
+  # needs the matching env (DISPLAY, or WAYLAND_DISPLAY + XDG_RUNTIME_DIR).
+  # Important: If running a GUI command, you need:
   #   - sudo -u username (run as your user, not root)
-  #   - DISPLAY=:0 (or your X display)
+  #   - the display env for your session (see above)
   command: "i3lock -c 000000"
 
   # Reset violation counter daily
@@ -502,22 +505,10 @@ violation_tracking:
   # Only used if command is glocklock
   # After this duration, screen automatically unlocks
   # Recommended: 2-5 minutes (enough to break the compulsion)
-  # Note: User can unlock early by typing mindful_text
+  # The lock is timed: it unlocks on its own when the duration elapses.
   lock_duration: 2m
 
-  # Mindful text that must be typed to unlock glocklock
-  # Only used if command is glocklock
-  # Forces reflection before unlocking
-  # Tips for choosing mindful text:
-  #   - Make it personal and meaningful
-  #   - Reference your values, family, goals
-  #   - Long enough to require effort (but not so long you'll resent it)
-  #   - Something you'd be proud to type each time
-  # Example: "I am committed to being present for my family"
-  # Leave empty to use lock_duration only (no early unlock option)
-  mindful_text: "This is not who I want to be. I choose better."
-
-  # Path to background image for glocklock (optional)
+  # Path to background image for glocklock (optional, X11 backend only)
   # Only used if command is glocklock
   # Supports PNG and JPG formats
   # Shows a meaningful image while locked (family photo, goal reminder, etc.)

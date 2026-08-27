@@ -1,20 +1,16 @@
-// Command glocklock is a screen locker utility for glocker.
+// Command glocklock is glocker's screen locker: a full-screen, timeout-based
+// lock that unlocks automatically after a duration (it does not ask for a
+// password). It selects an X11 or Wayland backend for the current session.
 //
 // Usage:
 //
 //	# Time-based lock using config defaults
 //	glocklock
 //
-//	# Time-based lock with custom duration
+//	# Time-based lock with a custom duration and message
 //	glocklock -duration 5m -message "Taking a break"
 //
-//	# Text-based lock using mindful_text from config
-//	glocklock -mindful
-//
-//	# Text-based lock from file
-//	glocklock -text /path/to/file.txt
-//
-//	# Use custom config file
+//	# Use a custom config file
 //	glocklock -conf /path/to/config.yaml
 package main
 
@@ -37,8 +33,6 @@ func main() {
 	confPath := flag.String("conf", config.GlockerConfigFile, "Path to config file")
 	duration := flag.Duration("duration", 0, "Lock duration (overrides config)")
 	message := flag.String("message", "Screen locked", "Message to display")
-	textFile := flag.String("text", "", "Path to text file (enables text-based lock)")
-	mindful := flag.Bool("mindful", false, "Use mindful_text from config for text-based lock")
 	flag.Parse()
 
 	// Load config (errors are non-fatal, we just use defaults)
@@ -55,82 +49,25 @@ func main() {
 		effectiveDuration = *duration // Command-line flag overrides config
 	}
 
-	// Get background image from config
+	// Get background image from config (X11 backend only, for now)
 	var backgroundImage string
 	if cfg != nil && cfg.ViolationTracking.Background != "" {
 		backgroundImage = cfg.ViolationTracking.Background
 	}
 
-	// Text-based lock from mindful flag (uses config's mindful_text)
-	if *mindful {
-		if cfg == nil || cfg.ViolationTracking.MindfulText == "" {
-			fmt.Fprintln(os.Stderr, "Error: -mindful requires mindful_text in config")
-			os.Exit(1)
-		}
-
-		fmt.Println("Locking screen until mindful text is typed...")
-		fmt.Println("Type the displayed text exactly and press Enter to unlock.")
-
-		locker, err := lock.NewTextLocker(lock.TextLockConfig{
-			TargetText:      cfg.ViolationTracking.MindfulText,
-			BackgroundImage: backgroundImage,
-		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating text locker: %v\n", err)
-			os.Exit(1)
-		}
-
-		if err := locker.Lock(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error locking screen: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Println("Screen unlocked.")
-		return
-	}
-
-	// Text-based lock from file
-	if *textFile != "" {
-		fmt.Printf("Locking screen until text from %s is typed...\n", *textFile)
-		fmt.Println("Type the displayed text exactly and press Enter to unlock.")
-
-		content, err := os.ReadFile(*textFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading text file: %v\n", err)
-			os.Exit(1)
-		}
-
-		locker, err := lock.NewTextLocker(lock.TextLockConfig{
-			TargetText:      string(content),
-			BackgroundImage: backgroundImage,
-		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating text locker: %v\n", err)
-			os.Exit(1)
-		}
-
-		if err := locker.Lock(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error locking screen: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Println("Screen unlocked.")
-		return
-	}
-
-	// Time-based lock mode (default)
-	fmt.Printf("Locking screen for %v...\n", effectiveDuration)
-	fmt.Println("The screen will automatically unlock when the timer expires.")
-
-	locker, err := lock.New(lock.Config{
+	// Pick the backend for the current session (X11 or Wayland) and lock.
+	locker, err := lock.Select(lock.Config{
 		Duration:        effectiveDuration,
 		Message:         *message,
 		BackgroundImage: backgroundImage,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating locker: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error selecting locker: %v\n", err)
 		os.Exit(1)
 	}
+
+	fmt.Printf("Locking screen for %v via %s backend...\n", effectiveDuration, locker.Name())
+	fmt.Println("The screen will automatically unlock when the timer expires.")
 
 	if err := locker.Lock(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error locking screen: %v\n", err)

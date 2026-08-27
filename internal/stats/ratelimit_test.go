@@ -3,6 +3,7 @@ package stats
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,5 +88,27 @@ func TestRateLimited_Returns429AfterBurst(t *testing.T) {
 	}
 	if served != 1 {
 		t.Errorf("handler should have run once, ran %d times", served)
+	}
+}
+
+// TestLoginEndpointRateLimited guards that /api/login is actually wired through a
+// limiter (not just that the limiter works in isolation): repeated attempts from
+// one IP must start returning 429 once the burst is spent.
+func TestLoginEndpointRateLimited(t *testing.T) {
+	mux, _ := newMux(t)
+	got429 := false
+	for i := 0; i < 15; i++ {
+		r := httptest.NewRequest(http.MethodPost, "/api/login",
+			strings.NewReader(`{"username":"nobody","password":"wrong"}`))
+		r.Header.Set("X-Forwarded-For", "203.0.113.50")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		if w.Code == http.StatusTooManyRequests {
+			got429 = true
+			break
+		}
+	}
+	if !got429 {
+		t.Fatal("/api/login should return 429 after the burst is spent")
 	}
 }

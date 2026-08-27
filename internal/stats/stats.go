@@ -85,8 +85,11 @@ func Register(mux *http.ServeMux, database *store.DB, o Options) {
 	// Registration is unauthenticated and sends real email, so it is rate-limited
 	// per client IP: a small burst for honest retries, then a slow refill.
 	regLimiter := newIPRateLimiter(rate.Every(10*time.Minute), 3, time.Hour)
+	// Login is also unauthenticated; throttle per IP to blunt password guessing
+	// while leaving room for a legitimate user's typos: a burst of 10, then ~10/min.
+	loginLimiter := newIPRateLimiter(rate.Every(6*time.Second), 10, time.Hour)
 	mux.Handle("/", fileServer)
-	mux.HandleFunc("/api/login", handleLogin)
+	mux.HandleFunc("/api/login", rateLimited(loginLimiter, handleLogin))
 	mux.HandleFunc("/api/register", rateLimited(regLimiter, handleRegister))
 	mux.HandleFunc("/verify", handleVerify) // browser link from the email, not /api/
 	if o.Captcha {

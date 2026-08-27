@@ -453,7 +453,7 @@ violation_tracking:
   enabled: true
   max_violations: 5
   time_window_minutes: 60
-  command: "sudo -u noufal DISPLAY=:1 i3lock"
+  command: "sudo -u yourusername DISPLAY=:0 /usr/local/bin/glocklock"
 ```
 
 ## Code Organization

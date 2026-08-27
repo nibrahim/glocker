@@ -418,7 +418,7 @@ notification_command: "notify-send -u {urgency} -i {icon} '{title}' '{message}'"
 #   Cons: Must remember to wake it later
 #
 # Option 3: Screen lock
-#   Command: "i3lock -c 000000" (or your lock command)
+#   Command: "glocklock" (or your lock command)
 #   Behavior:
 #     - Locks screen immediately
 #     - Can unlock anytime (less enforcement)
@@ -436,7 +436,7 @@ panic_command: "pm-suspend"
 
 # Alternative panic commands (uncomment to use):
 # panic_command: "rtcwake -m mem -s {duration_seconds}"
-# panic_command: "i3lock -c 000000"
+# panic_command: "glocklock"
 # panic_command: "gnome-screensaver-command -l"
 # panic_command: "shutdown -h now"
 
@@ -474,7 +474,6 @@ violation_tracking:
   # Common options:
   #   - glocklock (timed screen lock, X11): "sudo -u username DISPLAY=:0 /usr/local/bin/glocklock"
   #   - glocklock (timed screen lock, Wayland): "sudo -u username WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 /usr/local/bin/glocklock"
-  #   - i3lock: "sudo -u username DISPLAY=:0 i3lock -c 000000"
   #   - gnome screensaver: "sudo -u username DISPLAY=:0 gnome-screensaver-command -l"
   #   - System suspend: "pm-suspend"
   #   - Shutdown: "shutdown -h +5" (shutdown in 5 minutes)
@@ -485,7 +484,7 @@ violation_tracking:
   # Important: If running a GUI command, you need:
   #   - sudo -u username (run as your user, not root)
   #   - the display env for your session (see above)
-  command: "i3lock -c 000000"
+  command: "sudo -u yourusername DISPLAY=:0 /usr/local/bin/glocklock"
 
   # Reset violation counter daily
   # When true, counter resets at reset_time every day
@@ -715,7 +714,7 @@ heartbeat:
 #
 # NOTE: the daemon runs as root, so to see the user's windows it usually needs
 # the X display and authority cookie of the logged-in session — set `display`
-# and `xauthority` below (mirrors how violation_tracking runs i3lock).
+# and `xauthority` below (mirrors how violation_tracking runs glocklock).
 
 usage_monitor:
   # Turn the tracker on/off. The dashboard at /stats works regardless, but the

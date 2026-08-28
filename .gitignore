@@ -19,3 +19,4 @@ README.html
 # Editor swap files
 *.swp
 *.swo
+__pycache__/

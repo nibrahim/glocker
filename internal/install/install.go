@@ -91,6 +91,10 @@ func InstallGlocker() error {
 		log.Printf("Warning: couldn't set immutable flag on config file: %v", err)
 	}
 
+	// Step 3b: Install the generated conf.d/ blocklists that the config pulls in
+	// via !include, made immutable like the config itself.
+	installConfD()
+
 	// Step 4: Install binary. Clear any prior immutable flag, then atomically
 	// replace (temp file + rename) so this works even when the old binary is
 	// immutable or currently running — a plain copy would fail with "text file
@@ -242,6 +246,43 @@ func InstallGlocker() error {
 	log.Println("   Run 'glocker -status' to check the current status")
 
 	return nil
+}
+
+// installConfD copies the generated conf.d/ blocklist files (the ones the config
+// pulls in with !include) to /etc/glocker/conf.d/ and makes them immutable, so
+// they can't be quietly emptied to unblock. No-op if conf/conf.d/ is absent
+// (a config with only inline domains). Best-effort — warnings, not failures.
+func installConfD() {
+	srcDir := "conf/conf.d"
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Warning: couldn't read %s: %v", srcDir, err)
+		}
+		return
+	}
+	if err := os.MkdirAll(config.GlockerConfDDir, 0o755); err != nil {
+		log.Printf("Warning: couldn't create %s: %v", config.GlockerConfDDir, err)
+		return
+	}
+	installed := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		dst := filepath.Join(config.GlockerConfDDir, e.Name())
+		_ = exec.Command("chattr", "-i", dst).Run() // clear any prior flag (reinstall)
+		if err := utils.CopyFile(filepath.Join(srcDir, e.Name()), dst); err != nil {
+			log.Printf("Warning: couldn't install %s: %v", dst, err)
+			continue
+		}
+		_ = os.Chown(dst, 0, 0)
+		_ = exec.Command("chattr", "+i", dst).Run()
+		installed++
+	}
+	if installed > 0 {
+		log.Printf("✓ Installed %d conf.d blocklist file(s) to %s", installed, config.GlockerConfDDir)
+	}
 }
 
 // installHeartbeat installs the glockdoc watchdog binary and a root cron job

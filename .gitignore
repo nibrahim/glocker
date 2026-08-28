@@ -4,6 +4,8 @@
 /glockpeek
 /glockdoc
 conf/conf.yaml
+conf/conf.d/
+sync-findings.md
 # Personal planning notes — kept local, not tracked
 ROADMAP.md
 PLAN.md

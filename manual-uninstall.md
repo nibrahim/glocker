@@ -52,10 +52,13 @@ Clear them before you can edit or remove them:
 ```bash
 chattr -i /etc/hosts \
           /etc/glocker/config.yaml \
+          /etc/glocker/conf.d/*.yaml \
           /usr/local/bin/glocker \
           /usr/local/bin/glocklock \
           /etc/systemd/system/glocker.service
 ```
+
+(If `/etc/glocker/conf.d/` doesn't exist, ignore that line.)
 
 "No such file" for anything already gone is fine — ignore it.
 

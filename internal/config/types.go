@@ -8,6 +8,9 @@ const (
 	GlockdocInstallPath  = "/usr/local/bin/glockdoc"
 	HeartbeatCronPath    = "/etc/cron.d/glocker-doc"
 	GlockerConfigFile    = "/etc/glocker/config.yaml"
+	// GlockerConfDDir holds the generated blocklist files that config.yaml pulls
+	// in via `!include conf.d/<file>`. Installed alongside the config.
+	GlockerConfDDir = "/etc/glocker/conf.d"
 
 	// DefaultDatabaseDriver / DefaultDatabaseDSN are glockpeek's store defaults
 	// when config.Database is unset. sqlite file under /var/lib (mutable state,
@@ -24,13 +27,13 @@ const (
 	DefaultGlockpeekURL = "http://127.0.0.1:4317"
 	// DefaultSyncIntervalSeconds is the incremental sync cadence default.
 	DefaultSyncIntervalSeconds = 300
-	HostsMarkerStart     = "### GLOCKER START ###"
-	SudoersPath          = "/etc/sudoers"
-	SudoersBackup        = "/etc/sudoers.glocker.backup"
-	SudoersMarker        = "# GLOCKER-MANAGED"
-	SystemdFile          = "./extras/glocker.service"
-	GlockerSock          = "/tmp/glocker.sock"
-	EmailCooldownMinutes = 15 // Minimum time between emails for the same event type
+	HostsMarkerStart           = "### GLOCKER START ###"
+	SudoersPath                = "/etc/sudoers"
+	SudoersBackup              = "/etc/sudoers.glocker.backup"
+	SudoersMarker              = "# GLOCKER-MANAGED"
+	SystemdFile                = "./extras/glocker.service"
+	GlockerSock                = "/tmp/glocker.sock"
+	EmailCooldownMinutes       = 15 // Minimum time between emails for the same event type
 
 	// MaintenanceReason is the one uninstall reason hardcoded (not config) as
 	// exempt from the mindful uninstall gate, so routine rebuilds like
@@ -75,10 +78,10 @@ type SudoersConfig struct {
 // accountability mail, the domain here is configurable (not hardcoded).
 type MailConfig struct {
 	Enabled bool   `yaml:"enabled"`
-	Domain  string `yaml:"domain"`  // Mailgun sending domain, e.g. mg.glockerapp.com
+	Domain  string `yaml:"domain"` // Mailgun sending domain, e.g. mg.glockerapp.com
 	APIKey  string `yaml:"api_key"`
-	From    string `yaml:"from"`    // e.g. noreply@mg.glockerapp.com
-	Region  string `yaml:"region"`  // "us" (default) or "eu"
+	From    string `yaml:"from"`   // e.g. noreply@mg.glockerapp.com
+	Region  string `yaml:"region"` // "us" (default) or "eu"
 }
 
 // AccountabilityConfig configures email notifications via Mailgun.
@@ -249,34 +252,34 @@ type ForbiddenProgramsConfig struct {
 
 // Config is the main configuration structure for glocker.
 type Config struct {
-	EnableHosts             bool                    `yaml:"enable_hosts"`
-	EnableForbiddenPrograms bool                    `yaml:"enable_forbidden_programs"`
-	Domains                 []Domain                `yaml:"domains"`
-	HostsPath               string                  `yaml:"hosts_path"`
+	EnableHosts             bool     `yaml:"enable_hosts"`
+	EnableForbiddenPrograms bool     `yaml:"enable_forbidden_programs"`
+	Domains                 []Domain `yaml:"domains"`
+	HostsPath               string   `yaml:"hosts_path"`
 	// KillOnBlock lists process names (matched against `comm`, case-insensitive
 	// substring) to terminate whenever a domain is blocked. Browsers cache DNS
 	// internally, so a freshly blocked domain stays reachable until they restart;
 	// killing them on block forces a fresh resolution against the updated hosts file.
-	KillOnBlock             []string                `yaml:"kill_on_block,omitempty"`
-	SelfHeal                bool                    `yaml:"enable_self_healing"`
-	EnforceInterval         int                     `yaml:"enforce_interval_seconds"`
-	Sudoers                 SudoersConfig           `yaml:"sudoers"`
-	TamperDetection         TamperConfig            `yaml:"tamper_detection"`
-	Accountability          AccountabilityConfig    `yaml:"accountability"`
-	WebTracking             WebTrackingConfig       `yaml:"web_tracking"`
-	ContentMonitoring       ContentMonitoringConfig `yaml:"content_monitoring"`
-	ForbiddenPrograms       ForbiddenProgramsConfig `yaml:"forbidden_programs"`
-	ExtensionKeywords       ExtensionKeywordsConfig `yaml:"extension_keywords"`
-	ViolationTracking       ViolationTrackingConfig `yaml:"violation_tracking"`
-	Unblocking              UnblockingConfig        `yaml:"unblocking"`
-	Lifecycle               LifecycleConfig         `yaml:"lifecycle"`
-	MindfulUninstall        MindfulUninstallConfig  `yaml:"mindful_uninstall"`
-	Heartbeat               HeartbeatConfig         `yaml:"heartbeat"`
-	UsageMonitor            UsageMonitorConfig      `yaml:"usage_monitor"`
-	NotificationCommand     string                  `yaml:"notification_command"`
-	PanicCommand            string                  `yaml:"panic_command"`
-	Dev                     bool                    `yaml:"dev"`
-	LogLevel                string                  `yaml:"log_level"`
+	KillOnBlock         []string                `yaml:"kill_on_block,omitempty"`
+	SelfHeal            bool                    `yaml:"enable_self_healing"`
+	EnforceInterval     int                     `yaml:"enforce_interval_seconds"`
+	Sudoers             SudoersConfig           `yaml:"sudoers"`
+	TamperDetection     TamperConfig            `yaml:"tamper_detection"`
+	Accountability      AccountabilityConfig    `yaml:"accountability"`
+	WebTracking         WebTrackingConfig       `yaml:"web_tracking"`
+	ContentMonitoring   ContentMonitoringConfig `yaml:"content_monitoring"`
+	ForbiddenPrograms   ForbiddenProgramsConfig `yaml:"forbidden_programs"`
+	ExtensionKeywords   ExtensionKeywordsConfig `yaml:"extension_keywords"`
+	ViolationTracking   ViolationTrackingConfig `yaml:"violation_tracking"`
+	Unblocking          UnblockingConfig        `yaml:"unblocking"`
+	Lifecycle           LifecycleConfig         `yaml:"lifecycle"`
+	MindfulUninstall    MindfulUninstallConfig  `yaml:"mindful_uninstall"`
+	Heartbeat           HeartbeatConfig         `yaml:"heartbeat"`
+	UsageMonitor        UsageMonitorConfig      `yaml:"usage_monitor"`
+	NotificationCommand string                  `yaml:"notification_command"`
+	PanicCommand        string                  `yaml:"panic_command"`
+	Dev                 bool                    `yaml:"dev"`
+	LogLevel            string                  `yaml:"log_level"`
 	// GlockpeekListen is the address the standalone glockpeek dashboard process
 	// serves on (localhost only). Empty falls back to the built-in default.
 	GlockpeekListen string `yaml:"glockpeek_listen"`

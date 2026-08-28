@@ -66,6 +66,19 @@ func RestoreSystemChanges(cfg *config.Config) error {
 		log.Println("✓ Config file removed")
 	}
 
+	// Remove the conf.d blocklist files (immutable, like the config) so the
+	// config directory below is empty and can be cleaned up.
+	if entries, err := os.ReadDir(config.GlockerConfDDir); err == nil {
+		for _, e := range entries {
+			p := filepath.Join(config.GlockerConfDDir, e.Name())
+			_ = exec.Command("chattr", "-i", p).Run()
+			_ = os.Remove(p)
+		}
+		if err := os.Remove(config.GlockerConfDDir); err == nil {
+			log.Println("✓ conf.d blocklists removed")
+		}
+	}
+
 	// Remove config directory if empty
 	configDir := filepath.Dir(config.GlockerConfigFile)
 	if err := os.Remove(configDir); err != nil {

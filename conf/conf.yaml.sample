@@ -904,6 +904,15 @@ forbidden_programs:
 #   - Review your browser history to find your weak points
 
 domains:
+  # Generated blocklists live in conf.d/ (kept out of this file for size).
+  # Populate them with `make full-install` or `python3 update_domains.py all`,
+  # then they're pulled in here via !include. Comment a line out to disable that
+  # source. These files must exist before install — generate them first.
+  - !include conf.d/domains-bon-appetit.yaml
+  - !include conf.d/domains-stevenblack.yaml
+  - !include conf.d/domains-hagezi.yaml
+  - !include conf.d/domains-shadowwhisperer.yaml
+
   # -------------------------------------------------------------------------
   # Social Media - Always Blocked (Can be Temporarily Unblocked)
   # -------------------------------------------------------------------------

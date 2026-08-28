@@ -46,11 +46,17 @@ func InstallGlocker() error {
 	}
 	log.Println("✓ Configuration file is valid")
 
-	// Warn about any missing capability (systemd, visudo, cron, immutable-flag
-	// support) before we start relying on them. This is about whether glocker
-	// will work, so it stays in the install path; the separate bypass-routes
-	// security audit (`glocker -security-check`) does not.
-	envcheck.LogWarnings(log.Printf)
+	// Preflight the host capabilities glocker's enabled features need. Abort if a
+	// required one is missing (no systemd to run the service, or no visudo while
+	// sudoers management is on) — installing something that won't work is worse
+	// than refusing. Merely-degrading gaps (no cron watchdog, no immutable-flag
+	// support) are warnings. (The separate bypass-routes security audit,
+	// `glocker -security-check`, is not part of install.)
+	envResults := envcheck.Check(cfg.Sudoers.Enabled)
+	if err := envcheck.Verify(envResults); err != nil {
+		return fmt.Errorf("cannot install: %w", err)
+	}
+	envcheck.LogAdvisories(envResults, log.Printf)
 
 	// Step 2: Get current executable path
 	exe, err := os.Executable()

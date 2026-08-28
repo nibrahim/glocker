@@ -571,8 +571,10 @@ func main() {
 	log.Println("Starting glocker daemon...")
 
 	// Warn if the machine is missing a capability glocker relies on (systemd,
-	// visudo, cron, or a filesystem that supports the immutable flag).
-	envcheck.LogWarnings(log.Printf)
+	// visudo, cron, or a filesystem that supports the immutable flag). The daemon
+	// warns and keeps running — it's already installed, and stopping enforcement
+	// would fail open.
+	envcheck.LogWarnings(envcheck.Check(cfg.Sudoers.Enabled), log.Printf)
 
 	// Restore program extensions so the rolling-24h cooldown survives restarts.
 	if err := state.LoadProgramExtensions(); err != nil {

@@ -9,48 +9,65 @@
 package envcheck
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // Result is one capability check.
 type Result struct {
-	Name   string
-	OK     bool
-	Detail string // impact, set only when OK is false
+	Name     string
+	OK       bool
+	Detail   string // impact, set only when OK is false
+	Required bool   // an enabled glocker feature can't work without this
 }
 
-// Check runs every capability probe and returns all results.
-func Check() []Result {
-	return []Result{
-		tool("systemd", "systemctl", "the glocker service can't be installed or auto-started"),
-		tool("visudo", "visudo", "sudoers changes can't be validated before they're applied"),
-		cron(),
-		immutable(),
-	}
+// Check runs every capability probe. systemd is always required (glocker installs
+// and runs as a systemd service); visudo is required only when sudoers management
+// is enabled (it validates the sudo restriction). cron (the heartbeat watchdog)
+// and the immutable flag (tamper protection) are advisory — missing them degrades
+// glocker, but core blocking still works.
+func Check(needSudoers bool) []Result {
+	systemd := tool("systemd", "systemctl", "glocker installs and runs as a systemd service")
+	systemd.Required = true
+	visudo := tool("visudo", "visudo", "sudoers changes can't be validated before they're applied")
+	visudo.Required = needSudoers
+	return []Result{systemd, visudo, cron(), immutable()}
 }
 
-// Warnings returns only the checks that failed.
-func Warnings() []Result {
-	var w []Result
-	for _, r := range Check() {
-		if !r.OK {
-			w = append(w, r)
+// Verify returns an error naming any required capability that's missing, so the
+// installer can abort rather than install something that won't work.
+func Verify(results []Result) error {
+	var missing []string
+	for _, r := range results {
+		if r.Required && !r.OK {
+			missing = append(missing, r.Name+" — "+r.Detail)
 		}
 	}
-	return w
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("missing required capabilities:\n  - %s", strings.Join(missing, "\n  - "))
 }
 
-// LogWarnings prints any failing checks through logf (e.g. log.Printf). It's a
-// no-op when everything is supported.
-func LogWarnings(logf func(string, ...any)) {
-	w := Warnings()
-	if len(w) == 0 {
-		return
+// LogAdvisories logs the non-required capabilities that are missing — degraded
+// but still functional (no tamper protection, or no heartbeat watchdog).
+func LogAdvisories(results []Result, logf func(string, ...any)) {
+	for _, r := range results {
+		if !r.OK && !r.Required {
+			logf("⚠ %s — %s (glocker still works; this feature won't)", r.Name, r.Detail)
+		}
 	}
-	logf("⚠ Environment check — some capabilities are missing:")
-	for _, r := range w {
-		logf("   • %s — %s", r.Name, r.Detail)
+}
+
+// LogWarnings logs every missing capability as a warning. Used by the daemon,
+// which keeps running regardless — enforcement failing open is worse than a warning.
+func LogWarnings(results []Result, logf func(string, ...any)) {
+	for _, r := range results {
+		if !r.OK {
+			logf("⚠ %s — %s", r.Name, r.Detail)
+		}
 	}
 }
 

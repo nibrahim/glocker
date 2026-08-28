@@ -12,7 +12,6 @@ import (
 	"glocker/internal/config"
 	"glocker/internal/envcheck"
 	"glocker/internal/notify"
-	"glocker/internal/precheck"
 	"glocker/internal/reports"
 	"glocker/internal/utils"
 	"glocker/internal/web"
@@ -48,14 +47,10 @@ func InstallGlocker() error {
 	log.Println("✓ Configuration file is valid")
 
 	// Warn about any missing capability (systemd, visudo, cron, immutable-flag
-	// support) before we start relying on them.
+	// support) before we start relying on them. This is about whether glocker
+	// will work, so it stays in the install path; the separate bypass-routes
+	// security audit (`glocker -security-check`) does not.
 	envcheck.LogWarnings(log.Printf)
-
-	// Pre-install security check (read-only): show the ways glocker could still
-	// be bypassed or recovered from, so the user sees their exposure. Reporting
-	// only for now — no lockdown is applied.
-	log.Println()
-	log.Print(precheck.Run(precheck.Options{ManagedUser: cfg.Sudoers.User}).String())
 
 	// Step 2: Get current executable path
 	exe, err := os.Executable()

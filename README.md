@@ -197,6 +197,24 @@ glocker -panic 30        # Suspend for 30 minutes
 sudo glocker -uninstall "maintenance" -note "kernel upgrade"
 ```
 
+## Security check (optional)
+
+glocker restricts *your* sudo during blocked windows, but a determined user can
+still reach root by other routes. Auditing (and closing) those is a personal
+choice, so it's a separate read-only step — **not** part of install:
+
+```bash
+make security-check          # builds, then runs the check under sudo
+# or directly:
+sudo glocker -security-check
+```
+
+It reports the ways glocker could still be bypassed or recovered from — a root
+password (`su`), an unprotected recovery mode, extra `sudoers` grants, SSH root
+login, other sudo users, autologin — and how to close each by hand. It changes
+nothing. Recovery mode is flagged as a **break-glass to keep**: it's how you'd
+uninstall glocker if it ever broke (see [manual-uninstall.md](manual-uninstall.md)).
+
 ## Stats Dashboard (glockpeek)
 
 `glockpeek` runs as its own systemd service and serves a web dashboard of your

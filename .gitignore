@@ -4,7 +4,8 @@
 /glockpeek
 /glockdoc
 conf/conf.yaml
-conf/conf.d/
+# Generated blocklists (large); keep the directory in the repo via .gitkeep.
+conf/conf.d/*.yaml
 sync-findings.md
 # Personal planning notes — kept local, not tracked
 ROADMAP.md

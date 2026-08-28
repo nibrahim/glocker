@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
 from typing import Optional, Tuple, List, Dict, Callable
 
@@ -26,6 +27,8 @@ CONFIG_FILE = "conf/conf.yaml"
 # conf.yaml with `!include conf.d/<file>`. Keeping the big lists out of conf.yaml
 # keeps the hand-edited config small.
 CONFD_DIR = "conf/conf.d"
+# How often to print a download-progress line during a fetch.
+PROGRESS_INTERVAL_SECONDS = 5
 
 # Domains containing any of these substrings (case-insensitive) will be excluded
 # from all sources during processing.
@@ -38,10 +41,29 @@ EXCLUDED_DOMAIN_SUBSTRINGS = [
 ## Utility Functions
 
 def fetch_url(url: str) -> bytes:
-    """Fetch content from a URL."""
+    """Fetch content from a URL, printing a progress line every few seconds so a
+    multi-MB blocklist download doesn't look hung."""
     try:
         with urllib.request.urlopen(url, timeout=30) as response:
-            return response.read()
+            total = int(response.headers.get("Content-Length") or 0)
+            chunks = []
+            downloaded = 0
+            last = time.monotonic()
+            while True:
+                chunk = response.read(65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                downloaded += len(chunk)
+                if time.monotonic() - last >= PROGRESS_INTERVAL_SECONDS:
+                    last = time.monotonic()
+                    kb = downloaded // 1024
+                    if total:
+                        pct = downloaded * 100 // total
+                        print(f"    ...{pct:3d}%  ({kb:,} / {total // 1024:,} KB)", flush=True)
+                    else:
+                        print(f"    ...{kb:,} KB downloaded", flush=True)
+            return b"".join(chunks)
     except Exception as e:
         print(f"Error fetching {url}: {e}", file=sys.stderr)
         sys.exit(1)

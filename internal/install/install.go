@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"glocker/internal/config"
 	"glocker/internal/envcheck"
 	"glocker/internal/notify"
@@ -35,17 +33,14 @@ func InstallGlocker() error {
 	log.Println("╚════════════════════════════════════════════════╝")
 	log.Println()
 
-	// Step 1: Validate config file before installation
+	// Step 1: Validate config file before installation. LoadFile resolves any
+	// !include directives (conf.d/ list files) relative to conf/ first.
 	log.Println("Validating configuration file...")
-	configData, err := os.ReadFile("conf/conf.yaml")
+	cfgPtr, err := config.LoadFile("conf/conf.yaml")
 	if err != nil {
-		return fmt.Errorf("failed to read config file conf/conf.yaml: %w", err)
+		return fmt.Errorf("reading/parsing conf/conf.yaml: %w", err)
 	}
-
-	var cfg config.Config
-	if err := yaml.Unmarshal(configData, &cfg); err != nil {
-		return fmt.Errorf("invalid YAML in config file conf/conf.yaml: %w", err)
-	}
+	cfg := *cfgPtr
 
 	if err := config.ValidateConfig(&cfg); err != nil {
 		return fmt.Errorf("configuration validation failed: %w", err)

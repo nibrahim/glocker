@@ -21,8 +21,6 @@ import (
 	"strconv"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"glocker/internal/config"
 	"glocker/internal/lock"
 )
@@ -84,17 +82,11 @@ func main() {
 // loadConfig attempts to load the config file.
 // Returns nil if the config cannot be loaded (file missing, invalid, etc.)
 func loadConfig(path string) *config.Config {
-	data, err := os.ReadFile(path)
+	cfg, err := config.LoadFile(path)
 	if err != nil {
 		return nil
 	}
-
-	var cfg config.Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil
-	}
-
-	return &cfg
+	return cfg
 }
 
 // parseDuration parses a duration string.

@@ -9,8 +9,10 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -31,8 +33,16 @@ func main() {
 		os.Exit(2)
 	}
 
+	// Expand any !include directives before the strict decode, so the check
+	// covers the fully-assembled config (including conf.d/ list files).
+	resolved, err := config.ResolveIncludesBytes(data, filepath.Dir(path))
+	if err != nil {
+		fmt.Printf("[PARSE] %s: %v\n", path, err)
+		os.Exit(1)
+	}
+
 	var cfg config.Config
-	dec := yaml.NewDecoder(strings.NewReader(string(data)))
+	dec := yaml.NewDecoder(bytes.NewReader(resolved))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {
 		fmt.Printf("[PARSE] %s: %v\n", path, err)

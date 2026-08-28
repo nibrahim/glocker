@@ -25,6 +25,20 @@ const includeTag = "!include"
 
 const maxIncludeDepth = 20
 
+// ResolveIncludesBytes parses YAML, expands its !include directives relative to
+// baseDir, and re-marshals the result. Callers that need a strict decode (e.g.
+// configcheck's KnownFields check) resolve first, then decode the bytes.
+func ResolveIncludesBytes(data []byte, baseDir string) ([]byte, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("config: parsing: %w", err)
+	}
+	if err := resolveIncludes(&root, baseDir, 0); err != nil {
+		return nil, err
+	}
+	return yaml.Marshal(&root)
+}
+
 // resolveIncludes walks a parsed YAML tree and expands every !include node in
 // place. baseDir is the directory of the file that produced this node, so
 // relative include paths resolve against it.
@@ -51,7 +65,9 @@ func resolveIncludes(node *yaml.Node, baseDir string, depth int) error {
 
 		// Inside a sequence, a sequence-valued include is flattened (its items
 		// spliced in) and an empty include contributes nothing — so a list of
-		// !include lines concatenates cleanly.
+		// !include lines concatenates cleanly. Anything else here is a mistake
+		// (e.g. a mapping file where a list was expected) and is a hard error
+		// rather than a silently-blank list entry.
 		if node.Kind == yaml.SequenceNode {
 			switch {
 			case loaded.Kind == yaml.SequenceNode:
@@ -64,6 +80,8 @@ func resolveIncludes(node *yaml.Node, baseDir string, depth int) error {
 			case isEmptyNode(loaded):
 				node.Content = append(node.Content[:i], node.Content[i+1:]...)
 				continue
+			default:
+				return fmt.Errorf("config: !include %q inside a list must contain a list, got %s", child.Value, kindName(loaded.Kind))
 			}
 		}
 
@@ -101,6 +119,22 @@ func loadInclude(rel, baseDir string, depth int) (*yaml.Node, error) {
 		return nil, err
 	}
 	return content, nil
+}
+
+// kindName gives a readable name for a YAML node kind, for error messages.
+func kindName(k yaml.Kind) string {
+	switch k {
+	case yaml.SequenceNode:
+		return "a list"
+	case yaml.MappingNode:
+		return "a mapping"
+	case yaml.ScalarNode:
+		return "a scalar"
+	case yaml.DocumentNode:
+		return "a document"
+	default:
+		return "an empty value"
+	}
 }
 
 // isEmptyNode reports whether a node carries no value (an empty file, or an

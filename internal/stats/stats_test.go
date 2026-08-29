@@ -197,18 +197,18 @@ func TestRegisterUnavailableWithoutMailer(t *testing.T) {
 
 func TestLoginFlow(t *testing.T) {
 	mux, sdb := newMux(t)
-	if _, err := sdb.CreateUser("noufal@example.com", "hunter2hunter2"); err != nil {
+	if _, err := sdb.CreateUser("alice@example.com", "hunter2hunter2"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Bad password -> 401.
-	bad := do(mux, httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"email":"noufal@example.com","password":"nope"}`)))
+	bad := do(mux, httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"email":"alice@example.com","password":"nope"}`)))
 	if bad.Code != http.StatusUnauthorized {
 		t.Fatalf("bad login: got %d", bad.Code)
 	}
 
 	// Good password -> 200 + session cookie.
-	ok := do(mux, httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"email":"noufal@example.com","password":"hunter2hunter2"}`)))
+	ok := do(mux, httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"email":"alice@example.com","password":"hunter2hunter2"}`)))
 	if ok.Code != http.StatusOK {
 		t.Fatalf("good login: got %d %s", ok.Code, ok.Body.String())
 	}
@@ -225,7 +225,7 @@ func TestLoginFlow(t *testing.T) {
 	// The cookie authenticates /api/me.
 	req := httptest.NewRequest("GET", "/api/me", nil)
 	req.AddCookie(cookie)
-	if rec := do(mux, req); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "noufal") {
+	if rec := do(mux, req); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "alice") {
 		t.Errorf("/api/me with cookie: %d %s", rec.Code, rec.Body.String())
 	}
 }
@@ -253,7 +253,7 @@ func TestServesIndexAndAssets(t *testing.T) {
 // token, then GET /api/data with a session cookie.
 func TestIngestThenData(t *testing.T) {
 	mux, sdb := newMux(t)
-	_, cookie, api := account(t, sdb, "noufal")
+	_, cookie, api := account(t, sdb, "alice")
 
 	payload := `{
       "violations":[{"ts":1000,"type":"url-keyword","keyword":"porn","url":"https://x/?q=porn","domain":"x"}],
@@ -322,7 +322,7 @@ func TestTenantSeparationOverHTTP(t *testing.T) {
 
 func TestIgnoredHidesViolation(t *testing.T) {
 	mux, sdb := newMux(t)
-	_, cookie, api := account(t, sdb, "noufal")
+	_, cookie, api := account(t, sdb, "alice")
 
 	ing := httptest.NewRequest("POST", "/api/ingest",
 		strings.NewReader(`{"violations":[{"ts":1000,"keyword":"porn","url":"https://x/?q=porn","domain":"x"}]}`))
@@ -349,7 +349,7 @@ func TestIgnoredHidesViolation(t *testing.T) {
 // last-batch counts + totals after.
 func TestSyncStatus(t *testing.T) {
 	mux, sdb := newMux(t)
-	_, cookie, api := account(t, sdb, "noufal")
+	_, cookie, api := account(t, sdb, "alice")
 
 	// Before any ingest: lastSyncAt is null.
 	req := httptest.NewRequest("GET", "/api/sync", nil)
@@ -385,7 +385,7 @@ func TestSyncStatus(t *testing.T) {
 
 func TestRulesGetPut(t *testing.T) {
 	mux, sdb := newMux(t)
-	_, cookie, _ := account(t, sdb, "noufal")
+	_, cookie, _ := account(t, sdb, "alice")
 
 	get := httptest.NewRequest("GET", "/api/rules", nil)
 	get.AddCookie(cookie)

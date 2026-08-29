@@ -100,10 +100,10 @@ func TestCheckSudoers(t *testing.T) {
 	main := filepath.Join(dir, "sudoers")
 	sudoersD := filepath.Join(dir, "sudoers.d")
 
-	writeFile(t, main, "root ALL=(ALL) ALL\nnoufal ALL=(ALL) ALL # GLOCKER-MANAGED\n")
+	writeFile(t, main, "root ALL=(ALL) ALL\nalice ALL=(ALL) ALL # GLOCKER-MANAGED\n")
 	writeFile(t, filepath.Join(sudoersD, "extra"), "bob ALL=(ALL) NOPASSWD:ALL\n")
 
-	f := checkSudoers(main, sudoersD, "noufal")
+	f := checkSudoers(main, sudoersD, "alice")
 	if f.Status != StatusOpen {
 		t.Fatalf("status = %q, want OPEN", f.Status)
 	}
@@ -117,16 +117,16 @@ func TestCheckSudoers(t *testing.T) {
 	}
 
 	// Clean system: only the managed line.
-	writeFile(t, main, "noufal ALL=(ALL) ALL # GLOCKER-MANAGED\n")
-	if got := checkSudoers(main, filepath.Join(dir, "empty"), "noufal").Status; got != StatusClosed {
+	writeFile(t, main, "alice ALL=(ALL) ALL # GLOCKER-MANAGED\n")
+	if got := checkSudoers(main, filepath.Join(dir, "empty"), "alice").Status; got != StatusClosed {
 		t.Fatalf("clean: status = %q, want CLOSED", got)
 	}
 }
 
 func TestCheckSudoGroup(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "group")
-	writeFile(t, p, "sudo:x:27:noufal,bob\nwheel:x:10:carol\nusers:x:100:\n")
-	f := checkSudoGroup(p, "noufal")
+	writeFile(t, p, "sudo:x:27:alice,bob\nwheel:x:10:carol\nusers:x:100:\n")
+	f := checkSudoGroup(p, "alice")
 	if f.Status != StatusInfo {
 		t.Fatalf("status = %q, want INFO", f.Status)
 	}
@@ -135,7 +135,7 @@ func TestCheckSudoGroup(t *testing.T) {
 			t.Fatalf("detail missing %q: %q", want, f.Detail)
 		}
 	}
-	if strings.Contains(f.Detail, "noufal") {
+	if strings.Contains(f.Detail, "alice") {
 		t.Fatalf("managed user should be excluded: %q", f.Detail)
 	}
 }
@@ -143,7 +143,7 @@ func TestCheckSudoGroup(t *testing.T) {
 func TestCheckAutologin(t *testing.T) {
 	dir := t.TempDir()
 	on := filepath.Join(dir, "custom.conf")
-	writeFile(t, on, "[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=noufal\n")
+	writeFile(t, on, "[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=alice\n")
 	if got := checkAutologin([]string{on}).Status; got != StatusOpen {
 		t.Fatalf("on: status = %q, want OPEN", got)
 	}
@@ -163,9 +163,9 @@ func TestRunOpenCount(t *testing.T) {
 	sshd := filepath.Join(dir, "sshd_config")
 	writeFile(t, sshd, "PermitRootLogin yes\n") // open -> counts
 	sudoers := filepath.Join(dir, "sudoers")
-	writeFile(t, sudoers, "noufal ALL=(ALL) ALL # GLOCKER-MANAGED\n")
+	writeFile(t, sudoers, "alice ALL=(ALL) ALL # GLOCKER-MANAGED\n")
 	group := filepath.Join(dir, "group")
-	writeFile(t, group, "sudo:x:27:noufal\n")
+	writeFile(t, group, "sudo:x:27:alice\n")
 
 	r := Run(Options{
 		ShadowPath:     shadow,
@@ -176,7 +176,7 @@ func TestRunOpenCount(t *testing.T) {
 		SudoersDir:     filepath.Join(dir, "none"),
 		GroupPath:      group,
 		AutologinPaths: []string{filepath.Join(dir, "none")},
-		ManagedUser:    "noufal",
+		ManagedUser:    "alice",
 	})
 	// Only SSH root login is an enforcement-weakening open route; recovery mode is
 	// open but is the break-glass, so OpenCount excludes it.

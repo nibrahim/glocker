@@ -137,16 +137,16 @@ func TestEnsureDefaultUserReusesPreEmailRow(t *testing.T) {
 func TestUsersSessionsTokens(t *testing.T) {
 	db := openMem(t)
 
-	u, err := db.CreateUser("noufal@example.com", "correct horse battery staple")
+	u, err := db.CreateUser("alice@example.com", "correct horse battery staple")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
 	// Good + bad password (email is case-insensitive).
-	if _, err := db.Authenticate("Noufal@Example.com", "correct horse battery staple"); err != nil {
+	if _, err := db.Authenticate("Alice@Example.com", "correct horse battery staple"); err != nil {
 		t.Errorf("valid login rejected: %v", err)
 	}
-	if _, err := db.Authenticate("noufal@example.com", "wrong"); err != ErrInvalidCredentials {
+	if _, err := db.Authenticate("alice@example.com", "wrong"); err != ErrInvalidCredentials {
 		t.Errorf("bad password: want ErrInvalidCredentials, got %v", err)
 	}
 	if _, err := db.Authenticate("ghost@example.com", "x"); err != ErrInvalidCredentials {

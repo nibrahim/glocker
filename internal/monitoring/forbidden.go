@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"glocker/internal/config"
+	"glocker/internal/notify"
 	"glocker/internal/state"
 	"glocker/internal/utils"
-	"glocker/internal/notify"
 )
 
 // MonitorForbiddenPrograms continuously monitors and kills forbidden programs based on time windows.
@@ -112,7 +112,7 @@ func inAnyWindow(windows []config.TimeWindow, now time.Time, currentDay, current
 // processes killed and the number of distinct processes that matched.
 func terminateMatching(programName string) (killed []string, matched int) {
 	// Use `comm` (kernel task name) for matching — it's the binary basename,
-	// never contains spaces, so paths like "/home/noufal/GOG Games/.../FTL.amd64"
+	// never contains spaces, so paths like "/home/user/GOG Games/.../FTL.amd64"
 	// don't trip up whitespace-based field parsing the way `ps aux` does.
 	cmd := exec.Command("ps", "-eo", "pid=,comm=,args=")
 	output, err := cmd.Output()
@@ -261,4 +261,3 @@ func KillOnBlock(cfg *config.Config) {
 		notify.SendNotification(cfg, "Glocker", message, "normal", "dialog-information")
 	}
 }
-

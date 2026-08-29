@@ -76,8 +76,8 @@ later, edit `website/index.html` and run `make deploy-landing DEPLOY_HOST=...`
 These need the binary, so run them after the first deploy:
 
 ```bash
-ssh root@<droplet> "echo 'your-password' | sudo -u glockpeek glockpeek -adduser noufal"
-ssh root@<droplet> "sudo -u glockpeek glockpeek -addtoken noufal"
+ssh root@<droplet> "echo 'your-password' | sudo -u glockpeek glockpeek -adduser admin"
+ssh root@<droplet> "sudo -u glockpeek glockpeek -addtoken admin"
 ```
 
 The second command prints the **ingest token** once — copy it.

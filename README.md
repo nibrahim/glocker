@@ -258,9 +258,9 @@ which identifies its account) + isolation. Manage accounts with admin subcommand
 (they touch the DB, so run them on the DB host as the service user):
 
 ```bash
-glockpeek -adduser noufal     # create a dashboard account (prompts for a password)
-glockpeek -passwd  noufal     # change a password
-glockpeek -addtoken noufal    # mint an ingest API token for the syncer (printed once)
+glockpeek -adduser admin     # create a dashboard account (prompts for a password)
+glockpeek -passwd  admin     # change a password
+glockpeek -addtoken admin    # mint an ingest API token for the syncer (printed once)
 ```
 
 - **Config** (`conf.yaml`): `glockpeek_mode` (`local`/`hosted`), `glockpeek_listen`

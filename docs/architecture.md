@@ -198,9 +198,13 @@ violation_tracking:
   enabled: true
   max_violations: 5
   time_window_minutes: 60
-  command: "sudo -u noufal DISPLAY=:1 glocklock -duration 5m"
+  command: "sudo -u yourusername DISPLAY=:0 glocklock -duration 5m"
   lock_duration: "5m"  # For glocklock
 ```
+
+The command runs as root, so a GUI locker needs `sudo -u <your-user>` plus your
+session's display env: `DISPLAY=:0` (check `echo $DISPLAY`) on X11, or
+`WAYLAND_DISPLAY=… XDG_RUNTIME_DIR=/run/user/$(id -u)` on Wayland.
 
 ### 7. Sudoers Control
 
@@ -216,9 +220,9 @@ violation_tracking:
 ```yaml
 sudoers:
   enabled: true
-  user: "noufal"
-  allowed_sudoers_line: "noufal ALL=(ALL) NOPASSWD:ALL"
-  blocked_sudoers_line: "noufal ALL=(ALL) NOPASSWD: /usr/bin/apt, /sbin/modprobe"
+  user: "yourusername"
+  allowed_sudoers_line: "yourusername ALL=(ALL) NOPASSWD:ALL"
+  blocked_sudoers_line: "yourusername ALL=(ALL) NOPASSWD: /usr/bin/apt, /sbin/modprobe"
   # sudo is ALLOWED during these windows, blocked outside them
   allow_windows:
     - start: "10:00"

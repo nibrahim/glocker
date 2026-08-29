@@ -205,8 +205,7 @@ violation_tracking:
   time_window_minutes: 60
   command: "glocklock"
   lock_duration: "5m"  # For glocklock
-  mindful_text: "I will focus on my work."  # For glocklock -mindful
-  background: "/path/to/image.png"  # For glocklock
+  background: "/path/to/image.png"  # Optional lock-screen background (X11)
 ```
 
 ## Tamper Detection

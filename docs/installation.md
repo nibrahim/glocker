@@ -148,25 +148,14 @@ glocklock -duration 5m -message "Break time"
 glocklock -conf /path/to/config.yaml
 ```
 
-**Text-based Mode** - Requires typing specific text to unlock:
-
-```bash
-# Lock until mindful_text from config is typed correctly
-glocklock -mindful
-
-# Lock until text from file is typed correctly
-glocklock -text /path/to/message.txt
-```
-
-The text-based mode displays the target text and shows typed characters in green (correct) or red (incorrect). Press Enter when text matches to unlock, or Escape to clear and start over.
+glocklock locks for a fixed duration and then auto-unlocks (X11 and Wayland).
 
 **Configuration** (in `/etc/glocker/config.yaml`):
 
 ```yaml
 violation_tracking:
   lock_duration: "5m"  # Duration: "30s", "5m", or plain number (seconds)
-  mindful_text: "I will focus on my work and avoid distractions."
-  background: "/path/to/image.png"  # Optional PNG/JPG background
+  background: "/path/to/image.png"  # Optional PNG/JPG background (X11 backend)
 ```
 
 ## Browser Extension Installation

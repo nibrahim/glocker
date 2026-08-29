@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -40,7 +41,13 @@ func SendEmail(cfg *config.Config, subject, body string) error {
 	apiKey := cfg.Accountability.ApiKey
 	log.Printf("Sending email from %s to %s subject %s", from, to, subject)
 
-	mg := mailgun.NewMailgun("noufalibrahim.name", apiKey)
+	// Mailgun sends from an address at your verified domain, so the sending
+	// domain is the part after the '@' in from_email (this used to be hardcoded).
+	domain, derr := mailgunDomain(from)
+	if derr != nil {
+		return fmt.Errorf("accountability email: %w", derr)
+	}
+	mg := mailgun.NewMailgun(domain, apiKey)
 
 	// Convert plain text body to HTML
 	htmlBody := GenerateHTMLEmail(subject, body)
@@ -63,6 +70,20 @@ func SendEmail(cfg *config.Config, subject, body string) error {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
 	return nil
+}
+
+// mailgunDomain returns the Mailgun sending domain for a From address — the part
+// after the '@'. Accepts a bare address or a "Name <addr>" form.
+func mailgunDomain(from string) (string, error) {
+	addr, err := mail.ParseAddress(from)
+	if err != nil {
+		return "", fmt.Errorf("invalid from_email %q: %w", from, err)
+	}
+	at := strings.LastIndex(addr.Address, "@")
+	if at < 0 || at == len(addr.Address)-1 {
+		return "", fmt.Errorf("from_email %q has no domain", from)
+	}
+	return addr.Address[at+1:], nil
 }
 
 // GenerateHTMLEmail creates a styled HTML email from plain text content.
@@ -214,16 +235,16 @@ func GenerateHTMLEmail(subject, plainBody string) string {
     </div>
 </body>
 </html>`,
-		subject,                                // title
-		alertColor,                             // gradient start
-		adjustColorBrightness(alertColor, -20), // gradient end (darker)
-		adjustColorOpacity(alertColor, 0.1),    // alert box background
-		alertColor,                             // alert box border
-		alertColor,                             // pre border
-		alertIcon,                              // header icon
-		subject,                                // alert box title
+		subject,                                  // title
+		alertColor,                               // gradient start
+		adjustColorBrightness(alertColor, -20),   // gradient end (darker)
+		adjustColorOpacity(alertColor, 0.1),      // alert box background
+		alertColor,                               // alert box border
+		alertColor,                               // pre border
+		alertIcon,                                // header icon
+		subject,                                  // alert box title
 		time.Now().Format("2006-01-02 15:04:05"), // timestamp
-		htmlBody,                               // message content
+		htmlBody,                                 // message content
 	)
 }
 

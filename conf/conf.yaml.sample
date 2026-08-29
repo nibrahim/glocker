@@ -1,908 +1,255 @@
 # ============================================================================
-# Glocker Sample Configuration File
+# glocker configuration — SAMPLE
 # ============================================================================
-# This is a sample configuration file that demonstrates all available options.
-# Installing glocker will copy such a file to /etc/glocker/config.yaml
+# Copy this to conf/conf.yaml, edit it, then run `make full-install`.
 #
-# After making changes, reload with: glocker -reload
+# Every value here is a placeholder or a safe default — replace the example
+# usernames, addresses, keys, paths and keywords with your own. The large
+# blocklists are NOT stored in this file; `update_domains.py` generates them into
+# conf.d/ and they're pulled in via `!include` (see the `domains:` section).
+#
+# The installed file lives at /etc/glocker/config.yaml and is read by both the
+# glocker agent and the glockpeek dashboard.
 # ============================================================================
 
-# ----------------------------------------------------------------------------
-# Development and Logging Settings
-# ----------------------------------------------------------------------------
-
-# Development mode - bypasses mindful delays for faster testing
-# When enabled:
-#   - Skips the 60-second mindful uninstall delay
-#   - May skip other time-consuming protections
-# Set to true only during development/testing
-# IMPORTANT: Always set to false in production
+# Development mode — bypasses some delays for faster testing. Leave false.
 dev: false
 
-# Log level for application output
-# Options: "debug", "info", "warn", "error"
-#   debug - Verbose logging for troubleshooting (logs all operations)
-#   info  - Normal operational logging (recommended for production)
-#   warn  - Only warnings and errors
-#   error - Only critical errors
+# Log verbosity: debug | info | warn | error
 log_level: "info"
 
-# Listen address for the standalone glockpeek stats dashboard.
-# glockpeek runs as its own service and serves the dashboard at / (localhost
-# only). Default (if unset): 127.0.0.1:4317
+# ── glockpeek dashboard (stats service; reads this same config file) ─────────
+
+# Listen address for the glockpeek dashboard. Default 127.0.0.1:4317 (localhost
+# only). Honored as configured in hosted mode.
 glockpeek_listen: "127.0.0.1:4317"
 
-# glockpeek's stats database. Dialect-agnostic (GORM): use sqlite locally or
-# switch to postgres for a hosted instance without changing anything else.
-#   driver: "sqlite" (default) | "postgres"
-#   dsn:    sqlite -> file path (default /var/lib/glocker/glockpeek.db)
-#           postgres -> e.g. "host=... user=... password=... dbname=... sslmode=require"
+# glockpeek mode:
+#   local  — personal desktop: loopback-only, no login, open same-machine ingest.
+#   hosted — shared/remote: per-account logins + ingest tokens + isolation.
+glockpeek_mode: "local"
+
+# Stats database (GORM; sqlite locally, postgres for a hosted instance — then the
+# dsn is a connection string).
 database:
   driver: "sqlite"
   dsn: "/var/lib/glocker/glockpeek.db"
 
-# How glockpeek runs:
-#   local  - personal desktop (default). Binds 127.0.0.1 only (unreachable from
-#            other hosts), no login/registration, and the ingest endpoint is open
-#            to same-machine clients (no token).
-#   hosted - shared/remote instance: per-account logins + ingest tokens (manage
-#            accounts with `glockpeek -adduser`). [not the focus yet]
-glockpeek_mode: "local"
+# ── Hosted glockpeek only (leave commented for a local/desktop setup) ────────
+# These configure glockpeek's web/login side and apply ONLY when glockpeek_mode
+# is "hosted". A local install doesn't use them, so they're commented out. If you
+# deploy the hosted dashboard with the bundled tooling (deploy/ansible), they're
+# generated for you — uncomment and set them here only if you run a hosted
+# glockpeek by hand.
+#
+# glockpeek_secure_cookies: true            # HTTPS-only session cookies (serve behind TLS)
+#
+# mail:                                     # account-verification emails (Mailgun)
+#   enabled: true
+#   domain: "mg.example.com"
+#   api_key: ""
+#   from: "noreply@mg.example.com"
+#   region: "us"                            # "us" or "eu" (match your Mailgun domain)
+#
+# app_url: "https://glockpeek.example.com"  # public base URL, used for email links
+#
+# captcha: true                             # proof-of-work captcha on signup
 
-# Mark the dashboard's session cookie Secure (hosted mode only). Set true when
-# served over HTTPS (including behind a TLS-terminating proxy).
-glockpeek_secure_cookies: false
-
-# Syncer: a goroutine in the glocker daemon that ships local /var records to
-# glockpeek's ingest API. Local-first — this only mirrors the files up on a
-# timer; recording and enforcement never depend on it. One-shot backfill at
-# startup, then incremental every interval_seconds; idempotent, so retries are
-# free.
-#   glockpeek_url  - where to push (default http://127.0.0.1:4317, the local one)
-#   token          - ingest bearer token; only needed for a hosted glockpeek
-#   interval_seconds - incremental cadence (default 300)
+# ── Syncer ───────────────────────────────────────────────────────────────────
+# Daemon goroutine that ships local /var records to glockpeek's ingest API.
+# Local-first: it never blocks enforcement — backfills at startup, then
+# incremental on a timer, retrying if glockpeek is down.
 sync:
-  enabled: true
-  glockpeek_url: "http://127.0.0.1:4317"
-  token: ""
-  interval_seconds: 300
+  enabled: false                          # turn on to sync to a glockpeek instance
+  glockpeek_url: "http://127.0.0.1:4317"  # local glockpeek; point at a remote host to sync off-box
+  token: ""                               # ingest bearer token (only for a hosted glockpeek)
+  interval_seconds: 300                   # incremental sync cadence
 
-# Outbound email for account verification (Mailgun). SERVER-SIDE — this belongs
-# to the hosted *glockpeek* instance, NOT the agent: on a hosted setup it lives in
-# the glockpeek host's config (see deploy/ansible), and the api_key must never be
-# put on an agent. Leave it disabled/empty here on a laptop agent.
-# region is "us" (default) or "eu" — match your Mailgun domain's region.
-mail:
-  enabled: false
-  domain: "mg.glockerapp.com"
-  api_key: ""
-  from: "noreply@mg.glockerapp.com"
-  region: "us"
+# ── Blocking mechanisms ──────────────────────────────────────────────────────
 
-# glockpeek's own public base URL (SERVER-SIDE), used to build links in emails
-# (e.g. the account-verification link). No trailing slash. Only needed on a
-# hosted glockpeek with signups enabled.
-app_url: "https://glockerapp.com"
-
-# Proof-of-work captcha on the signup endpoint (SERVER-SIDE, hosted glockpeek).
-# Adds per-attempt CPU cost (Altcha PoW) to blunt automated signups, on top of
-# the register rate limiter. Leave false on a laptop agent. Default: false.
-captcha: false
-
-# ----------------------------------------------------------------------------
-# Core Enforcement Mechanisms
-# ----------------------------------------------------------------------------
-# Enable or disable each blocking mechanism independently.
-# You can mix and match these for your security needs.
-
-# Enable hosts file blocking (/etc/hosts modification)
-# How it works:
-#   - Adds entries to /etc/hosts redirecting blocked domains to 127.0.0.1
-#   - Works at DNS resolution level (most reliable method)
-#   - Makes file immutable with chattr +i during blocking periods
-# Recommended: true (most reliable blocking method)
+# Block domains by routing them to 127.0.0.1 in /etc/hosts (made immutable).
 enable_hosts: true
+hosts_path: "/etc/hosts"                  # leave as-is unless you know why not
 
-# Path to hosts file (leave as default unless testing)
-# Default: "/etc/hosts"
-# Only change if you need to test with a different file or use custom DNS setup
-hosts_path: "/etc/hosts"
-
-# Programs to kill whenever a domain is blocked (via `glocker -block`).
-# Browsers cache DNS resolutions internally, so a freshly blocked domain stays
-# reachable in an already-running browser until it restarts. Killing them on
-# block forces a fresh lookup against the updated /etc/hosts. Matching is a
-# case-insensitive substring of the process name (`comm`), same as
-# forbidden_programs. Unlike forbidden_programs this ignores time windows and is
-# not counted as a violation. Leave empty/omit to disable.
+# Browsers killed on every `glocker -block`, so their internal DNS cache is
+# dropped and the new block takes effect at once. Case-insensitive substring
+# match on the process name; ignores time windows; not counted as a violation.
 kill_on_block:
   - firefox
-  - chrome
   - chromium
+  - chrome
   - brave
 
-# Enable forbidden program monitoring and killing
-# How it works:
-#   - Monitors running processes every N seconds
-#   - Kills blacklisted programs during configured time windows
-#   - Useful for blocking alternative browsers, games, or other apps
-# Recommended: true (adds another layer of protection)
+# Kill named programs during their windows (see forbidden_programs below).
 enable_forbidden_programs: true
 
-# Enable self-healing and tamper detection
-# How it works:
-#   - Monitors checksums of critical files (binary, /etc/hosts, systemd service)
-#   - Automatically re-applies protections if tampering detected
-#   - Triggers alarm_command when tampering occurs
-# Note: Runs every check_interval_seconds (see tamper_detection below)
-# Recommended: false initially, enable after you trust the setup
+# Re-apply protections (immutable flags, hosts, sudoers) if they're tampered with.
 enable_self_healing: false
 
-# How often to run the main enforcement loop (in seconds)
-# Controls how frequently Glocker:
-#   - Updates /etc/hosts with current blocked domains
-#   - Checks time windows and applies time-based blocks
-#   - Updates sudoers restrictions
-# Lower values = more responsive but slightly higher CPU usage
-# Recommended: 60 seconds (1 minute) for normal use
+# How often the main enforcement loop runs (seconds).
 enforce_interval_seconds: 60
 
-# ----------------------------------------------------------------------------
-# Tamper Detection and File Monitoring
-# ----------------------------------------------------------------------------
-# Monitors critical files and alerts on unauthorized modifications
-
-tamper_detection:
-  # Enable tamper detection monitoring
-  # Monitors: glocker binary, /etc/hosts, systemd service file
-  enabled: true
-
-  # How often to check file checksums (in seconds)
-  # Lower values = faster detection but higher CPU usage
-  # Recommended: 30 seconds
-  check_interval_seconds: 30
-
-  # Command to execute when tampering is detected
-  # Use this to alert yourself when protections are being bypassed
-  # Examples:
-  #   - Play alarm sound: "mpg123 /path/to/alarm.mp3"
-  #   - Send notification: "notify-send -u critical 'Glocker Alert' 'Tampering detected!'"
-  #   - Flash screen: "xdotool key ctrl+alt+l"
-  #   - Run custom script: "/path/to/alert-script.sh"
-  alarm_command: "mpg123 /home/user/Downloads/alarm.mp3"
-
-# ----------------------------------------------------------------------------
-# Sudo Access Control
-# ----------------------------------------------------------------------------
-# Controls sudo access during work hours to prevent bypassing blocks
-# WARNING: Test this carefully! Misconfiguration can lock you out of sudo.
-
-sudoers:
-  # Enable sudoers modification
-  # When enabled, Glocker modifies /etc/sudoers based on time windows
-  # IMPORTANT: Creates backup at /etc/sudoers.glocker.backup before first modification
-  # Recommended: Start with false, enable after understanding how it works
-  enabled: false
-
-  # Username to control
-  # This user's sudo access will be restricted during blocking periods
-  # Must match your actual username
-  user: "yourusername"
-
-  # Sudoers line when sudo is ALLOWED (outside time windows or when unblocked)
-  # This line is used when you should have full access
-  # Example: Full passwordless sudo access
-  allowed_sudoers_line: "yourusername  ALL=(ALL) NOPASSWD:ALL"
-
-  # Sudoers line when sudo is BLOCKED (outside the configured allow_windows)
-  # Choose one of these strategies:
-  #
-  # Option 1: Require password for all sudo commands (recommended for most users)
-  #   blocked_sudoers_line: "yourusername  ALL=(ALL) ALL"
-  #
-  # Option 2: Allow only specific safe commands without password
-  #   blocked_sudoers_line: "yourusername ALL=(ALL) NOPASSWD: /usr/bin/apt, /sbin/reboot, /usr/bin/systemctl"
-  #
-  # Option 3: Completely disable sudo (most restrictive)
-  #   blocked_sudoers_line: "# yourusername ALL=(ALL) NOPASSWD:ALL"
-  blocked_sudoers_line: "yourusername  ALL=(ALL) ALL"
-
-  # Time windows when sudo is ALLOWED (unrestricted)
-  # Outside these windows, sudo is restricted (blocked_sudoers_line applies)
-  # Format: HH:MM in 24-hour time
-  # Days: Mon, Tue, Wed, Thu, Fri, Sat, Sun
-  # Use case: Allow full sudo access during personal time, restrict during work
-  allow_windows:
-    # Weekday evenings: 5pm-11pm (after work)
-    - start: "17:00"
-      end: "23:00"
-      days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-
-    # Weekends: all day
-    - start: "00:00"
-      end: "23:59"
-      days: ["Sat", "Sun"]
-
-# ----------------------------------------------------------------------------
-# Web Tracking Server
-# ----------------------------------------------------------------------------
-# HTTP/HTTPS server that intercepts blocked site access attempts
-# Runs on ports 80 and 443 to catch traffic redirected by /etc/hosts
-
+# Run a command when a blocked site is accessed (reported by the web server /
+# extension) — e.g. an audible or visual nudge. Empty command = none.
 web_tracking:
-  # Enable web tracking server
-  # When enabled:
-  #   - Starts HTTP server on port 80 and HTTPS on port 443
-  #   - Catches requests to blocked domains (redirected by /etc/hosts to 127.0.0.1)
-  #   - Records violations and executes command (if configured)
-  #   - Shows blocking page to user
-  # Recommended: true (provides visibility into blocking attempts)
   enabled: true
+  command: 'notify-send "glocker" "A blocked site was accessed"'
 
-  # Command to execute when a blocked site is accessed
-  # Runs in background, doesn't block the HTTP response
-  # Environment variables available to command:
-  #   GLOCKER_BLOCKED_HOST       - the hostname that was blocked (e.g., "reddit.com")
-  #   GLOCKER_BLOCKED_URL        - full URL attempted (e.g., "http://reddit.com/r/funny")
-  #   GLOCKER_BLOCKED_METHOD     - HTTP method (GET, POST, etc.)
-  #   GLOCKER_BLOCKED_USER_AGENT - browser user agent string
-  #   GLOCKER_BLOCKED_REMOTE_ADDR- client IP address
-  #   GLOCKER_BLOCKED_TIME       - timestamp of violation (ISO 8601 format)
-  #
-  # Examples:
-  #   - Play alert sound: "mpg123 /path/to/alert.mp3"
-  #   - Flash screen: "xdotool key ctrl+alt+l"
-  #   - Log to file: "echo $GLOCKER_BLOCKED_HOST >> /tmp/violations.log"
-  #   - Send notification: "notify-send 'Blocked: $GLOCKER_BLOCKED_HOST'"
-  #   - Custom script: "/path/to/handle-violation.sh"
-  #
-  # Leave empty to disable command execution
-  command: "mpg123 /home/user/Downloads/alert.mp3"
+# Watch critical files (the binary, /etc/hosts, the service) for tampering and
+# run alarm_command if they change.
+tamper_detection:
+  enabled: true
+  check_interval_seconds: 30
+  alarm_command: 'notify-send -u critical "glocker" "Tampering detected"'
 
-# ----------------------------------------------------------------------------
-# Content Monitoring (Browser Extension Integration)
-# ----------------------------------------------------------------------------
-
-# Content monitoring - receives and logs reports from browser extension
-# The Firefox extension sends POST requests to http://127.0.0.1/report
+# Log content-violation reports POSTed by the browser extension.
 content_monitoring:
-  # Enable content monitoring endpoint
-  # When enabled:
-  #   - Accepts POST requests from browser extension
-  #   - Logs keyword violations to log_file
-  #   - Increments violation counter (see violation_tracking below)
-  # Requires: Browser extension installed and configured
   enabled: true
-
-  # File where content/keyword violations are logged
-  # Each line is a JSON record with: timestamp, url, trigger type, keywords found
-  # Useful for accountability partner review or self-analysis
-  # Make sure the directory exists and is writable
   log_file: "/var/log/glocker-reports.log"
 
-# Keywords for browser extension to monitor
-# Extension monitors both URLs and page content in real-time
+# Keywords the Firefox extension watches for. url_keywords match the address;
+# content_keywords match page text; whitelist pages are never scanned or
+# reported. Replace these placeholders with your own terms and trusted sites.
 extension_keywords:
-  # URL keywords - checked against the page URL (address bar)
-  # Matching rules:
-  #   - Case-insensitive partial matching
-  #   - Example: "porn" matches "pornhub.com", "myporn.com", "/porn/videos"
-  #   - Example: "bet" matches "bet365.com", "betting.co.uk"
-  # Use specific keywords to avoid false positives
-  # Common categories: gambling, adult content, gaming, social media
-  url_keywords: ["gambling", "casino", "porn", "xxx", "bet", "poker", "game", "social"]
-
-  # Content keywords - checked against page text content
-  # Matching rules:
-  #   - Scanned in real-time as page loads
-  #   - Case-insensitive word matching
-  #   - More prone to false positives than URL keywords
-  # Best practices:
-  #   - Use specific multi-word phrases when possible
-  #   - Be cautious with common words
-  #   - Test on your frequently visited sites first
-  # Example: "trigger word" is more specific than "trigger"
-  content_keywords: ["trigger1", "trigger2", "inappropriate", "distraction"]
-
-  # Whitelist - domains that should NEVER be blocked by keywords
-  # Use cases:
-  #   - Work sites that might contain trigger words in legitimate context
-  #   - Documentation sites (Stack Overflow, GitHub)
-  #   - Email and calendar (might contain keywords from others' emails)
-  # Supports wildcards:
-  #   - "*.atlassian.net" matches all Atlassian subdomains
-  #   - "github.com" matches github.com and all subdomains
+  url_keywords: ["keyword-in-url", "another-keyword"]
+  content_keywords: ["a phrase to flag", "another phrase"]
   whitelist:
-    - "github.com"
-    - "stackoverflow.com"
-    - "docs.google.com"
     - "mail.google.com"
     - "calendar.google.com"
-    - "*.atlassian.net"
+    - "github.com"
+    - "stackoverflow.com"
+    - "en.wikipedia.org"
+    # add any sites that should never be scanned or blocked
 
-# ----------------------------------------------------------------------------
-# Accountability and Email Notifications
-# ----------------------------------------------------------------------------
-# Sends email alerts to an accountability partner via Mailgun
-
-accountability:
-  # Enable accountability emails
-  # When enabled, sends emails to partner_email when:
-  #   - Blocks are bypassed
-  #   - Violations occur
-  #   - Daily summary (if daily_report_enabled)
-  # Requires: Mailgun account (free tier available)
-  enabled: false
-
-  # Email address of your accountability partner
-  # This person receives all violation and bypass notifications
-  # Choose someone who will hold you accountable (not someone you can manipulate)
-  partner_email: "partner@example.com"
-
-  # From email address (your email)
-  # Must be verified in your Mailgun account
-  # Mailgun setup: https://app.mailgun.com/
-  from_email: "you@yourdomain.com"
-
-  # Mailgun API key
-  # Get this from: https://app.mailgun.com/app/account/security/api_keys
-  # Format: "xxxxxxxx-xxxxxxxx-xxxxxxxx"
-  # Keep this secret! Anyone with this key can send emails from your account
-  api_key: "your-mailgun-api-key-here"
-
-  # Enable daily violation summary report
-  # Sends one email per day summarizing all violations and unblock requests
-  # Useful for accountability without email spam
-  daily_report_enabled: false
-
-  # Time to send daily report (HH:MM format, 24-hour)
-  # Only used if daily_report_enabled is true
-  # Choose a time when you typically review your day
-  # Example: "21:00" = 9 PM
-  daily_report_time: "21:00"
-
-# ----------------------------------------------------------------------------
-# Desktop Notifications
-# ----------------------------------------------------------------------------
-
-# Command template for desktop notifications
-# Used to show popup notifications for various events:
-#   - Blocked site access attempts
-#   - Violations
-#   - Config reloads
-#   - Panic mode activation
-#
-# Template variables (replaced at runtime):
-#   {urgency} - notification urgency: low, normal, critical
-#   {icon}    - icon name: dialog-information, dialog-warning, dialog-error
-#   {title}   - notification title
-#   {message} - notification message body
-#
-# Examples for different notification systems:
-#   - notify-send (libnotify): "notify-send -u {urgency} -i {icon} '{title}' '{message}'"
-#   - dunst: "notify-send -u {urgency} '{title}' '{message}'"
-#   - Custom script: "/path/to/notify.sh '{title}' '{message}'"
-notification_command: "notify-send -u {urgency} -i {icon} '{title}' '{message}'"
-
-# ----------------------------------------------------------------------------
-# Panic Mode
-# ----------------------------------------------------------------------------
-# Emergency enforcement - immediately suspends or locks the system
-
-# Panic command - executed when entering panic mode with: glocker -panic N
-# where N is duration in minutes
-#
-# The command runs immediately when panic mode is triggered
-# If using system suspend, Glocker monitors for early wake and re-suspends
-# Template variables:
-#   {duration_seconds} - panic duration in seconds (minutes * 60)
-#
-# Strategy options:
-#
-# Option 1: Suspend to RAM with auto-wake (RECOMMENDED)
-#   Command: "rtcwake -m mem -s {duration_seconds}"
-#   Behavior:
-#     - Immediately suspends system
-#     - Wakes automatically after duration
-#     - If woken early (closing laptop lid), automatically re-suspends
-#   Pros: True enforcement, can't access system until time expires
-#   Cons: Requires root rtcwake access
-#
-# Option 2: Suspend to RAM without auto-wake (requires manual wake)
-#   Command: "pm-suspend"
-#   Behavior:
-#     - Immediately suspends system
-#     - Must manually wake (press power button)
-#     - If woken early, re-suspends until duration expires
-#   Pros: Simpler, no rtcwake needed
-#   Cons: Must remember to wake it later
-#
-# Option 3: Screen lock
-#   Command: "glocklock" (or your lock command)
-#   Behavior:
-#     - Locks screen immediately
-#     - Can unlock anytime (less enforcement)
-#   Pros: Can answer urgent calls/messages
-#   Cons: Easy to bypass by unlocking
-#
-# Option 4: Shutdown
-#   Command: "shutdown -h now"
-#   Behavior:
-#     - Shuts down completely
-#     - Must manually boot later
-#   Pros: Maximum enforcement
-#   Cons: Takes longer to resume work, may lose unsaved work
-panic_command: "pm-suspend"
-
-# Alternative panic commands (uncomment to use):
-# panic_command: "rtcwake -m mem -s {duration_seconds}"
-# panic_command: "glocklock"
-# panic_command: "gnome-screensaver-command -l"
-# panic_command: "shutdown -h now"
-
-# ----------------------------------------------------------------------------
-# Violation Tracking and Auto-Lock
-# ----------------------------------------------------------------------------
-# Counts violations and executes command when threshold is exceeded
-
-violation_tracking:
-  # Enable violation tracking
-  # When enabled:
-  #   - Counts each blocked site access (web_tracking)
-  #   - Counts each content/keyword match (content_monitoring)
-  #   - Executes command when max_violations reached within time window
-  # Use case: Automatic screen lock after too many blocking attempts
-  enabled: true
-
-  # Maximum violations allowed before triggering command
-  # Each blocked access or keyword match increments the counter
-  # Recommended: 3-10 violations
-  # Lower values = stricter enforcement, higher values = more forgiving
-  max_violations: 5
-
-  # Time window for counting violations (in minutes)
-  # Counter resets after this period of no violations
-  # Example: If max_violations=5 and time_window_minutes=60,
-  #          5 violations within 60 minutes triggers the command
-  # Recommended: 30-120 minutes
-  time_window_minutes: 60
-
-  # Command to execute when threshold exceeded
-  # Typically locks the screen, but can be anything
-  # The command runs with elevated privileges if Glocker is setuid root
-  #
-  # Common options:
-  #   - glocklock (timed screen lock, X11): "sudo -u username DISPLAY=:0 /usr/local/bin/glocklock"
-  #   - glocklock (timed screen lock, Wayland): "sudo -u username WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 /usr/local/bin/glocklock"
-  #   - gnome screensaver: "sudo -u username DISPLAY=:0 gnome-screensaver-command -l"
-  #   - System suspend: "pm-suspend"
-  #   - Shutdown: "shutdown -h +5" (shutdown in 5 minutes)
-  #   - Custom script: "/path/to/escalation-script.sh"
-  #
-  # glocklock picks an X11 or Wayland backend automatically from the session; it
-  # needs the matching env (DISPLAY, or WAYLAND_DISPLAY + XDG_RUNTIME_DIR).
-  # Important: If running a GUI command, you need:
-  #   - sudo -u username (run as your user, not root)
-  #   - the display env for your session (see above)
-  command: "sudo -u yourusername DISPLAY=:0 /usr/local/bin/glocklock"
-
-  # Reset violation counter daily
-  # When true, counter resets at reset_time every day
-  # When false, counter only resets after time_window_minutes of no violations
-  # Recommended: true (gives you a fresh start each day)
-  reset_daily: true
-
-  # Time to reset violations daily (HH:MM format, 24-hour)
-  # Only used if reset_daily is true
-  # Common choices:
-  #   - "00:00" = midnight (fresh start each day)
-  #   - "06:00" = 6 AM (reset when you wake up)
-  # Choose a time when you're typically not at the computer
-  reset_time: "00:00"
-
-  # Duration for glocklock screen lock (e.g., "1m", "2m", "5m", "10m")
-  # Only used if command is glocklock
-  # After this duration, screen automatically unlocks
-  # Recommended: 2-5 minutes (enough to break the compulsion)
-  # The lock is timed: it unlocks on its own when the duration elapses.
-  lock_duration: 2m
-
-  # Path to background image for glocklock (optional, X11 backend only)
-  # Only used if command is glocklock
-  # Supports PNG and JPG formats
-  # Shows a meaningful image while locked (family photo, goal reminder, etc.)
-  # Tips:
-  #   - Use a photo that reinforces your commitment
-  #   - Family photos work well (reminds you of your priorities)
-  #   - Goal visualization images (what you're working toward)
-  # Leave commented out for no background image (black screen)
-  # Example: "/home/user/Pictures/family-portrait.jpg"
-  # background: "/home/user/Pictures/reminder.jpg"
-
-# ----------------------------------------------------------------------------
-# Temporary Unblocking
-# ----------------------------------------------------------------------------
-# Controls temporary unblocking behavior via: glocker -unblock "domain:reason"
-
+# Temporary unblocking: `glocker -unblock "domain:reason"`.
 unblocking:
-  # Valid reasons for temporary unblocking
-  # User must provide one of these reasons when using -unblock
-  # Usage example: glocker -unblock "youtube.com:work research"
-  # Purpose: Enforces mindfulness - you must justify each unblock
-  # Customize this list for your situation:
-  #   - Add reasons that are legitimate for you
-  #   - Remove reasons that you might abuse
-  # Each unblock is logged to log_file for accountability
-  reasons: ["work", "research", "emergency", "education"]
-
-  # File where unblock requests are logged
-  # Each line records: timestamp, domain, reason, duration
-  # Useful for:
-  #   - Accountability partner review
-  #   - Self-reflection on your habits
-  #   - Identifying patterns of when you unblock
-  # Make sure the directory exists and is writable
+  reasons: ["work", "research", "emergency"]  # a valid reason is required on -unblock
   log_file: "/var/log/glocker-unblocks.log"
+  temp_unblock_time: 20                        # minutes a domain stays unblocked
+  max_per_day: 0                               # cap on unblocks per calendar day (0 = unlimited)
 
-  # How long domains stay unblocked after -unblock (in minutes)
-  # After this time expires, domains are automatically re-blocked
-  # Recommended: 15-30 minutes
-  # Too short: Annoying to constantly re-unblock for legitimate use
-  # Too long: Defeats the purpose, might forget to re-block
-  temp_unblock_time: 20
-
-  # Cap on how many domain unblocks are granted per calendar day (local time).
-  # 0 (or omitted) means unlimited. Once the day's grants reach this number,
-  # further -unblock requests are refused until midnight.
-  #   - A request for several domains at once counts each domain separately.
-  #   - The count is read back from log_file, so it survives a daemon restart;
-  #     leave log_file set for the cap to be tamper-resistant.
-  max_per_day: 0
-
-# ----------------------------------------------------------------------------
-# Lifecycle Logging (install / uninstall accountability)
-# ----------------------------------------------------------------------------
-# Records install and uninstall events, and gates `glocker -uninstall` behind
-# a fixed set of reasons. Forces you to declare *why* you're tearing down the
-# protection — the same accountability pattern as unblocking.
-
+# Install/uninstall accountability. `glocker -uninstall` must cite one of these
+# reasons. "maintenance" is special-cased to skip the mindful gate (for rebuilds).
 lifecycle:
-  # File where install/uninstall events are appended (JSON per line)
-  # Each entry records: timestamp, type (install/uninstall), reason, optional note
-  # Useful for:
-  #   - Accountability partner review (how often did you uninstall?)
-  #   - Catching impulsive removals during weak moments
-  # Make sure the directory exists and is writable
   log_file: "/var/log/glocker-lifecycle.log"
+  reasons: ["maintenance", "work", "entertainment"]
+  maintenance_grace_minutes: 30   # a "maintenance" uninstall not reversed within this many minutes is emailed at reinstall (0 = off)
 
-  # Valid reasons for uninstalling glocker
-  # User MUST provide one of these via: sudo glocker -uninstall "<reason>"
-  # If this list is empty, any reason is accepted (not recommended)
-  # Pick a small set that covers legitimate cases — anything else forces
-  # you to stop and edit this file before you can uninstall, which is the
-  # whole point.
-  # Common choices:
-  #   - "maintenance" — system rebuild, distro upgrade
-  #   - "hardware" — moving to a new machine
-  #   - "testing" — developer/iteration use only
-  reasons: ["maintenance", "hardware", "testing"]
-
-  # Maintenance-label loophole guard. The "maintenance" reason is hardcoded
-  # exempt from the mindful uninstall gate (so routine `make install` rebuilds
-  # aren't gated). To keep that exemption honest, a "maintenance" uninstall that
-  # isn't reversed within this many minutes is flagged by an accountability
-  # email at the NEXT install — an overstay suggests the label was used to skip
-  # the gate rather than for real maintenance. Requires accountability email to
-  # be enabled. 0 disables the check.
-  #
-  # Checked at reinstall (not while down) because the config and Mailgun creds
-  # only exist while glocker is installed.
-  maintenance_grace_minutes: 30
-
-# ----------------------------------------------------------------------------
-# Mindful Uninstall Gate (friction against impulsive removal)
-# ----------------------------------------------------------------------------
-# When enabled, `glocker -uninstall` must first pass a metronome-paced typing
-# challenge before the request reaches the daemon. A random sentence is revealed
-# one character at a time; you must type each character as it appears. A wrong
-# key, falling more than deadline_ms behind the beat, or the terminal losing
-# focus resets the challenge to a *fresh* random sentence — so it can never
-# collapse into muscle memory, and paste-from-memory is useless.
-#
-# Purpose: unlike a plain delay (which you can start and walk away from), this
-# pins you to the keyboard for the full duration, forcing presence and breaking
-# the automatic "reach for uninstall" reflex during a weak moment.
-#
-# Runs client-side in your terminal. It fails CLOSED: if enabled but the
-# challenge cannot run (no tty, terminal error), the uninstall is refused rather
-# than silently bypassed.
-
+# Mindful uninstall gate. When enabled, `glocker -uninstall` must first pass a
+# metronome-paced typing challenge: a random sentence is revealed one character
+# per second and you type each as it appears; a wrong key, falling behind, or the
+# terminal losing focus resets it. This breaks the reflex to bail out. Runs
+# client-side in your terminal; if enabled with no tty, the uninstall is refused.
 mindful_uninstall:
-  # Master switch for the gate.
   enabled: true
+  interval_ms: 1000                     # per-character reveal cadence
+  deadline_ms: 2000                     # grace after a char appears before a miss resets
+  grace_ms: 1200                        # pause before the first character
+  lines: 1                              # base sentences chained into one challenge
+  recency_hours: 24                     # look back this far for a prior uninstall
+  recency_exempt_reasons: ["maintenance"]  # reasons that don't count as a repeat
+  recent_lines: 3                       # longer challenge on a repeat within the window (0 = no escalation)
 
-  # Per-character reveal cadence, in milliseconds. Lower = faster, less friction.
-  # 1000 (one character per second) is a good default.
-  interval_ms: 1000
-
-  # How long after a character is revealed you have to type it before the
-  # challenge resets, in milliseconds. Should exceed interval_ms so you may lag
-  # a character or two but cannot wander off. Tighten toward 1200 for more bite.
-  deadline_ms: 2000
-
-  # Pause before the first character is revealed, in milliseconds, so the opening
-  # character doesn't catch you off guard.
-  grace_ms: 1200
-
-  # Base number of sentences chained into a single challenge. This is the
-  # friction "tier" for a first, non-repeat uninstall.
-  lines: 1
-
-  # Recency escalation — "once is fine, twice is hard".
-  # Before presenting the gate, glocker scans the lifecycle ledger
-  # (log_file above) for prior uninstalls. If it finds a non-exempt uninstall
-  # within recency_hours, the current one is treated as a repeat and the
-  # challenge is raised from `lines` to `recent_lines`.
-  #
-  # The current uninstall is only logged after the gate is passed, so this
-  # only ever counts *earlier* teardowns — the first uninstall of the window
-  # gets the base challenge, the next one within the window gets the harder one.
-
-  # How far back to look, in hours. 0 disables escalation (always base).
-  recency_hours: 24
-
-  # Reasons that do NOT count as a repeat (case-insensitive). Genuine, quick
-  # maintenance teardowns shouldn't make the next real uninstall harder.
-  recency_exempt_reasons: ["maintenance"]
-
-  # Sentences to chain when a repeat is detected. Should exceed `lines`.
-  # 0 means "don't escalate" (falls back to `lines`).
-  recent_lines: 3
-
-  # Optional custom sentence pool. Keep them short and ASCII. If omitted, a
-  # built-in mix of accountability and neutral lines is used.
-  # sentences:
-  #   - "I am removing my own guardrails."
-  #   - "This uninstall will be recorded."
-  #   - "I can wait until tomorrow."
-
-# ----------------------------------------------------------------------------
-# Heartbeat Watchdog (glockdoc — records when glocker is not running)
-# ----------------------------------------------------------------------------
-# `glocker -install` drops a small binary (glockdoc) and a root cron job that
-# runs it every interval_minutes. Each run pings the glocker IPC socket and
-# appends one JSON line to log_file: {"timestamp":"…","alive":true|false}.
-#
-# The whole point is to catch "uninstall and forget": glockdoc and its cron
-# job intentionally SURVIVE `glocker -uninstall`. After a teardown it keeps
-# recording "alive:false" every interval, so the gap between the last false
-# sample and the next true sample (when you reinstall) is the exact duration
-# glocker was gone — an accountability record you can't silently skip.
-#
-# Consequences to be aware of:
-#   - After a PERMANENT uninstall it logs "alive:false" forever until you
-#     remove it by hand: sudo rm /etc/cron.d/glocker-doc /usr/local/bin/glockdoc
-#     (that manual removal is itself a second, deliberate act — by design).
-#   - glockdoc reads NOTHING from this file at runtime; the installer bakes
-#     these values into the cron line as flags, because this config is deleted
-#     on uninstall exactly when the watchdog must keep working. Changing the
-#     cadence therefore requires a reinstall.
-#   - Requires a system cron daemon (present on Debian). Install warns if none
-#     is found.
-
+# Heartbeat watchdog (glockdoc): a root cron job pings the glocker socket every
+# interval_minutes and appends a liveness sample to log_file. The cron + binary
+# intentionally SURVIVE uninstall so the run of "alive:false" samples records how
+# long glocker stayed removed. Remove /etc/cron.d/glocker-doc by hand to stop it
+# after a permanent uninstall.
 heartbeat:
-  # Master switch. When false, no watchdog binary or cron job is installed.
   enabled: true
-
-  # How often the watchdog runs, in minutes (the cron cadence).
   interval_minutes: 30
-
-  # Where liveness samples are appended (one JSON line per run). Mutable runtime
-  # state, so it lives under /var, not /etc.
   log_file: "/var/log/glocker-heartbeat.jsonl"
-
-  # How long to wait for the socket ping/pong before calling it down, in seconds.
   timeout_seconds: 3
 
-# ----------------------------------------------------------------------------
-# Usage Monitor (arbtt-style desktop time tracking)
-# ----------------------------------------------------------------------------
-# Samples the currently focused window (application + title) and idle time at a
-# fixed interval, appending one JSON object per sample to log_file. The /stats
-# dashboard (http://127.0.0.1/stats, localhost only) reads this log to show how
-# your time is spent and lets you categorize it with regex rules.
-#
-# NOTE: the daemon runs as root, so to see the user's windows it usually needs
-# the X display and authority cookie of the logged-in session — set `display`
-# and `xauthority` below (mirrors how violation_tracking runs glocklock).
-
+# Usage monitor: samples the focused window + idle time to a JSONL log the
+# dashboard reads. Runs as root, so it needs the logged-in session's display and
+# X authority to see your windows (or WAYLAND_DISPLAY + XDG_RUNTIME_DIR on
+# Wayland). Adjust `display`/`xauthority` for your session (echo $DISPLAY).
 usage_monitor:
-  # Turn the tracker on/off. The dashboard at /stats works regardless, but the
-  # Usage tab only has data once this has been sampling.
   enabled: true
-
-  # JSONL sample log. Make sure the directory exists and is writable by root.
   log_file: "/var/log/glocker-usage.jsonl"
-
-  # Where the dashboard stores categorization rules + tag colours (JSON). This
-  # is mutable state written at runtime, so it lives under /var/lib, not /etc.
-  # For a starter ruleset, copy conf/usage-rules.sample.json to this path:
-  #   sudo install -Dm644 conf/usage-rules.sample.json /var/lib/glocker/usage-rules.json
   rules_file: "/var/lib/glocker/usage-rules.json"
-
-  # Seconds between samples (arbtt defaults to 60).
   interval_seconds: 60
-
-  # X display of the session to watch, e.g. ":0". Empty uses the daemon's
-  # $DISPLAY (usually unset for a systemd service, so set this explicitly).
   display: ":0"
+  xauthority: "/run/user/1000/gdm/Xauthority"   # adjust the UID/path for your login manager
 
-  # Path to the session's X authority cookie so root may connect, e.g.
-  # "/home/<user>/.Xauthority". Leave empty if root can already reach the display.
-  xauthority: ""
-
-  # Wayland only: the desktop user whose session to track. The daemon (root)
-  # derives the session bus from it (unix:path=/run/user/<uid>/bus) to reach
-  # GNOME's window bridge + idle monitor. Needed on GNOME/Wayland; ignored on X11.
-  user: ""
-  # Override the Wayland session-bus address directly (empty = derive from user).
-  dbus_address: ""
-
-# ----------------------------------------------------------------------------
-# Forbidden Programs Monitoring
-# ----------------------------------------------------------------------------
-# Monitors and kills specified programs during configured time windows
-
-forbidden_programs:
-  # Enable forbidden program monitoring
-  # When enabled:
-  #   - Monitors running processes every check_interval_seconds
-  #   - Kills programs in the list during their time windows
-  #   - Uses process name matching (partial match supported)
-  # Use cases:
-  #   - Block alternative browsers (to enforce extension monitoring)
-  #   - Block games during work hours
-  #   - Block chat apps (Discord, Slack) during focus time
+# Sudoers control — the REAL enforcement. During allow_windows sudo is permitted;
+# outside them the blocked line applies. Set `user` to your login name. Keep the
+# blocked line limited to sudo you genuinely need; do NOT leave yourself able to
+# edit /etc/hosts, /etc/sudoers, or remove glocker.
+sudoers:
   enabled: true
+  user: "yourusername"
+  allowed_sudoers_line: "yourusername ALL=(ALL) NOPASSWD:ALL"
+  blocked_sudoers_line: "yourusername ALL=(ALL) NOPASSWD: /usr/sbin/pm-suspend, /usr/bin/journalctl"
+  allow_windows:
+    - start: "10:00"
+      end: "23:30"
+      days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+    - start: "11:00"
+      end: "15:00"
+      days: ["Sat", "Sun"]
 
-  # How often to check for forbidden programs (in seconds)
-  # Lower values = faster killing but higher CPU usage
-  # Recommended: 5-10 seconds
-  # Note: Programs are killed immediately when found, not at check_interval boundaries
+# Accountability emails via Mailgun (the free tier works). The sending domain is
+# derived from from_email's domain, so use an address at your verified Mailgun
+# domain. Leave enabled:false to send nothing.
+accountability:
+  enabled: false
+  partner_email: "partner@example.com"     # who receives violation/unblock notices
+  from_email: "glocker@mg.example.com"      # an address at your Mailgun domain
+  api_key: ""                               # your Mailgun API key
+  daily_report_enabled: false
+  daily_report_time: "21:00"
+
+# Desktop notification command. {urgency} {icon} {title} {message} are filled in.
+notification_command: "notify-send -u {urgency} -i {icon} '{title}' '{message}'"
+
+# Panic mode (`glocker -panic N`): emergency offline enforcement. pm-suspend
+# suspends until you wake it; use rtcwake to auto-wake after the duration.
+panic_command: "pm-suspend"
+
+# Programs killed on sight during their windows (matched on process name). Use
+# kill_windows (killed DURING the window) or allow_windows (killed OUTSIDE it);
+# no windows means killed 24/7. Mark a program `extendible: true` to allow a
+# one-hour `glocker -extend <name> "reason"`, capped to once per rolling 24h.
+forbidden_programs:
+  enabled: true
   check_interval_seconds: 5
-
-  # List of programs to monitor and kill
-  # Each entry requires:
-  #   - name: Process name (as shown in ps/pgrep)
-  #   - kill_windows: When to kill this program (optional)
-  #
-  # Process name matching:
-  #   - Partial match supported: "chrom" matches "chrome", "chromium"
-  #   - Case-sensitive
-  #   - Use exact process name for precision
-  #
-  # Finding process names:
-  #   - Run the program
-  #   - Use: ps aux | grep program-name
-  #   - Or: pgrep -l program-name
-  #
-  # Time windows (optional):
-  #   - If specified, program is only killed during these times
-  #   - If omitted, program is killed 24/7
-  #
-  # Extendible (optional, default false):
-  #   - When true, `glocker -extend <name> "<reason>"` grants a one-hour
-  #     reprieve from the kill loop for a legitimate edge case (e.g. an
-  #     unplanned business call after hours).
-  #   - Capped at one grant per rolling 24 hours per program.
-  #   - Logged to the unblock log and emailed via accountability config.
-  #   - Survives daemon restarts (cooldown persisted to /var/lib/glocker).
-  #
-  # Adding programs at runtime:
-  #   - `glocker -block-app "steam,chromium"` appends programs here (no
-  #     windows = killed 24/7), takes effect immediately, and persists to
-  #     this file across restarts.
-  #
   programs:
-    # Example 1: Block gaming during work hours
-    - name: "steam"
+    # Killed during the listed hours
+    - name: "chrome"
       kill_windows:
-        - start: "09:00"
-          end: "17:00"
-          days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-
-    # Example 2: Block chat apps during focus time
-    - name: "discord"
-      kill_windows:
-        - start: "09:00"
-          end: "12:00"
-          days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-        - start: "14:00"
-          end: "17:00"
-          days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-
-    # Example 3: Block alternative browser (always)
-    # Chromium doesn't have extension enforcement, so block it completely
-    - name: "chromium"
-      # No kill_windows = killed 24/7
-
-    # Example 4: Block privacy browsers (always)
-    # These browsers might bypass your protections
-    - name: "tor"
-    - name: "mullvadbrowser"
-
-    # Example 5: Block games by partial name match
-    # This will match any process containing "game" in its name
-    - name: "game"
-      kill_windows:
-        - start: "09:00"
-          end: "18:00"
-          days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-
-    # Example 6: Extendible program — killed late at night, but the user
-    # can request a one-hour reprieve via `glocker -extend firefox "call"`
-    # for unplanned evening business calls. One grant per 24h.
-    - name: "firefox"
-      extendible: true
-      kill_windows:
-        - start: "22:00"
+        - start: "20:00"
           end: "05:00"
           days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-# ----------------------------------------------------------------------------
-# Domain Blocking Rules
-# ----------------------------------------------------------------------------
-# Configure which domains to block and when
+    # Extendible example
+    - name: "firefox-esr"
+      extendible: true
+      kill_windows:
+        - start: "23:00"
+          end: "05:00"
+          days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-# NEW BEHAVIOR: Domains are PERMANENTLY BLOCKED by default
-# - No time windows = always blocked, cannot be temporarily unblocked
-# - Add 'unblockable: true' to allow temporary unblocking with: glocker -unblock
-# - Add block_windows to block only during specific times
-#
-# Domains can be configured three ways:
-#
-# 1. Always blocked (permanent - default):
-#    - Just specify the name
-#    - Domain is blocked 24/7 and CANNOT be temporarily unblocked
-#    - Use for high-risk sites (adult content, gambling, etc.)
-#    Example: - {name: "reddit.com"}
-#
-# 2. Always blocked (but unblockable):
-#    - Specify name and unblockable: true
-#    - Domain is blocked 24/7 but CAN be temporarily unblocked
-#    - Use for sites you occasionally need (YouTube for work, etc.)
-#    Example: - {name: "youtube.com", unblockable: true}
-#
-# 3. Time-based blocking:
-#    - Specify name and block_windows
-#    - Blocked only during specified times/days
-#    - Multiple time windows can be specified
-#    Example:
-#      - name: "twitter.com"
-#        block_windows:
-#          - start: "09:00"
-#            end: "17:00"
-#            days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-#
-# Domain matching rules:
-#   - Exact match: "example.com" blocks example.com
-#   - Subdomain match: "example.com" also blocks *.example.com
-#   - www prefix: Automatically stripped and matched
-#     (blocking "example.com" also blocks "www.example.com")
-#
-# Time window format:
-#   - start/end: HH:MM in 24-hour format
-#   - days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-#   - Supports midnight-crossing: start: "22:00", end: "06:00"
-#     (blocks from 10 PM until 6 AM next day)
-#
-# Tips for choosing domains:
-#   - Start with your biggest distractions
-#   - Most domains should be permanent (no unblockable flag)
-#   - Only add unblockable: true for sites you legitimately need occasionally
-#   - Use time-based blocking for work distractions that are okay outside work hours
-#   - Review your browser history to find your weak points
+    # No windows → killed 24/7
+    - name: "brave"
+    - name: "some-game"
 
+# Violation tracking: after max_violations blocked-access attempts within the
+# window, run command (typically a screen lock). glocklock locks for a fixed
+# duration then auto-unlocks. A GUI command needs `sudo -u <you> DISPLAY=:0`
+# (or WAYLAND_DISPLAY + XDG_RUNTIME_DIR on Wayland).
+violation_tracking:
+  enabled: true
+  max_violations: 5
+  time_window_minutes: 60
+  command: "sudo -u yourusername DISPLAY=:0 /usr/local/bin/glocklock"
+  reset_daily: true
+  reset_time: "00:00"
+  lock_duration: 5m
+  background: "/path/to/background.jpg"   # optional lock-screen background (X11 backend)
+
+# ── Domains ──────────────────────────────────────────────────────────────────
 domains:
   # Generated blocklists live in conf.d/ (kept out of this file for size).
   # Populate them with `make full-install` or `python3 update_domains.py all`,
@@ -914,11 +261,8 @@ domains:
   - !include conf.d/domains-shadowwhisperer.yaml
 
   # -------------------------------------------------------------------------
-  # Social Media - Always Blocked (Can be Temporarily Unblocked)
+  # Always blocked, but can be temporarily unblocked (glocker -unblock)
   # -------------------------------------------------------------------------
-  # These sites are blocked 24/7 but can be unblocked with: glocker -unblock
-  # Use case: Block by default, unblock only when legitimately needed
-
   - {name: "reddit.com", unblockable: true}
   - {name: "twitter.com", unblockable: true}
   - {name: "facebook.com", unblockable: true}
@@ -926,123 +270,57 @@ domains:
   - {name: "tiktok.com", unblockable: true}
 
   # -------------------------------------------------------------------------
-  # High-Risk Sites - Always Blocked (Permanent - Cannot be Unblocked)
+  # Always blocked, permanent (cannot be unblocked) — this is the DEFAULT
   # -------------------------------------------------------------------------
-  # These sites are permanently blocked and cannot be temporarily unblocked
-  # Use case: Sites you want completely blocked (adult content, gambling, etc.)
-  # NOTE: This is the DEFAULT behavior - no extra flags needed!
-
   - {name: "pornhub.com"}
   - {name: "xvideos.com"}
   - {name: "gambling-site.com"}
-  - {name: "casino.com"}
-
-  # -------------------------------------------------------------------------
-  # Proxy and VPN Sites - Always Blocked (Permanent)
-  # -------------------------------------------------------------------------
-  # These sites help bypass filters and must be blocked permanently
-  # Add any proxy/VPN sites you discover here
-
+  # Proxy/VPN sites that would bypass the filter:
   - {name: "croxyproxy.com"}
   - {name: "proxysite.com"}
   - {name: "hide.me"}
 
   # -------------------------------------------------------------------------
-  # Time-Based Blocking - Only Blocked During Specific Hours
+  # Time-based — blocked ONLY during the listed windows
   # -------------------------------------------------------------------------
-  # Use case: Allow access outside work hours, block during focus time
-  # NOTE: When block_windows are specified, domain is ONLY blocked during those times
-
-  # YouTube - blocked during work hours
   - name: "youtube.com"
     block_windows:
-      # Weekday work hours: 9am-5pm
       - start: "09:00"
         end: "17:00"
         days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-
-      # Evening (encourage sleep): 10pm-midnight
       - start: "22:00"
         end: "23:59"
         days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-  # Hacker News - blocked during deep work hours
   - name: "news.ycombinator.com"
     block_windows:
-      # Morning focus: 9am-12pm
-      - start: "09:00"
-        end: "12:00"
-        days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-
-      # Afternoon focus: 2pm-5pm
-      - start: "14:00"
-        end: "17:00"
-        days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-
-  # Netflix - blocked before 6 PM on weekdays
-  - name: "netflix.com"
-    block_windows:
-      # Block all day until 6 PM
-      - start: "00:00"
-        end: "18:00"
-        days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-
-  # Gaming sites - blocked during work hours
-  - name: "kongregate.com"
-    block_windows:
-      - start: "09:00"
-        end: "18:00"
-        days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-
-  # -------------------------------------------------------------------------
-  # News Sites - Time-Based Blocking
-  # -------------------------------------------------------------------------
-  # Prevent news doom-scrolling during work hours
-
-  - name: "news.google.com"
-    block_windows:
-      - start: "09:00"
-        end: "17:00"
-        days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-
-  - name: "cnn.com"
-    block_windows:
       - start: "09:00"
         end: "17:00"
         days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
 
   # -------------------------------------------------------------------------
-  # Additional Domains
+  # Add your own below. Templates:
+  #   - {name: "example.com"}                     # permanent block
+  #   - {name: "example.com", unblockable: true}  # blocked, but unblockable
+  #   - name: "example.com"                       # time-based
+  #     block_windows:
+  #       - start: "09:00"
+  #         end: "17:00"
+  #         days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
   # -------------------------------------------------------------------------
-  # Add your own domains below following the examples above
-  #
-  # Template for permanent block (cannot be unblocked):
-  # - {name: "example.com"}
-  #
-  # Template for always-blocked but unblockable:
-  # - {name: "example.com", unblockable: true}
-  #
-  # Template for time-based blocking:
-  # - name: "example.com"
-  #   block_windows:
-  #     - start: "09:00"
-  #       end: "17:00"
-  #       days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
 
 # ============================================================================
-# Advanced: Automated Domain Lists
+# Blocklist generation
 # ============================================================================
-# You can use update_domains.py to automatically populate domains from
-# curated blocklists (adult content, ads, malware, proxy bypass sites).
+# The four !include lines above pull in curated blocklists (adult content, ads,
+# malware, proxy-bypass). Manage them with update_domains.py, which writes one
+# file per source into conf.d/ (it does NOT touch this file):
 #
-# Usage:
-#   ./update_domains.py              # List available sources
-#   ./update_domains.py 1            # Update from source #1
-#   ./update_domains.py all          # Update all sources
-#   ./update_domains.py strip        # Remove all automated lists
+#   ./update_domains.py              # list sources and their status
+#   ./update_domains.py all          # fetch/update every source into conf.d/
+#   ./update_domains.py 1            # update just source #1
+#   ./update_domains.py strip        # delete the generated conf.d/ files
 #
-# The script adds markers to this file and manages domains in those sections.
-# Manual domains (added above) are never touched.
-#
-# After updating domains: glocker -reload
+# `make full-install` runs `update_domains.py all` for you. After a manual
+# update: `glocker -reload`.
 # ============================================================================

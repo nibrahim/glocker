@@ -17,18 +17,31 @@ That's what Glocker tries to do.
 ## Quick Start
 
 ```bash
-# Build all binaries
-make build-all
+# Configure: copy the sample and edit it to taste
+cp conf/conf.yaml.sample conf/conf.yaml
+$EDITOR conf/conf.yaml
 
-# Install as systemd service (requires sudo)
-sudo ./glocker -install
+# Build, fetch the blocklists into conf.d/, and install as a systemd service.
+# (Needs sudo. Aborts up front if a required capability is missing — see below.)
+make full-install
 
 # Check status
 glocker -status
 
-# Uninstall
+# Uninstall (if this ever can't run, see manual-uninstall.md)
 sudo glocker -uninstall "reason for uninstalling"
 ```
+
+The big blocklists aren't stored in `conf.yaml`. `update_domains.py` (run by
+`make full-install`) fetches them from curated sources into `conf/conf.d/`, one
+file per source, and `conf.yaml` pulls them in with `!include conf.d/…` lines.
+Edit `conf.yaml` for your own settings and hand-picked domains; regenerate the
+lists any time with `python3 update_domains.py all`.
+
+Install **refuses up front** if a capability its enabled features need is missing
+— no `systemd` (it runs as a service), or no `visudo` while sudoers management is
+on. Missing `cron` (heartbeat watchdog) or immutable-flag support only warn;
+blocking still works.
 
 ## What It Does
 
@@ -71,7 +84,7 @@ open-core hosted tier — is captured in [`ROADMAP.md`](ROADMAP.md).
 ## Documentation
 
 - **[Installation & Usage Guide](docs/installation.md)** - Commands, utilities, development setup
-- **[Configuration Guide](docs/config.md)** - All YAML configuration options
+- **[Sample config](conf/conf.yaml.sample)** - Every option documented inline (the config reference)
 - **[Architecture](docs/architecture.md)** - System design, monitoring systems, technical details
 
 ## Key Features
@@ -84,7 +97,7 @@ open-core hosted tier — is captured in [`ROADMAP.md`](ROADMAP.md).
 - **DNS Cache Flushing** - Configured browsers (`kill_on_block`) are killed right after `glocker -block` applies, forcing a fresh lookup so a newly blocked domain isn't still reachable from a browser's internal DNS cache
 - **Lifecycle Logging** - Install and uninstall events are recorded with a required reason and optional note; valid reasons are gated by config
 - **Content Monitoring** - Firefox extension watches for keywords on any page
-- **Screen Locker** - Time-based or text-based mindful unlocking
+- **Screen Locker** - Timed auto-unlock, on X11 or Wayland (GNOME via the shell extension; wlroots/KDE via `ext-session-lock`)
 - **Stats Dashboard** - Web dashboard (`glockpeek`) with violations, clean streaks, usage analytics, and exposure patterns
 - **Panic Mode** - Nuclear option: suspend system and re-suspend on early wake
 
@@ -93,7 +106,7 @@ open-core hosted tier — is captured in [`ROADMAP.md`](ROADMAP.md).
 - **[glocker](cmd/glocker/)** - Main daemon and CLI (enforcement + data collection)
 - **[glockpeek](cmd/glockpeek/)** - Standalone stats web dashboard; serves on localhost (default `:4317`), reading the logs
 - **[glockdoc](cmd/glockdoc/)** - Liveness watchdog; records whether glocker is running (survives uninstall)
-- **[glocklock](cmd/glocklock/)** - X11 screen locker with time/text-based modes
+- **[glocklock](cmd/glocklock/)** - Screen locker (X11 and Wayland); locks for a fixed duration, then auto-unlocks
 
 ## Example Configuration
 
@@ -165,7 +178,7 @@ violation_tracking:
 - **Time windows specified** → Only blocked during those time windows
 - **`unblockable: true`** → Domain can be temporarily unblocked (otherwise permanent)
 
-See [sample config](conf/conf.yaml) and [configuration guide](docs/config.md) for all options.
+See the [sample config](conf/conf.yaml.sample) — every option is documented inline.
 
 ## Command Examples
 
@@ -277,7 +290,7 @@ Glocker is a **Go application** that runs as a systemd service with setuid root 
 - **Daemon:** Runs enforcement loop every 60s, manages protections
 - **CLI:** Communicates with daemon via Unix socket (`/tmp/glocker.sock`)
 - **Browser Extension:** Firefox extension in [`extensions/firefox/`](extensions/firefox/)
-- **Config:** YAML configuration in `/etc/glocker/config.yaml` ([sample](conf/conf.yaml))
+- **Config:** YAML at `/etc/glocker/config.yaml` ([sample](conf/conf.yaml.sample)), with generated blocklists in `conf.d/` pulled in via `!include`
 
 See [architecture documentation](docs/architecture.md) for detailed design.
 
@@ -298,7 +311,9 @@ glocker/
 │   ├── web/                    # HTTP server for extension
 │   └── ...
 ├── extensions/firefox/         # Browser extension
-├── conf/conf.yaml              # Sample config (~60MB)
+├── conf/conf.yaml.sample       # Sample config (lean; copy to conf.yaml)
+├── conf/conf.d/                # Generated blocklists, pulled in via !include
+├── update_domains.py           # Fetches blocklists into conf.d/
 ├── extras/glocker.service      # Systemd service (daemon)
 ├── extras/glockpeek.service    # Systemd service (dashboard)
 └── docs/                       # Documentation

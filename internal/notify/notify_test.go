@@ -91,8 +91,8 @@ func TestGenerateHTMLEmail_Escaping(t *testing.T) {
 
 func TestGenerateHTMLEmail_AlertTypes(t *testing.T) {
 	tests := []struct {
-		subject      string
-		expectedIcon string
+		subject       string
+		expectedIcon  string
 		expectedColor string
 	}{
 		{"Tamper Detected", "⚠️", "#d32f2f"},
